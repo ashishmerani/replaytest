@@ -216,7 +216,8 @@ jobs:
             echo "The expected package or module hash is missing." >&2
             exit 1
           fi
-          TARBALL="${CANDIDATES[0]}"
+          # The ./ prefix matters: npm reads a bare "release-candidate/x.tgz" as a GitHub owner/repo shorthand.
+          TARBALL="./${CANDIDATES[0]}"
           ACTUAL_TARBALL_SHA256="$(sha256sum "$TARBALL" | cut -d ' ' -f 1)"
           ACTUAL_MODULE_SHA256="$(sha256sum release-candidate/release-plan.mts | cut -d ' ' -f 1)"
           if [ "$ACTUAL_TARBALL_SHA256" != "$EXPECTED_TARBALL_SHA256" ]; then
