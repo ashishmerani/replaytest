@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "title": "Cust 6",
+  "source": {
+    "distinctId": "01a02a1a-d606-742a-a4da-af650315c017",
+    "sessionId": "01a02a1a-d60f-72e0-8847-57ee5e917847",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/customers > /customers/cust-6",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/customers",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByTestId('quick-add-customer')",
+      "url": "/customers",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Quick add customer' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quick add customer')"
+        },
+        {
+          "strategy": "placeholder",
+          "locator": "getByPlaceholder('Type a name and press Enter')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#quick-add-customer')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Quick add customer",
+      "locator": "getByTestId('quick-add-customer')",
+      "placeholder": true,
+      "url": "/customers",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Quick add customer' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quick add customer')"
+        },
+        {
+          "strategy": "placeholder",
+          "locator": "getByPlaceholder('Type a name and press Enter')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#quick-add-customer')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "press",
+      "label": "Quick add customer",
+      "locator": "getByTestId('quick-add-customer')",
+      "url": "/customers",
+      "pressKey": "Enter",
+      "synthesized": true
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/customers/cust-6",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "This flow performs writes (it creates a record by committing an inline edit — no form submit was witnessed). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production. It is NOT idempotent: every run creates another new record, and this tool has no cleanup step.",
+    "Step \"Quick add customer\" presses Enter to commit the edit. SYNTHESIZED, not witnessed: no provider tier records the committing keystroke (autocapture has no keypress event; session replay records input values, not keys). The landing that follows it in the recording is the evidence the commit happened. Verify Enter is your app's commit mechanic — a blur- or Tab-commit app looks identical in the recording.",
+    "This journey was recognized structurally (typed input, then a landing on a new route) — nobody witnessed the intent. Three shapes look identical to a create and would be wrong to keep: searching and opening an existing result; editing a field then leaving for an unrelated reason; and creating something that was deleted again later. Confirm this is really a create before committing the generated spec.",
+    "Triage cannot yet assess this plan: the regression arithmetic scores completed/submitted/abandoned outcomes only, so fresh traffic for this journey reports as insufficient evidence rather than healthy or regressed. Re-check it by hand until that arithmetic covers the navigated class."
+  ]
+}

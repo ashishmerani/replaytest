@@ -1,0 +1,10 @@
+Usage:
+  replaytest preflight <slug> [--json]
+      Check the LOCAL plan's recorded locators against the LIVE APP at TARGET_APP_URL
+      (default http://localhost:8000; warns when that fallback is used). Never calls
+      PostHog or runs the full spec: reports resolves, DEAD, gated-unreachable after a
+      recorded submit, or couldn't check when direct goto cannot reach a page.
+      Exits 1 when it finds dead selectors or verifies no selectors; otherwise each row states
+      what was checked.
+      Triage fresh traffic to learn what a dead locator became — preflight complements,
+      never replaces, triage.

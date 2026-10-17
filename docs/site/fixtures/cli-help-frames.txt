@@ -1,0 +1,4 @@
+Usage:
+  replaytest frames <slug> [--from-archive <dir>] [--session <id>] [--steps <a>-<b>] [--all] [--allow-unignored]
+      Create local per-step replay DOM and screenshots for a coding agent. Frames
+      contain real historical user content: keep them local and never commit/share them.

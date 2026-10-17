@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "title": "Customer created",
+  "source": {
+    "distinctId": "019f20bc-dd02-7751-b4e6-f40ac2aa3a9a",
+    "sessionId": "019f20bc-de22-7358-a06a-998d49de45dc",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 1,
+    "signature": "/ > /customer-new.html > /customer-created.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/index.html",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Add a customer",
+      "locator": "getByRole('link', { name: 'Add a customer' })",
+      "url": "/index.html",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/customer-new.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Email address",
+      "locator": "getByRole('textbox', { name: 'Email address' })",
+      "placeholder": true,
+      "url": "/customer-new.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Email address')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#email')"
+        }
+      ],
+      "inputType": "email",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Company",
+      "locator": "getByRole('textbox', { name: 'Company' })",
+      "placeholder": true,
+      "url": "/customer-new.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Company')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#company')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Create customer",
+      "locator": "getByRole('button', { name: 'Create customer' })",
+      "url": "/customer-new.html",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/customer-created.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Customer Created",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

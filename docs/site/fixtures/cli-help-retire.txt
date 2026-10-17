@@ -1,0 +1,17 @@
+Usage:
+  replaytest retire <slug> [--confirm-retire] [--no-evidence] [--steal-lock] [--steal-state-lock] [--recover-crashed-locks] [--allow-privacy-disclosure] [--json]
+      Review the accumulated empty-search evidence for a journey and, once the
+      evidence bar is met, archive its plan/spec/frames/default-path repro into
+      .replaytest/retired/<slug>/ with a reversal recipe. Read-only by default:
+      no flag presents the trail, the bar status, successor observations, and the
+      consent command. --confirm-retire performs the archival (bar must be met).
+      --confirm-retire --no-evidence retires below the bar on operator assertion
+      (the tool records the assertion, never adopts it). Each flag alone refuses.
+      Keep the archive folder local to preserve the record; see retirement.json to reverse.
+      An interrupted retirement resumes only with --confirm-retire. After a crash,
+      --recover-crashed-locks performs the combined recovery only when BOTH lock owners
+      are dead. Use either --recover-crashed-locks or the explicit steal flags, not both.
+      Granular form: --confirm-retire --steal-lock --steal-state-lock.
+      All shared state writers serialize through one cross-verb state lock; --steal-state-lock
+      may allow one live holder write to land over recent state. Retire still acquires
+      its retire lock first, then the shared state lock; the reverse order is forbidden.

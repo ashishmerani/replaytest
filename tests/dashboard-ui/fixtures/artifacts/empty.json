@@ -1,0 +1,5 @@
+{
+  "plans": {"plans": []},
+  "tests": {"tests": []},
+  "retired": {"kind":"ready","entries":[],"cap":{"maxRowsPerGroup":100,"omittedRows":0,"omittedRecordRows":0,"omittedOtherRows":0}}
+}

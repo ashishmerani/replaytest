@@ -1,0 +1,9 @@
+Usage:
+  replaytest fix-selector <slug> [--apply] [--dry-run] [--occurrence N] [--prefer stability|fidelity] [--from-triage-verdict] [--allow-privacy-disclosure] [--json] [--steal-state-lock]
+      Show the newest persisted triage or heal selector patch by default. --apply replaces
+      exactly one emitted occurrence; when several match, choose one with --occurrence N.
+      --from-triage-verdict tolerates a prior hand-edit: it applies the diagnosed verdict
+      even when the old locator string is gone, and reports "already applied" if the spec
+      already holds the fresh locator (never overwrites a hand-edit silently).
+      --prefer fidelity is the default; --prefer stability selects a recorded alternate
+      only when the latest fresh traffic also verified it.

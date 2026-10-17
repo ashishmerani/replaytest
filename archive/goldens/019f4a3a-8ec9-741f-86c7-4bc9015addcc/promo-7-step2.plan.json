@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "title": "Step2",
+  "source": {
+    "distinctId": "019f4a3a-8ebf-7fac-ae19-6ce7821367ee",
+    "sessionId": "019f4a3a-8ec9-741f-86c7-4bc9015addcc",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 0,
+    "signature": "/flows/promo-7 > /flows/promo-7/step1 > /flows/promo-7/step2",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/promo-7",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/promo-7",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-0-promo-7-p0-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/promo-7",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-0-promo-7-p0-f1')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Work email",
+      "locator": "getByRole('textbox', { name: 'Work email' })",
+      "placeholder": true,
+      "url": "/flows/promo-7",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Work email')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-0-promo-7-p0-f2')"
+        }
+      ],
+      "inputType": "email",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Priority",
+      "locator": "getByLabel('Priority')",
+      "url": "/flows/promo-7",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-0-promo-7-p0-f3')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Age",
+      "locator": "getByRole('spinbutton', { name: 'Age' })",
+      "placeholder": true,
+      "url": "/flows/promo-7",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Age')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-0-promo-7-p0-f4')"
+        }
+      ],
+      "inputType": "number",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Continue",
+      "locator": "getByRole('button', { name: 'Continue' })",
+      "url": "/flows/promo-7",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Continue')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Company name",
+      "locator": "getByRole('textbox', { name: 'Company name' })",
+      "placeholder": true,
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Company name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-1-promo-7-p1-f1')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Promo code",
+      "locator": "getByRole('textbox', { name: 'Promo code' })",
+      "placeholder": true,
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Promo code')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-1-promo-7-p1-promo_code')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Department",
+      "locator": "getByLabel('Department')",
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-1-promo-7-p1-f3')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Contact email",
+      "locator": "getByRole('textbox', { name: 'Contact email' })",
+      "placeholder": true,
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Contact email')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-1-promo-7-p1-f2')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Quantity",
+      "locator": "getByRole('textbox', { name: 'Quantity' })",
+      "placeholder": true,
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quantity')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-1-promo-7-p1-f4')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Promo code",
+      "locator": "getByRole('textbox', { name: 'Promo code' })",
+      "placeholder": true,
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Promo code')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-7-1-promo-7-p1-promo_code')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Apply code",
+      "locator": "getByRole('button', { name: 'Apply code' })",
+      "url": "/flows/promo-7/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Apply code')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/promo-7/step2",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production."
+  ]
+}

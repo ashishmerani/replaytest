@@ -1,0 +1,4 @@
+Usage:
+  replaytest reconcile [--apply] [--dry-run]
+      Report sidecars superseded by a newer plan batch for the same recorded session.
+      Default and --dry-run only report; --apply renames sidecars to .superseded.*.

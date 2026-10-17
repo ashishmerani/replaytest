@@ -1,0 +1,4 @@
+{
+  "_comment": "This registry records temporary, reviewed exceptions used by the dependency-audit CI check. Treat every entry as a time-limited waiver, not proof that an advisory is harmless: each entry must provide advisoryId, package, reason, decisionRef, and reviewBy, and reviewBy must be no more than 90 days from the audit run. Read the reason and decision reference, then remove or re-review the entry by its reviewBy date.",
+  "acceptedRisks": []
+}

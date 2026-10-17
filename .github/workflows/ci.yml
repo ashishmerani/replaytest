@@ -1,0 +1,129 @@
+# Workflow and job `name:` fields are written for a first-time repo visitor:
+# they say what is being checked.
+name: Tests & code quality
+
+on:
+  push:
+    branches: [main]
+    # A commit that touches only these bookkeeping files changes nothing this
+    # workflow checks, so it does not start a run. Pull requests are deliberately
+    # NOT filtered: a pull request is reviewed and checked as a whole.
+    paths-ignore:
+      - 'SYNC-LOG.md'
+      - 'CLAUDE.md'
+      - '.repo-tier'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'   # weekly drift watch: deps/actions/Node move without commits
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false   # every run stays in the run history
+
+# The weekly drift watch above is opt-in per repository, because a scheduled run
+# costs runner time everywhere it is enabled and only earns its keep where the
+# repository is the one people read. Every job below is conditioned on
+#   github.event_name != 'schedule' || vars.CI_SCHEDULED_RUNS == 'true'
+# so a repository that has not set the CI_SCHEDULED_RUNS variable to the string
+# "true" skips the scheduled run — skipped jobs consume no runner minutes, and
+# the run still appears in the history, marked skipped, so the schedule stays
+# visible rather than silently removed. Pushes, pull requests and manual
+# dispatches are unaffected: they run everything, everywhere, always. A fork
+# inherits no repository variables, so a fork never pays for the schedule either.
+
+jobs:
+  quality:
+    name: Lint + installed-dependency smoke check
+    if: github.event_name != 'schedule' || vars.CI_SCHEDULED_RUNS == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # leave no token in the checkout's git config
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Plain node (type-stripping), NOT --import tsx: tsx hard-depends on esbuild,
+      # so in the likeliest guarded failure (esbuild binding skipped) a tsx launch
+      # dies with the very stack trace this step exists to replace.
+      - run: node scripts/maintenance/binding-smoke.mts
+      - run: npm run lint
+      # knip runs locally with `npm run lint:knip`, not in CI.
+  test:
+    name: Full test suite + package check (Node ${{ matrix.node }})
+    if: github.event_name != 'schedule' || vars.CI_SCHEDULED_RUNS == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false   # both Node legs run to completion — one failing leg must not suppress the other leg's result
+      matrix:
+        node: [22, 24]   # verifies both documented Node versions
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # leave no token in the checkout's git config
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts   # explicit; independent of the shipped .npmrc
+      # Plain node (type-stripping), NOT --import tsx: tsx hard-depends on esbuild,
+      # so in the likeliest guarded failure (esbuild binding skipped) a tsx launch
+      # dies with the very stack trace this step exists to replace.
+      - run: node scripts/maintenance/binding-smoke.mts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: PACK_CONTRACT=1 CLI_HELP_SMOKE=1 DIST_SEAM=1 DIST_FRESHNESS=1 npm test
+      - run: npm run eval:check      # Keeps plans and scaffold specs byte-identical across all 78 guarded eval sessions.
+      - run: npm pack --dry-run        # NOTE: prepack does not run under ignore-scripts, so the build step above stands in for it
+      # Dependency audit lives in its own workflow (audit.yml) so a known advisory
+      # under evaluation cannot turn this workflow red and mask test signal.
+  browser:
+    name: Dashboard interface checks in a real browser
+    if: github.event_name != 'schedule' || vars.CI_SCHEDULED_RUNS == 'true'
+    runs-on: ubuntu-24.04
+    # Deliberately short. This job runs alongside the matrix legs, so its own
+    # wall time is what a reader waits for; the budget it defends is roughly five
+    # minutes of work with room for a cold browser download, not a ceiling to grow into.
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22   # the engines floor; the matrix job above covers the newer line
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Same guarded-install check as the matrix job: this job also launches tsx,
+      # so a skipped esbuild binding would otherwise surface as an opaque stack trace.
+      - run: node scripts/maintenance/binding-smoke.mts
+      # Chromium alone, and with its system libraries: playwright.config.ts declares
+      # two Chromium projects and no other engine, so the full browser set would
+      # download engines nothing in this repository drives.
+      - run: ./node_modules/.bin/playwright install --with-deps chromium
+      - run: npm run build
+      # Both suites start the dashboard server themselves in a scratch workspace —
+      # there is no application to boot beforehand and nothing external to reach.
+      - run: npm run test:dashboard-ui
+      - run: npm run gates:dashboard
+      # Failure evidence only. A green run leaves nothing worth keeping, and the
+      # suites run without tracing, so this is the small residue Playwright writes
+      # beside a test that failed.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: browser-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

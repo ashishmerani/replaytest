@@ -1,0 +1,16 @@
+Usage:
+  replaytest plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]
+      Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)
+      to .replaytest/plans/ for each plannable journey. Refuses to overwrite a
+      sidecar owned by a different or unknown journey unless --force is passed.
+      Plannable = every completed journey, plus a navigated one holding a single
+      inline-commit create (its spec presses the committing keystroke as a step
+      marked SYNTHESIZED, because no recording captures it).
+      Refuses a journey that spans origins or that witnessed no origin at all,
+      so a plan never asserts one property's URLs against another's — and
+      holds back every other plannable journey in the same session too, since
+      plan writes a session's journeys as one batch. Pass --allow-cross-origin
+      only after reviewing the other property, to release the whole run.
+      Samples up to 8 matching sessions by default for assertion evidence;
+      pass --sample 0 to disable, or --sample N (max 20) to tune it.
+      Archive mode: replaytest plan <sessionId> --from-archive <dir>

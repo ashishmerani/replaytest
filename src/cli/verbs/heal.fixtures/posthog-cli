@@ -1,0 +1,5 @@
+#!/bin/sh
+# Synthetic schema-derived empty event-table header, modeled on the probe's
+# emitted header; this is not a live provider capture. The command emits the
+# JSON string shape the real CLI returns for execute-sql.
+node -e "process.stdout.write(JSON.stringify(Buffer.from('dGltZXN0YW1wfGV2ZW50fGV2ZW50X3R5cGV8dXJsfGVsZW1lbnRzX2NoYWlufHNlc3Npb25faWR8ZGlzdGluY3RfaWR8dGl0bGV8dmlld3BvcnRfd2lkdGh8dmlld3BvcnRfaGVpZ2h0fGV4Y2VwdGlvbl90eXBlcw==', 'base64').toString('utf8')))"

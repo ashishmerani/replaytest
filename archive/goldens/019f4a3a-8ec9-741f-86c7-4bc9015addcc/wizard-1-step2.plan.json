@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "title": "Step2",
+  "source": {
+    "distinctId": "019f4a3a-8ebf-7fac-ae19-6ce7821367ee",
+    "sessionId": "019f4a3a-8ec9-741f-86c7-4bc9015addcc",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 2,
+    "signature": "/flows/wizard-1 > /flows/wizard-1/step1 > /flows/wizard-1/step2",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/wizard-1",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/wizard-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-1-0-wizard-1-p0-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Priority",
+      "locator": "getByLabel('Priority')",
+      "url": "/flows/wizard-1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-1-0-wizard-1-p0-f1')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Age",
+      "locator": "getByRole('spinbutton', { name: 'Age' })",
+      "placeholder": true,
+      "url": "/flows/wizard-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Age')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-1-0-wizard-1-p0-f2')"
+        }
+      ],
+      "inputType": "number",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Next",
+      "locator": "getByRole('button', { name: 'Next' })",
+      "url": "/flows/wizard-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Next')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Department",
+      "locator": "getByLabel('Department')",
+      "url": "/flows/wizard-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-1-1-wizard-1-p1-f1')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Contact email",
+      "locator": "getByRole('textbox', { name: 'Contact email' })",
+      "placeholder": true,
+      "url": "/flows/wizard-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Contact email')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-1-1-wizard-1-p1-f0')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Quantity",
+      "locator": "getByRole('textbox', { name: 'Quantity' })",
+      "placeholder": true,
+      "url": "/flows/wizard-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quantity')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-1-1-wizard-1-p1-f2')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Submit",
+      "locator": "getByRole('button', { name: 'Submit' })",
+      "url": "/flows/wizard-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Submit')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/wizard-1/step2",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production."
+  ]
+}

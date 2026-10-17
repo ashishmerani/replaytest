@@ -1,0 +1,62 @@
+{
+  "_comment": "Scale-corpus distribution config. Weights are relative (need not sum to 1). Skewed so a few hot flows dominate with a long tail. Cohort mix follows the `cohorts` weights below. replayOnFraction is overridden per run via --replay-on-fraction (initial run = 1.0; later ~0.15).",
+  "corpus": "s27-scale",
+  "seed": 27,
+  "workers": 4,
+  "eventsPerSession": 15,
+
+  "apps": { "vanilla": 0.4, "nextjs": 0.3, "nuxt": 0.3 },
+
+  "families": { "wizard": 0.28, "search": 0.2, "settings": 0.2, "promo": 0.16, "feedback": 0.16 },
+
+  "_variantWeights": "k=1..8, skewed: two hot variants, long tail",
+  "variantWeights": [30, 22, 14, 10, 8, 6, 6, 4],
+
+  "_cohorts": "quick-bounce / browse / complete / abandon / power-user (multi-journey)",
+  "cohorts": { "complete": 0.5, "abandon": 0.16, "browse": 0.14, "quick-bounce": 0.12, "power-user": 0.08 },
+
+  "_anchorFraction": "share of sessions that drive the existing anchor flows (keeps the pay/customer/appointment canonical journeys present at scale)",
+  "anchorFraction": 0.18,
+  "anchors": {
+    "vanilla": ["pay", "pay", "customer", "abandon"],
+    "nextjs": ["pay", "customer", "appointment", "abandon"],
+    "nuxt": ["pay", "customer", "appointment", "abandon", "browse"]
+  },
+
+  "replayOnFraction": 0.15,
+  "fastSliceFraction": 0.05,
+
+  "adversarial": { "exceptionFraction": 0.03, "abandonFraction": 0.05, "weirdIdFraction": 0.02 },
+
+  "_userPopulation": "distinct_id cardinality: ~600 single / ~90 repeat(2-4) / ~10 power(~13) per 1,000",
+  "userPopulation": {
+    "powerUserFraction": 0.01,
+    "powerUserSessions": 13,
+    "repeatUserFraction": 0.09,
+    "repeatUserSessionsMin": 2,
+    "repeatUserSessionsMax": 4
+  },
+
+  "_needles": "~5 designated rare flows, 1-3 sessions each, always completed; one carries the planted exception (the needle check)",
+  "needles": [
+    { "family": "feedback", "k": 8, "app": "nuxt", "count": 2, "withException": true },
+    { "family": "settings", "k": 7, "app": "nextjs", "count": 1 },
+    { "family": "promo", "k": 5, "app": "vanilla", "count": 2 },
+    { "family": "search", "k": 6, "app": "nextjs", "count": 1 },
+    { "family": "wizard", "k": 8, "app": "nuxt", "count": 3 }
+  ],
+
+  "_dwell": "Normal sessions dwell 150-400ms after navigating clicks; fast-slice 0-30ms deliberately produces capture loss. preCloseMs + flushMs before context close; replayFlushMs longer for rrweb-on sessions. flushMs raised 2200->5000 because context.close() fires no pagehide, so the final queued events raced the close and dropped; now matches replayFlushMs and pairs with the about:blank pre-close pagehide flush (drive-helpers.mjs preCloseFlush). Fast-slice dwells are untouched — deliberately lossy.",
+  "dwell": {
+    "minMs": 150,
+    "maxMs": 400,
+    "fastMinMs": 0,
+    "fastMaxMs": 30,
+    "preCloseMs": 300,
+    "flushMs": 5000,
+    "replayFlushMs": 5000
+  },
+
+  "_pacing": "≤4 session-starts/s; batches ≤500 with a ≥3min inter-batch gap (rate-limit courtesy; read back landed counts in the gap).",
+  "pacing": { "startsPerSecond": 4, "batchSize": 500, "batchGapMs": 180000 }
+}

@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "identity": { "host": "metrics.example.test", "projectId": "orchard-lab" },
+  "filterKey": "sessions --json|limit=all",
+  "payloadSchemaVersion": 6,
+  "payload": {
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": "",
+    "store": { "present": true },
+    "readStatus": "ok",
+    "totals": { "exactPathCount": 3, "passingPathCount": 1, "approximatePathCount": 1 },
+    "needsReview": { "count": 0 },
+    "completionCounts": { "completed": 6, "navigated": 3 },
+    "provenance": "exact",
+    "meta": null,
+    "sessions": [
+      { "rank": 1, "signature": "/orchard > /harvest > /done", "sessionCount": 11, "provenance": "exact", "status": "completed", "representativeDistinctId": "invented-grower-01", "representativeSessionId": "invented-session-01", "examplePaths": ["/orchard", "/harvest", "/done"], "lifecycle": "passing" },
+      { "rank": 2, "signature": "/orchard > /harvest", "sessionCount": 7, "provenance": "exact", "status": "submitted", "representativeDistinctId": "invented-grower-02", "representativeSessionId": "invented-session-02", "examplePaths": ["/orchard", "/harvest"], "lifecycle": "planned" },
+      { "rank": 3, "signature": "/market > /cart", "sessionCount": 4, "provenance": "exact", "status": "navigated", "representativeDistinctId": "invented-grower-03", "representativeSessionId": "invented-session-03", "examplePaths": ["/market", "/cart"] },
+      { "rank": 4, "signature": "/weather > /forecast", "sessionCount": 2, "provenance": "coarse", "status": "abandoned", "representativeDistinctId": "invented-grower-04", "representativeSessionId": "invented-session-04", "examplePaths": ["/weather", "/forecast"] }
+    ],
+    "suiteScan": { "filesScanned": 0, "state": "complete", "capped": false, "maxFiles": 500 },
+    "cache": { "servedFromCache": false, "scannedAt": "2026-09-17T12:00:00.000Z", "ttlRemainingMs": null },
+    "degraded": null
+  }
+}

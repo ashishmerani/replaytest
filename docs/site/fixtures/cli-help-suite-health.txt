@@ -1,0 +1,7 @@
+Usage:
+  replaytest suite-health [--app <name>] [--json]
+      Join local generated specs, plans, and the last heal run with a fresh shared
+      suite-status coverage scan. Shows recorded evidence only: an empty workspace or
+      absent heal run is never inferred to be green.
+      --app <name> is passed straight through to that shared coverage pass.
+      Differs from suite-status: this is per-generated-spec health; suite-status is the plan-inventory freshness reverse check.

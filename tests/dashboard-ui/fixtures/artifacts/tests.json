@@ -1,0 +1,7 @@
+{
+  "tests": [
+    {"name":"planned-checkout.spec.ts","slug":"planned-checkout","kind":"readable","planned":true,"lifecycle":"scaffolded","evidenceBasis":"local generated spec"},
+    {"name":"orphaned-invoice.spec.ts","slug":"orphaned-invoice","kind":"readable","planned":false,"lifecycle":"scaffolded","evidenceBasis":"local generated spec"},
+    {"name":"unreadable-profile.spec.ts","slug":"unreadable-profile","kind":"unusable","planned":true,"lifecycle":"executed","disclosure":"ⓘ couldn't use this plan (plan sidecar could not be read) — journeys it may cover show 'couldn't check' until it's fixed."}
+  ]
+}

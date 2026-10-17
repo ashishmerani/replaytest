@@ -1,0 +1,12 @@
+[
+  {
+    "slug": "invoice-confirmation",
+    "since": "2026-07-02",
+    "reason": "Finished after generation; a machine-write hash cannot attest to hand edits."
+  },
+  {
+    "slug": "invoices-inv-1003",
+    "since": "2026-07-02",
+    "reason": "Finished after generation; a machine-write hash cannot attest to hand edits."
+  }
+]

@@ -1,0 +1,7 @@
+Usage:
+  replaytest doctor [--since-hours N] [--json] [--steal-scan-lock]
+      Read-only provider-capability preflight: 7 independent probes report what
+      this project can feed plan/scaffold (events flowing, autocapture richness,
+      recordings, Tier-3 replay DOM) plus your local Playwright/posthog-cli
+      version fit, and what degrades if a probe is weak. Never writes to PostHog;
+      maintains a local cache under .replaytest/cache/ and exits 0 whenever PostHog is configured.

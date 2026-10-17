@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "title": "Step2",
+  "source": {
+    "distinctId": "019f4a3c-15e7-774d-9058-b3817351f6c4",
+    "sessionId": "019f4a3c-15ee-7d9e-8e9b-f55b2a2a51ef",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 0,
+    "signature": "/flows/settings-6 > /flows/search-3 > /flows/search-3/step2",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/settings-6",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Work email",
+      "locator": "getByTestId('settings-6-0-settings-6-p0-f3')",
+      "placeholder": true,
+      "url": "/flows/settings-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Work email' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Work email')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-6-0-settings-6-p0-f3')"
+        }
+      ],
+      "inputType": "email",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByTestId('settings-6-0-settings-6-p0-f1-Platinum')",
+      "url": "/flows/settings-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('radio', { name: 'Platinum' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Platinum')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByTestId('settings-6-0-settings-6-p0-f2')",
+      "placeholder": true,
+      "url": "/flows/settings-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Full name' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-6-0-settings-6-p0-f2')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByTestId('settings-6-0-settings-6-p0-name')",
+      "placeholder": true,
+      "url": "/flows/settings-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Full name' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-6-0-settings-6-p0-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Platinum",
+      "locator": "getByTestId('settings-6-0-settings-6-p0-f1-Platinum')",
+      "url": "/flows/settings-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('radio', { name: 'Platinum' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Platinum')"
+        }
+      ],
+      "inputType": "radio",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByTestId('search-3-0-search-3-query')",
+      "placeholder": true,
+      "url": "/flows/search-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Search query' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-3-0-search-3-query')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Search",
+      "locator": "getByTestId('flow-search')",
+      "url": "/flows/search-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Search' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/search-3/step2",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Unknown flow",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

@@ -1,0 +1,8 @@
+Usage:
+  replaytest accept <slug> [--force] [--confirm-different-journey] [--json] [--steal-state-lock]
+      Promote .replaytest/plans/<slug>.proposed.plan.json to the live
+      <slug>.plan.json, refresh <slug>.md from that JSON, and retire the
+      consumed proposal artifacts. Refuses an existing live plan unless --force.
+      A different journey needs --confirm-different-journey too; a same-signature
+      regenerate proposal is treated as the same journey, so --force alone promotes it.
+      Does not re-scaffold; on success prints the next command: replaytest scaffold <slug> --force.

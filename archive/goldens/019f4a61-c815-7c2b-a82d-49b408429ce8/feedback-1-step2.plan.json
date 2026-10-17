@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "title": "Step2",
+  "source": {
+    "distinctId": "019f4a61-c80e-7631-8b24-0d1a7efee059",
+    "sessionId": "019f4a61-c815-7c2b-a82d-49b408429ce8",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 1,
+    "signature": "/flows/feedback-1 > /flows/feedback-1/step1 > /flows/feedback-1/step2",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/feedback-1",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/feedback-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-0-feedback-1-p0-name')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Priority",
+      "locator": "getByLabel('Priority')",
+      "url": "/flows/feedback-1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-0-feedback-1-p0-f1')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Age",
+      "locator": "getByRole('textbox', { name: 'Age' })",
+      "placeholder": true,
+      "url": "/flows/feedback-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Age')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-0-feedback-1-p0-f2')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Submit feedback",
+      "locator": "getByRole('button', { name: 'Submit feedback' })",
+      "url": "/flows/feedback-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Submit feedback')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Contact email",
+      "locator": "getByRole('textbox', { name: 'Contact email' })",
+      "placeholder": true,
+      "url": "/flows/feedback-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Contact email')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-1-feedback-1-p1-f0')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Department",
+      "locator": "getByLabel('Department')",
+      "url": "/flows/feedback-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-1-feedback-1-p1-f1')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "feedback-1-p1-rating",
+      "locator": "locator('[id=\"__nuxt\"] > div:nth-child(1) > main:nth-child(2) > section:nth-child(1) > form:nth-child(2) > div:nth-child(4) > div:nth-child(2) > label:nth-child(1) > input:nth-child(1)')",
+      "placeholder": true,
+      "url": "/flows/feedback-1/step1",
+      "elementTag": "input",
+      "selectorConfidence": "guessed",
+      "warnings": [
+        "positional-selector-unverified"
+      ]
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "locator('[id=\"__nuxt\"] > div:nth-child(1) > main:nth-child(2) > section:nth-child(1) > form:nth-child(2) > div:nth-child(4) > div:nth-child(2) > label:nth-child(1) > input:nth-child(1)')",
+      "url": "/flows/feedback-1/step1",
+      "selectorConfidence": "guessed",
+      "warnings": [
+        "positional-selector-unverified"
+      ]
+    },
+    {
+      "action": "fill",
+      "label": "Quantity",
+      "locator": "getByRole('textbox', { name: 'Quantity' })",
+      "placeholder": true,
+      "url": "/flows/feedback-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quantity')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-1-feedback-1-p1-f2')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Comments",
+      "locator": "getByLabel('Comments')",
+      "placeholder": true,
+      "url": "/flows/feedback-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#feedback-1-1-feedback-1-p1-feedback_notes')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Submit feedback",
+      "locator": "getByRole('button', { name: 'Submit feedback' })",
+      "url": "/flows/feedback-1/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Submit feedback')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/feedback-1/step2",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production."
+  ]
+}

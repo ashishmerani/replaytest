@@ -1,0 +1,5 @@
+Usage:
+  replaytest dashboard
+      Start the local dashboard (a browser GUI over these same commands) on
+      http://127.0.0.1:4319 — override the port with PORT. Reads/writes the repo
+      you run it from, same as every other command.

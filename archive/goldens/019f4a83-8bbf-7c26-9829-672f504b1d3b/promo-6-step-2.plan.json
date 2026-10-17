@@ -1,0 +1,257 @@
+{
+  "version": 1,
+  "title": "2",
+  "source": {
+    "distinctId": "019f4a83-8bb9-72e1-8f27-879a5e9b7902",
+    "sessionId": "019f4a83-8bbf-7c26-9829-672f504b1d3b",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/flows/promo-3 > /flows/promo-6 > /flows/promo-6/step/:id",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/promo-3",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Your name",
+      "locator": "getByTestId('promo-3-s1-field-0')",
+      "placeholder": true,
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Your name' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Your name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-3-s1-f0')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByTestId('promo-3-s1-field-2')",
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('checkbox', { name: 'Enable option 3' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 3')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-3-s1-f2')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Enable option 3",
+      "locator": "getByTestId('promo-3-s1-field-2')",
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('checkbox', { name: 'Enable option 3' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 3')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-3-s1-f2')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Promo code",
+      "locator": "getByTestId('promo-3-s1-field-1')",
+      "placeholder": true,
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Promo code' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Promo code')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-3-s1-f1')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Phone number 4",
+      "locator": "getByTestId('promo-3-s1-field-3')",
+      "placeholder": true,
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Phone number 4' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Phone number 4')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-3-s1-f3')"
+        }
+      ],
+      "inputType": "tel",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Promo code",
+      "locator": "getByTestId('promo-3-s1-field-1')",
+      "placeholder": true,
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Promo code' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Promo code')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#promo-3-s1-f1')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Apply code",
+      "locator": "getByTestId('promo-3-s1-submit')",
+      "url": "/flows/promo-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Apply code' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "name",
+      "locator": "locator('#promo-6-s1-f0')",
+      "placeholder": true,
+      "url": "/flows/promo-6",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "promo-6-s1-email-4",
+      "locator": "locator('#promo-6-s1-f3')",
+      "placeholder": true,
+      "url": "/flows/promo-6",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "promo_code",
+      "locator": "locator('#promo-6-s1-f1')",
+      "placeholder": true,
+      "url": "/flows/promo-6",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "promo-6-s1-text-3",
+      "locator": "locator('#promo-6-s1-f2')",
+      "placeholder": true,
+      "url": "/flows/promo-6",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "promo_code",
+      "locator": "locator('#promo-6-s1-f1')",
+      "placeholder": true,
+      "url": "/flows/promo-6",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Apply code",
+      "locator": "getByTestId('promo-6-s1-submit')",
+      "url": "/flows/promo-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Apply code' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/promo-6/step/2",
+      "pattern": "^(?:[^/]+:\\/\\/[^/]+)?\\/flows\\/promo-6\\/step\\/[^\\/]+$",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

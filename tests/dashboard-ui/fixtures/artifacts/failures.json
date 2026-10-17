@@ -1,0 +1,7 @@
+{
+  "plans": {"plans":[],"disclosure":"ⓘ couldn't read the plans directory (permission denied) — plan coverage can't be checked until it is readable."},
+  "tests": {"tests":[],"disclosure":"ⓘ couldn't read the generated-tests directory (permission denied) — test coverage can't be checked until it is readable."},
+  "testDetailList": {"tests":[{"name":"planned-checkout.spec.ts","slug":"planned-checkout","kind":"readable","planned":true}]},
+  "retired": {"kind":"unavailable","reason":"permission denied"},
+  "testDetail": {"error":"Not found"}
+}

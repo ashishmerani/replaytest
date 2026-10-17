@@ -1,0 +1,22 @@
+{
+  "runStartedAt": "2026-07-22T12:00:00.000Z",
+  "observedSpecs": [
+    { "file": "generated/alpha.spec.ts" },
+    { "file": "generated/beta.spec.ts" }
+  ],
+  "runScope": {
+    "kind": "full-generated-suite",
+    "generatedSpecFiles": [
+      "tests/generated/alpha.spec.ts",
+      "tests/generated/beta.spec.ts"
+    ],
+    "missingGeneratedSpecFiles": []
+  },
+  "suiteFingerprint": {
+    "files": [
+      { "file": "tests/generated/alpha.spec.ts", "contentHash": "8d39ca8583735137267bf46bf197e586b7250bdb1a2efaf15f18f2e21ac02292" },
+      { "file": "tests/generated/beta.spec.ts", "contentHash": "da6001daf9f800ca3fee2feb3c7d80d4c5d9cc1489f80e33b6af2ce6ad5dd0f5" }
+    ],
+    "digest": "1f06343df936c97a2089eed20bd6ca12dfecbd589c9bb6c84b19108fb1477177"
+  }
+}

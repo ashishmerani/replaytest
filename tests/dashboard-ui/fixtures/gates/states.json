@@ -1,0 +1,11 @@
+{
+  "E1": { "store": "absent", "configured": true },
+  "E2": { "store": "absent", "configured": false },
+  "E3": { "store": "present", "readStatus": "ok", "sessionsSeen": 0 },
+  "E3b": { "store": "present", "readStatus": "ok", "sessionsSeen": 0, "excludedByScope": 6 },
+  "E4": { "store": "a", "filters": { "status": ["submitted"], "expectRows": 0 } },
+  "E5": { "store": "a", "coverage": "none" },
+  "E6": { "store": "a", "inventoryDisclosure": "Some of the stored data could not be read, so this list is incomplete. This is not a statement that nothing was recorded." },
+  "E7": { "store": "present", "readStatus": "failed", "detail": "captured fixture failure" },
+  "E8": { "store": "a", "readStatus": "degraded", "degraded": "timeout" }
+}

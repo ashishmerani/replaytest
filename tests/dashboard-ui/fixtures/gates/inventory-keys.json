@@ -1,0 +1,1349 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "key": "I-A1",
+      "text": "/orchard → /harvest → /done",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A2",
+      "text": "1",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A3",
+      "text": "11",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A4",
+      "text": "Completed",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A5",
+      "text": "Unknown",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A6",
+      "text": "Mixed",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A7",
+      "text": "6 completed · at least 3 navigated",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A8",
+      "text": "Passing",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A9",
+      "text": "Planned",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A10",
+      "text": "Tested",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A11",
+      "text": "built under older signature rules",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A12",
+      "text": "Reconcile local plan history with",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A13",
+      "text": "Couldn't read this test file",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A14",
+      "text": "Maybe in your suite",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A15",
+      "text": "⚠ Needs a look",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A16",
+      "text": "unreviewed",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A17",
+      "text": "estimated",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A18",
+      "text": "How far people got",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A19",
+      "text": "different longer flows",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A20",
+      "text": "paths",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A21",
+      "text": "paths",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-A22",
+      "text": "paths Passing",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B1",
+      "text": "Journey families",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B2",
+      "text": "Last 30 days",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B3",
+      "text": "type a custom number of hours",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B4",
+      "text": "Completed",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B5",
+      "text": "Navigated",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B6",
+      "text": "Submitted",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B7",
+      "text": "Focus on gaps",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B8",
+      "text": "Needs you",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B9",
+      "text": "Unreviewed",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B10",
+      "text": "Check for new sessions",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B11",
+      "text": "Rebuild from scratch",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B12",
+      "text": "Never",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B13",
+      "text": "Max rows",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B14",
+      "text": "Rows per page",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B15",
+      "text": "Pages",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B16",
+      "text": "Sort",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B17",
+      "text": "paths",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-B18",
+      "text": "Show all",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "a"
+    },
+    {
+      "key": "I-C1",
+      "text": "Every journey your real users actually took",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C2",
+      "text": "This page shows sessions already stored on your machine",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C3",
+      "text": "Reads only sessions newer than your stored history",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C4",
+      "text": "This clears the sessions stored on this machine and re-reads every session from PostHog",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C5",
+      "text": "Checks for new sessions on this schedule while this tab is open",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C6",
+      "text": "Since this scan",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C7",
+      "text": "Show only journeys that reached a known end",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C8",
+      "text": "Show only journeys where someone typed something and then landed on a new page, with no form submit seen",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C9",
+      "text": "Show only journeys where a form was submitted",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C10",
+      "text": "How far back to scan for sessions",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C11",
+      "text": "Hides single journeys whose test is already passing",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C12",
+      "text": "A rage click or a thrown error the recording caught",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C13",
+      "text": "Marking a journey reviewed is remembered on this machine",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C14",
+      "text": "Max number of ranked journeys to show",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C15",
+      "text": "Similar paths through the same flow are grouped",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C16",
+      "text": "Wizards that track progress in the URL",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C17",
+      "text": "Check for new sessions updates this list with the latest sessions",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C18",
+      "text": "How far the user's journey got — not whether you have a test for it",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C19",
+      "text": "Frequency rank. 1 = the journey",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C20",
+      "text": "How many recorded user sessions followed this exact journey",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C21",
+      "text": "The pages (routes) this journey visited, in order. Short path trims the list: a start shared by every journey shows once in this header, a long middle folds into +N steps, and the last page always shows. Hover a journey to see its full path; Details always shows it. A page that is not a sub-page of the one before it starts with /, so it reads as a full path rather than as part of the page before.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C22",
+      "text": "Planned: a plan exists. Scaffolded: the test file exists.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C23",
+      "text": "Whether a reviewable test plan has been generated",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C24",
+      "text": "Whether a runnable Playwright test has been scaffolded",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C25",
+      "text": "Best-effort match against your existing test suite",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C26",
+      "text": "Generate plan contacts PostHog to fetch this completed session",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C27",
+      "text": "Opens the representative session: one real example",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C28",
+      "text": "This plan was built under older signature rules",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C29",
+      "text": "Reconcile local plan history with",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C30",
+      "text": "Couldn't read this test file",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C31",
+      "text": "Journey families group paths that are segments",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C32",
+      "text": "Distinct sessions that visited ANY of this journey",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C33",
+      "text": "Path counts show how many individual exact paths",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C34",
+      "text": "different longer flows",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C35",
+      "text": "Progress measured by form submissions",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C36",
+      "text": "did not all end the same way",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C37",
+      "text": "Assessability at this row's fidelity",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C38",
+      "text": "Reviewed locally. This survives re-scans",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C39",
+      "text": "Incomplete coarse history",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C40",
+      "text": "Scoped to",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C41",
+      "text": "were built before your journey-matching rules changed",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C42",
+      "text": "day(s) old — Check for new sessions",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C43",
+      "text": "net change rather than new",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C44",
+      "text": "6 completed · at least 3 navigated",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C45",
+      "text": "Focus on gaps only hides EXACT rows",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C46",
+      "text": "There is too much traffic to rank at once, so the scan timed out.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C47",
+      "text": "No response from the server",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C48",
+      "text": "Some stored data could not be read",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-C49",
+      "text": "No sessions yet.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a",
+      "note": "review"
+    },
+    {
+      "key": "I-D1",
+      "text": "Check for new sessions",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D2",
+      "text": "Rebuild from scratch",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D3",
+      "text": "Generate plan",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D4",
+      "text": "Plan this journey",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D5",
+      "text": "Watch replay",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D6",
+      "text": "Open plan",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D7",
+      "text": "Mark reviewed",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D8",
+      "text": "worth a look",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D9",
+      "text": "Plan this session",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D10",
+      "text": "1 more",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D11",
+      "text": "Show re-run commands",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D12",
+      "text": "Flat",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D13",
+      "text": "Range",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D14",
+      "text": "Sort",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D15",
+      "text": "Pages",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D16",
+      "text": "Expand",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D17",
+      "text": "Show all",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D18",
+      "text": "Auto-check schedule",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-D19",
+      "text": "Max rows",
+      "surface": "drawer",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "I-E1",
+      "text": "Stored on this machine · as of",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E1"
+    },
+    {
+      "key": "I-E2",
+      "text": "day(s) old — Check for new sessions",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E2"
+    },
+    {
+      "key": "I-E3",
+      "text": "Compares the lifecycle and compatibility badges",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E3"
+    },
+    {
+      "key": "I-E4",
+      "text": "session total went",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E4"
+    },
+    {
+      "key": "I-E5",
+      "text": "were built before your journey-matching rules changed",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E5"
+    },
+    {
+      "key": "I-E6",
+      "text": "≈ approximate — counts are close, not exact",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E6"
+    },
+    {
+      "key": "I-E7",
+      "text": "Capped sample: scanned",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E7"
+    },
+    {
+      "key": "I-E8",
+      "text": "Incomplete coarse history",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E9",
+      "text": "malformed session row(s) were skipped",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E10",
+      "text": "Suite scan incomplete",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E11",
+      "text": "belonged to other apps and",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E12",
+      "text": "No sessions yet.",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E13",
+      "text": "No journeys match these filters.",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E14",
+      "text": "Some stored data could not be read",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E15",
+      "text": "There is too much traffic to rank at once, so the scan timed out.",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E16",
+      "text": "No response from the server",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E17",
+      "text": "Focus on gaps only hides EXACT rows",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E18",
+      "text": "Change the reviewed cut, or turn Signals off",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "I-E19",
+      "text": "Nothing left to focus on",
+      "surface": "on screen",
+      "clicks": 0,
+      "fixture": "E8"
+    },
+    {
+      "key": "V-C1",
+      "text": "\"Every journey your real users actually took, ranked by how often they take it. This is your starting point: pick a journey that matters, generate its plan, and turn real usage into a test. Journeys never disappear from this list once you've built for them — their lifecycle stays visible from Planned through Passing, with the evidence behind each state. Status describes what the user did; Planned / Tested remain compatibility badges for the local artifacts; ≈ Suite is a best-effort guess that one of your existing hand-written tests may already cover it — a guess, not a guarantee.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C2",
+      "text": "\"This page shows sessions already stored on your machine. It contacts PostHog when you ask for new data — Check for new sessions, Rebuild from scratch, any plan button, a Suite Health check — and on its own to check that replays are still available, when an auto-check schedule you set runs, and when the stored data does not cover what you are viewing.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C3",
+      "text": "\"Contacts PostHog. Reads only sessions newer than your stored history — your stored data is kept and extended. Typically fast.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C4",
+      "text": "\"Contacts PostHog. Clears your locally stored scan history for this project and re-reads everything from PostHog. Slowest option — use when you suspect the stored data is wrong.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C5",
+      "text": "\"Checks for new sessions on this schedule while this tab is open. Nothing runs when the tab is closed. Your choice is saved on this machine.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C6",
+      "text": "\"Since this scan: [N] journeys planned, [N] plans removed.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C7",
+      "text": "\"Show only journeys that reached a known end.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C8",
+      "text": "\"Show only journeys where someone typed something and then landed on a new page, with no form submit seen. A journey that creates one record can be planned; one that creates several in a row cannot yet.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C9",
+      "text": "\"Show only journeys where a form was submitted but the outcome wasn't confirmed.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C10",
+      "text": "\"How far back to scan for sessions. Pick a preset, or type a custom number of hours.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C11",
+      "text": "\"Hides single journeys whose test is already passing. Journey families and estimated journeys always stay visible.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C12",
+      "text": "\"A rage click or a thrown error the recording caught. We never guess a bug from how far someone got.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C13",
+      "text": "\"Marking a journey reviewed is remembered on this machine. If the way we recognise this journey changes, the mark clears.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C14",
+      "text": "\"Max number of ranked journeys to show. In Journey families view, a journey family counts as one top-level row; an expanded family draws its first 25 paths and offers a Show-all that draws the rest.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C15",
+      "text": "\"Similar paths through the same flow are grouped into journey families.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C16",
+      "text": "\"Wizards that track progress in the URL (like ?step=2) now appear as a journey family — one row per step reached — instead of a single row with a depth chart. Same data, clearer view of where people stop. Wizards that keep one URL still show the 'How far people got' depth panel.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C17",
+      "text": "\"Check for new sessions updates this list with the latest sessions.\" / \"Contacts PostHog. In Journey families view, Check for new sessions runs the normal tail refresh; it does not exact-refresh top rows.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C18",
+      "text": "\"How far the user's journey got — not whether you have a test for it. Completed: a submit, then a different page. Navigated: typing, then a different page, with no submit seen.\" The full four-column ladder above remains available through Full ladder.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C19",
+      "text": "\"Frequency rank. 1 = the journey your users take most often.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C20",
+      "text": "\"How many recorded user sessions followed this exact journey.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C21",
+      "text": "\"The ordered list of pages (routes) this journey visited.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C22",
+      "text": "\"Planned: a plan exists. Scaffolded: the test file exists. Executed: we saw it run. Passing: its last run passed and still matches the file.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C23",
+      "text": "\"Whether a reviewable test plan has been generated for this journey yet. Click the ✓ to open it in Plans.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C24",
+      "text": "\"Whether a runnable Playwright test has been scaffolded for this journey yet. Click the ✓ to open it in Tests.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C25",
+      "text": "\"Best-effort match against your existing test suite — heuristic: a spec that visits this journey's entry (first page) and asserts its final URL (last page). NOT a guarantee — a miss can just mean the heuristic couldn't confirm it, not that no test exists. Only shown when replaytest itself hasn't Planned/Tested this journey yet (that exact match always wins).\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C26",
+      "text": "\"Generate plan contacts PostHog to fetch this completed session's full recording, then writes a local reviewable plan.\" / \"Fetches this session's full recording from PostHog to generate a reviewable plan. This action contacts PostHog.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C27",
+      "text": "\"Opens the representative session: one real example of this journey, not all of them. The recording may have expired in PostHog, so its replay player may be empty or missing.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C28",
+      "text": "\"This plan was built before your journey-matching rules changed, so its coverage may read wrong.\" The re-run command is labelled and paired with a Copy button.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C29",
+      "text": "\"[server-supplied, dynamic note about when the newer plan superseded this one].\" The reconciliation command is labelled and paired with a Copy button. (The note text itself is generated per-case; meaning unclear from source beyond \"explains the supersession.\")",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C30",
+      "text": "\"We could not read this test file ([reason]), so its coverage is unknown.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C31",
+      "text": "\"Journey families group paths that are segments of one longer recorded route (structural, not goal-based). Plans and tests stay per exact path.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C32",
+      "text": "\"Counts every session that visited any path in this family. A session is counted once.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C33",
+      "text": "\"These counts are per path. The family itself is never called Passing.\" For an older saved scan: \"This older scan cannot work out the session share. Check for new sessions to recompute it.\" When shown, the shares are the distinct sessions reached by those planned or tested paths, divided by all distinct sessions in the family. A session that visited more than one path is counted once, so session shares use unions, not sums. Open the journey family to review each path.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C34",
+      "text": "\"This path appears inside [N] different longer flows, so it stays on its own rather than being guessed into one.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C35",
+      "text": "\"Progress measured by form submissions.\" / \"Progress measured by fields filled in.\" — plus: \"Measured across [N] sessions. The furthest we saw anyone get was step [N] — there may be more steps we never saw. An unlabelled or unchanged field can make this read low.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C36",
+      "text": "\"The sessions grouped here did not all end the same way: [breakdown, e.g. 3 navigated · 1 submitted]. The badge shows the strongest single session, which is also the one 'Watch replay' opens.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C37",
+      "text": "Per-session evidence lines, e.g.: \"[N] rage clicks on \\\"[target]\\\"\" / \"[N] rage clicks somewhere in this session, not tied to this journey. Watch the replay first.\" / \"[N] [TypeErrors] during this journey. We do not store the message.\" Plus: \"What we checked here: rage clicks (count only) and thrown errors. Console errors are not checked on this page.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C38",
+      "text": "\"Marked reviewed on this machine. The mark clears if the way we recognise this journey changes.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C39",
+      "text": "\"Incomplete coarse history — counts/ranks may be WRONG.\" / \"Capped sample: scanned [N] of [M] — partial sample (first N by scan order), counts/ranks may be WRONG.\" / \"⚠ Approximate scan of [N] sessions — counts are close, not exact. Ranks and status come from a session-level summary; run 'plan <distinctId>' for the exact per-journey analysis.\" / \"[N] malformed session row(s) were skipped during the scan — counts may be under-reported.\" / \"Suite scan incomplete: [N] spec file(s) could not be read or exceeded the byte budget, so suite matches may be missing.\" / \"Suite scan capped: the directory walk stopped at [N] directories — the ≈ Suite coverage join may be incomplete for specs in unvisited directories.\" / \"Suite scan capped: only the first [N] spec files in your tests/ tree were scanned ([M] read) — the ≈ Suite coverage join may be incomplete for the rest of your test suite.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C40",
+      "text": "\"Scoped to [app]: [site list].\" / \"[N] session(s) carried no page URLs and can't be attributed to an app.\" / \"[N] session(s) belonged to other apps and [was/were] excluded by your scope.\" / \"This scan includes traffic from [N] sites: [site list] — declare your app in .replaytest/config.json or use replaytest sessions --app <name> to scope them.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C41",
+      "text": "\"[N] plans were built before your journey-matching rules changed. Re-run them.\" / \"The plan is still there, but its coverage may now read wrong. Re-run it to record the current journey-matching rules.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C42",
+      "text": "\"Data is [N] day(s) old — Check for new sessions.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C43",
+      "text": "\"Last [N]h session total went [before] → [after] (net [+/-N]).\" / \"Compares the coarse scan's total session counts at the start of two rolling [N]-hour windows. Because that window moved, this is a net change — not a count of newly appended sessions.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C44",
+      "text": "\"[N] completed · at least [M] navigated\" plus, behind its info: \"Counted from the sessions this scan read, which can be part of the window.\" and the unchanged minimum-count caveat (see ladder appendix).",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C45",
+      "text": "\"Focus on gaps only hides EXACT rows whose lifecycle is Passing — this is a coarse approximate scan, so it's mostly a no-op here (any exact-refreshed top rows are still eligible; the rest stay visible because their coverage status isn't exact yet).\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C46",
+      "text": "\"There is too much traffic to rank at once, so the scan timed out. Choose a shorter time range above, or run one of these:\" The bounded and exact commands each have a label and Copy button.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C47",
+      "text": "Renders whatever raw failure text (`stdout`/`stderr`/`error`/`message`) the underlying read produced, or \"No response from the server.\" if there was none.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C48",
+      "text": "\"Some stored data could not be read, so this list is incomplete. It does not mean nothing was recorded.\" / \"No stored [sessions/journey families or paths] matches these filters. Clear a filter above to widen the list — what is stored has not changed.\" / \"No sessions yet. Check for new sessions reads your first ones.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C49",
+      "text": "Family Status tile detail: \"Paths in this family reached different ends.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C50",
+      "text": "Coarse/estimated Status tile detail: \"Estimated from the quick summary scan — run an exact scan to get a status.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C51",
+      "text": "Family Coverage tile detail with no passing path: \"No path has a passing test yet.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "V-C52",
+      "text": "Family Coverage tile detail with passing paths: \"[passing] of [total] [path/paths] [has/have] a passing test.\"",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "L-1",
+      "text": "Completed · A form submit followed by a navigation to a distinct witnessed URL. · A submit step is followed later by a navigation. · The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized. · A submit can still be an application-side failure; this records the witnessed route change, not backend validation.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "L-2",
+      "text": "Navigated · Typed input followed by a landing on a new route; no form submit was witnessed. · No submit step exists; at least one input step exists. · The last landing is new by exact URL and canonical path, and input occurred away from that landing. · Trailing interactions are trimmed to retain the landing witness. · Search-then-open: typed a query and opened an existing result. · Typed-then-bailed-elsewhere: changed a field, then navigated away for another reason. · Created-then-deleted: later delete activity is trimmed after the landing.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "L-3",
+      "text": "Submitted · A form submit, without a distinct post-submit landing. · At least one submit step exists. · The completed submit-then-navigation rule did not hold. · The submit may have succeeded in place or its landing may have been missing from the recording.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "L-4",
+      "text": "Abandoned · No form submit was seen, and we didn't see typing followed by arriving on a new page. · No completed, navigated, or submitted rule matched. · A missing captured event can make an otherwise successful flow appear abandoned.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "L-5",
+      "text": "The quick scan reads summary numbers only — it never opens the full recording, so it can't spot Navigated journeys. Quick-scan counts may show fewer Navigated (and more Abandoned) than a full scan finds.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    },
+    {
+      "key": "L-6",
+      "text": "Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.",
+      "surface": "header ⓘ",
+      "clicks": 1,
+      "fixture": "a"
+    }
+  ]
+}

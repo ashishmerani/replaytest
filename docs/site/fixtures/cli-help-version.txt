@@ -1,0 +1,3 @@
+Usage:
+  replaytest version | --version | -v
+      Print the installed replaytest package version.

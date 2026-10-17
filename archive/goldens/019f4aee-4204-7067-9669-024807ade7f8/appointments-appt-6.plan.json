@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "title": "Appt 6",
+  "source": {
+    "distinctId": "019f4aee-41fc-7826-9fa7-050d375bf868",
+    "sessionId": "019f4aee-4204-7067-9669-024807ade7f8",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/appointments > /appointments/new > /appointments/appt-6",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/appointments",
+  "steps": [
+    {
+      "action": "click",
+      "label": "New Appointment",
+      "locator": "getByTestId('new-appointment-link')",
+      "url": "/appointments",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('link', { name: 'New Appointment' })"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "customerId",
+      "locator": "locator('#appt-customer')",
+      "url": "/appointments/new",
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "time",
+      "locator": "locator('#appt-time')",
+      "url": "/appointments/new",
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "title",
+      "locator": "locator('#appt-title')",
+      "placeholder": true,
+      "url": "/appointments/new",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "notes",
+      "locator": "locator('#appt-notes')",
+      "placeholder": true,
+      "url": "/appointments/new",
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Create appointment",
+      "locator": "getByTestId('create-appointment')",
+      "url": "/appointments/new",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Create appointment' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/appointments/appt-6",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

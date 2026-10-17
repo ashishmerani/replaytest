@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "title": "Wizard 1 step3",
+  "source": {
+    "distinctId": "019f4a5e-b1b7-7e75-9a3b-84e1c4595380",
+    "sessionId": "019f4a5e-b1bf-7e61-af60-eb8c8df86ad6",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 0,
+    "signature": "/flows/wizard-1-step1.html > /flows/wizard-1-step2.html > /flows/wizard-1-step3.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/wizard-1-step1.html",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Start",
+      "locator": "getByRole('link', { name: 'Start' })",
+      "url": "/flows/wizard-1-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Start')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Category",
+      "locator": "getByLabel('Category')",
+      "url": "/flows/wizard-1-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
+        }
+      ],
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/wizard-1-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Quantity",
+      "locator": "getByRole('spinbutton', { name: 'Quantity' })",
+      "placeholder": true,
+      "url": "/flows/wizard-1-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quantity')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-2')"
+        }
+      ],
+      "inputType": "number",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Finish",
+      "locator": "getByRole('button', { name: 'Finish' })",
+      "url": "/flows/wizard-1-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Finish')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/wizard-1-step3.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Wizard 1 — Complete",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

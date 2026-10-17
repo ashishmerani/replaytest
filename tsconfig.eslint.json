@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.mts",
+    "scripts/**/*.mjs",
+    "tests/**/*.ts",
+    "playwright.config.ts"
+  ]
+}

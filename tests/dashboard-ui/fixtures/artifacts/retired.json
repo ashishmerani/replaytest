@@ -1,0 +1,12 @@
+{
+  "kind": "ready",
+  "entries": [
+    {"kind":"record","archiveId":"checkout-archive","archiveDir":".replaytest/retired/checkout-archive","recordPath":".replaytest/retired/checkout-archive/retirement.json","slug":"checkout","retiredAt":"2026-09-20T12:00:00.000Z","evidenceBasis":"empty-search-trail","evidenceClause":"evidence basis: empty-search-trail","artifactManifest":[{"from":".replaytest/plans/checkout.plan.json","to":"plans/checkout.plan.json"},{"from":"tests/generated/checkout.spec.ts","to":"tests/checkout.spec.ts"}],"priorRecordCount":1,"priorRecords":[{"archiveId":"checkout-archive-previous","retiredAt":"2026-09-18T12:00:00.000Z"}]},
+    {"kind":"record","archiveId":"empty-archive","archiveDir":".replaytest/retired/empty-archive","recordPath":".replaytest/retired/empty-archive/retirement.json","slug":"empty","retiredAt":"2026-09-19T12:00:00.000Z","evidenceBasis":"operator-asserted","evidenceClause":"evidence basis: operator-asserted (evidence bar not met at retirement)","artifactManifest":[],"priorRecordCount":0,"priorRecords":[]},
+    {"kind":"unusable","archiveId":"unusable-archive","archiveDir":".replaytest/retired/unusable-archive","readError":{"kind":"unusable","reason":"retirement.json could not be parsed"},"priorRecordCount":0,"priorRecords":[]},
+    {"kind":"in-progress","archiveId":"in-progress-archive","archiveDir":".replaytest/retired/in-progress-archive","slug":"in-progress","journalPath":".replaytest/retired/in-progress-archive/journal.json","retiredAt":"2026-09-18T12:00:00.000Z","evidenceBasis":"empty-search-trail","recoveryCommand":"replaytest retire in-progress --recover","priorRecordCount":0,"priorRecords":[]},
+    {"kind":"journal-unreadable","archiveId":"journal-archive","archiveDir":".replaytest/retired/journal-archive","journalPath":".replaytest/retired/journal-archive/journal.json","reason":"journal could not be read","priorRecordCount":0,"priorRecords":[]},
+    {"kind":"disclosure","archiveId":"disclosure-archive","archiveDir":".replaytest/retired/disclosure-archive","reason":"archive enumeration was bounded"}
+  ],
+  "cap": {"maxRowsPerGroup":100,"omittedRows":0,"omittedRecordRows":0,"omittedOtherRows":0}
+}

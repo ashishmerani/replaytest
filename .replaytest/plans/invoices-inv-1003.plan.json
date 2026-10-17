@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "title": "Inv 1003",
+  "source": {
+    "distinctId": "019f6bb7-a88f-7405-90b4-bbbce35a0f8f",
+    "sessionId": "019f6bb7-a896-731a-af47-1d276ece963e",
+    "journeyIndex": 0,
+    "signature": "/ > /invoices > /invoices/:id > /invoices/:id/pay > /invoices/:id",
+    "signatureSemanticsVersion": 1,
+    "wizardStepParamNames": [
+      "step"
+    ],
+    "generatedAt": "2026-07-16T16:43:51.951Z",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Invoices",
+      "locator": "getByRole('link', { name: 'Invoices' })"
+    },
+    {
+      "action": "click",
+      "label": "View",
+      "locator": "getByTestId('view-invoice-inv-1003')"
+    },
+    {
+      "action": "click",
+      "label": "Pay invoice",
+      "locator": "getByTestId('pay-invoice-link')"
+    },
+    {
+      "action": "fill",
+      "label": "cardName",
+      "locator": "locator('#card-name')",
+      "placeholder": true,
+      "elementTag": "input"
+    },
+    {
+      "action": "fill",
+      "label": "cardExpiry",
+      "locator": "locator('#card-expiry')",
+      "placeholder": true,
+      "elementTag": "input"
+    },
+    {
+      "action": "fill",
+      "label": "billingEmail",
+      "locator": "locator('input').nth(0)",
+      "placeholder": true,
+      "elementTag": "input"
+    },
+    {
+      "action": "click",
+      "label": "Pay",
+      "locator": "getByTestId('pay-invoice')",
+      "isSubmit": true
+    },
+    {
+      "action": "click",
+      "label": "Confirm payment",
+      "locator": "getByTestId('confirm-payment')"
+    },
+    {
+      "action": "click",
+      "label": "Back to invoice",
+      "locator": "getByRole('button', { name: 'Back to invoice' })"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/invoices/inv-1003",
+      "pattern": "^(?:[^/]+:\\/\\/[^/]+)?\\/invoices\\/[^\\/]+$",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive required fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "Final-URL pattern confirmed across 5 sampled sessions.",
+    "Final page text confirmed across 5 sampled sessions.",
+    "Aggregated across 5 sampled sessions of this journey (5 candidates found; 0 fetch-failures/non-matches)."
+  ],
+  "performsWrites": true
+}

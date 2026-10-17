@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "title": "Cust 6",
+  "source": {
+    "distinctId": "019f4ad1-6132-785f-be8f-766ed01fef64",
+    "sessionId": "019f4ad1-6138-71be-9a2f-a9cc365c5db6",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/customers > /customers/new > /customers/cust-6",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/customers",
+  "steps": [
+    {
+      "action": "click",
+      "label": "New Customer",
+      "locator": "getByTestId('new-customer-link')",
+      "url": "/customers",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('link', { name: 'New Customer' })"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "name",
+      "locator": "locator('#customer-name')",
+      "placeholder": true,
+      "url": "/customers/new",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "email",
+      "locator": "locator('#customer-email')",
+      "placeholder": true,
+      "url": "/customers/new",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "phone",
+      "locator": "locator('#customer-phone')",
+      "placeholder": true,
+      "url": "/customers/new",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "address",
+      "locator": "locator('#customer-address')",
+      "placeholder": true,
+      "url": "/customers/new",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Create Customer",
+      "locator": "getByTestId('create-customer')",
+      "url": "/customers/new",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Create Customer' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Confirm",
+      "locator": "getByTestId('confirm-create-customer')",
+      "url": "/customers/new",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Confirm' })"
+        }
+      ],
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/customers/cust-6",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

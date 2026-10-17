@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "title": "Step1",
+  "source": {
+    "distinctId": "019f4a3c-15e7-774d-9058-b3817351f6c4",
+    "sessionId": "019f4a3c-15ee-7d9e-8e9b-f55b2a2a51ef",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 1,
+    "signature": "/flows > /flows/search-3/step2 > /flows > /flows/search-3/step2 > /flows/search-1 > /flows/search-1/step1",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Back to flows",
+      "locator": "getByRole('link', { name: 'Back to flows' })",
+      "url": "/flows/search-3/step2",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByRole('textbox', { name: 'Search query' })",
+      "placeholder": true,
+      "url": "/flows/search-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-1-0-search-1-query')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Continue",
+      "locator": "getByRole('button', { name: 'Continue' })",
+      "url": "/flows/search-1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Continue')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/search-1/step1",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "missingNavigationHops": [
+    "/flows/search-3/step2",
+    "/flows/search-3/step2",
+    "/flows/search-1"
+  ],
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "3 page transitions had no witnessed trigger interaction (/flows/search-3/step2, /flows/search-3/step2, /flows/search-1) — the recording saw the navigation but not the click/input that caused it (autocapture can drop a click when the page unloads quickly). This flow cannot reproduce that hop on its own — add the real navigation step (the control's click, or a direct goto) before relying on it."
+  ]
+}

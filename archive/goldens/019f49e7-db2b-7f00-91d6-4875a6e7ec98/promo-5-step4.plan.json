@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "title": "Promo 5 step4",
+  "source": {
+    "distinctId": "019f49e7-db25-7281-b954-c4e98b4dc003",
+    "sessionId": "019f49e7-db2b-7f00-91d6-4875a6e7ec98",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 0,
+    "signature": "/flows/promo-5-step1.html > /flows/promo-5-step2.html > /flows/promo-5-step3.html > /flows/promo-5-step4.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/promo-5-step1.html",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Start",
+      "locator": "getByRole('link', { name: 'Start' })",
+      "url": "/flows/promo-5-step1.html",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Your name",
+      "locator": "getByRole('textbox', { name: 'Your name' })",
+      "placeholder": true,
+      "url": "/flows/promo-5-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Your name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Phone number",
+      "locator": "getByRole('textbox', { name: 'Phone number' })",
+      "placeholder": true,
+      "url": "/flows/promo-5-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Phone number')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
+        }
+      ],
+      "inputType": "tel",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('radio', { name: 'Mail' })",
+      "url": "/flows/promo-5-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Mail')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Mail",
+      "locator": "getByRole('radio', { name: 'Mail' })",
+      "url": "/flows/promo-5-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Mail')"
+        }
+      ],
+      "inputType": "radio",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Apply code",
+      "locator": "getByRole('button', { name: 'Apply code' })",
+      "url": "/flows/promo-5-step2.html",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Promo code",
+      "locator": "getByRole('textbox', { name: 'Promo code' })",
+      "placeholder": true,
+      "url": "/flows/promo-5-step3.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Promo code')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-code')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Phone number",
+      "locator": "getByRole('textbox', { name: 'Phone number' })",
+      "placeholder": true,
+      "url": "/flows/promo-5-step3.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Phone number')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
+        }
+      ],
+      "inputType": "tel",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('radio', { name: 'Mail' })",
+      "url": "/flows/promo-5-step3.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Mail')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Mail",
+      "locator": "getByRole('radio', { name: 'Mail' })",
+      "url": "/flows/promo-5-step3.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Mail')"
+        }
+      ],
+      "inputType": "radio",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Promo code",
+      "locator": "getByRole('textbox', { name: 'Promo code' })",
+      "placeholder": true,
+      "url": "/flows/promo-5-step3.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Promo code')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-code')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Apply code",
+      "locator": "getByRole('button', { name: 'Apply code' })",
+      "url": "/flows/promo-5-step3.html",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/promo-5-step4.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Promo 5 — Complete",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

@@ -1,0 +1,5 @@
+Usage:
+  replaytest diff <slug> [--json]
+      Re-render the proposed plan sidecar against the current live plan without changing either file.
+      --json emits the same structured change object the propose/regenerate envelopes carry,
+      so a coding agent reads the delta without parsing the rendered Markdown.

@@ -1,0 +1,8 @@
+Usage:
+  replaytest gaps [--app <name>] [--shape <name>]... [--refresh-sample] [--sample-size N] [--json] [--fresh] [--stored] [--exact] [--since-hours N] [--limit N] [--all] [--steal-scan-lock]
+      Read the core traffic-signal link map. It ranks only rows with no known link in
+      this inventory; possible existing-suite matches and unavailable evidence stay in separate lanes.
+      --refresh-sample precomputes newest-session observations (default 50; max 1000) without changing the core map. With --app it checks newest project sessions first, up to the fixed 250-candidate ceiling and the sample time budget, then reports the actual checked count.
+      --exact is slower — it reads every session's events and bypasses the automatic coarse-scan switch. A forced --exact first states its whole-project session count (not a guessed duration). At the structural page ceiling it returns the exact rows read so far and names the covered sessions, pages, and window.
+      Coarse scans print an expected-case history estimate before work, report completed UTC days of history, name an up-to-date cache, and label every result with its scan mode.
+      --stored recomputes the map offline from the sealed coarse-store slices a prior live scan persisted — never contacts PostHog. It refuses (does not fall back to a live scan) when no stored scan covers this workspace, and loudly labels a partially-sealed snapshot. Cannot combine with --exact, --fresh, or --refresh-sample.

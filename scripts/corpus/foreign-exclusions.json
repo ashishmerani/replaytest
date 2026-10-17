@@ -1,0 +1,9 @@
+{
+  "_comment": "Quarantine: recordings from foreign apps (apps this repo does not author, sharing one PostHog project) never enter the shipped archive/ — matching rows are excluded from enumeration, inventory, and archiving, and belong under archive-foreign/ instead. Foreign apps discriminate by recording start_url origin; self-authored apps are served from other ports. The prefix list must name EVERY origin spelling a drive could produce (localhost vs 127.0.0.1, http vs https) — the guard is only as complete as this list, and an empty list validly disables it. CAUTION: port 3000 is the default for Next and Nuxt dev servers; a future self-authored app must not be served on an origin listed here (this repo's own apps use :8000/:3001/:3002 via explicit flags).",
+  "startUrlPrefixes": [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://localhost:3000",
+    "https://127.0.0.1:3000"
+  ]
+}

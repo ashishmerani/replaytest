@@ -1,0 +1,10 @@
+{
+  "steps": [
+    {
+      "locator": "getByTestId('recorded-control')"
+    }
+  ],
+  "caveats": [
+    "This prose mention of getByTestId('unwitnessed-control') is not recorded selector evidence."
+  ]
+}

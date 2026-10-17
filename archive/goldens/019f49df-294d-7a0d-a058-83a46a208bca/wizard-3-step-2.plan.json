@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "title": "2",
+  "source": {
+    "distinctId": "019f49df-2945-7145-bd19-9ec4d6c03e29",
+    "sessionId": "019f49df-294d-7a0d-a058-83a46a208bca",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/flows/wizard-3 > /flows/wizard-3/step/:id",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/wizard-3",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Your name",
+      "locator": "getByTestId('wizard-3-s1-field-0')",
+      "placeholder": true,
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Your name' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Your name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-3-s1-f0')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByTestId('wizard-3-s1-field-2')",
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('checkbox', { name: 'Enable option 3' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 3')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-3-s1-f2')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Enable option 3",
+      "locator": "getByTestId('wizard-3-s1-field-2')",
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('checkbox', { name: 'Enable option 3' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 3')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-3-s1-f2')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Additional notes 2",
+      "locator": "getByTestId('wizard-3-s1-field-1')",
+      "placeholder": true,
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Additional notes 2')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-3-s1-f1')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('radio', { name: 'Choice C' })",
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Choice C')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('[id=\"wizard-3-s1-radio-5-Choice B\"]')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Choice C",
+      "locator": "getByRole('radio', { name: 'Choice C' })",
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Choice C')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('[id=\"wizard-3-s1-radio-5-Choice B\"]')"
+        }
+      ],
+      "inputType": "radio",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Finish",
+      "locator": "getByTestId('wizard-3-s1-submit')",
+      "url": "/flows/wizard-3",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Finish' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/wizard-3/step/2",
+      "pattern": "^(?:[^/]+:\\/\\/[^/]+)?\\/flows\\/wizard-3\\/step\\/[^\\/]+$",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

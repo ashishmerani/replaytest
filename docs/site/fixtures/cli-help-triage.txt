@@ -1,0 +1,9 @@
+Usage:
+  replaytest triage <slug> [--sample N] [--since-hours N] [--app <name>] [--propose] [--force] [--json] [--steal-state-lock] [--steal-scan-lock] [--reuse-evidence [--max-age <duration>]]
+      Explain why a generated test may now be failing by checking fresh traffic for
+      the sidecar signature. Never changes your journey definition; healthy live checks
+      record only their own evidence trail in the plan sidecar (disclosed on the first write).
+      Proposals go only to .replaytest/plans/<slug>.proposed.plan.json + <slug>.proposed.md.
+      --app <name> confines the evidence to one app declared in .replaytest/config.json,
+      so a verdict is never derived from another site's traffic; sessions set aside are
+      disclosed, never silently dropped.

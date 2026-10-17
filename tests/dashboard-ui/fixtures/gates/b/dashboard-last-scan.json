@@ -1,0 +1,156 @@
+{
+  "version": 2,
+  "identity": {
+    "host": "metrics.example.test",
+    "projectId": "orchard-lab"
+  },
+  "filterKey": "sessions --json|limit=all",
+  "payloadSchemaVersion": 6,
+  "payload": {
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": "",
+    "store": {
+      "present": true
+    },
+    "readStatus": "ok",
+    "totals": {
+      "exactPathCount": 5,
+      "passingPathCount": 3,
+      "approximatePathCount": 2
+    },
+    "needsReview": {
+      "count": 2
+    },
+    "completionCounts": {
+      "completed": 12,
+      "navigated": 7
+    },
+    "provenance": "coarse",
+    "meta": null,
+    "sessions": [
+      {
+        "rank": 1,
+        "signature": "/orchard > /harvest > /done",
+        "sessionCount": 19,
+        "provenance": "exact",
+        "status": "completed",
+        "representativeDistinctId": "invented-grower-eleven",
+        "representativeSessionId": "invented-session-eleven",
+        "examplePaths": ["/orchard", "/harvest", "/done"],
+        "lifecycle": "passing"
+      },
+      {
+        "rank": 2,
+        "signature": "/basket > /checkout",
+        "sessionCount": 17,
+        "provenance": "exact",
+        "status": "submitted",
+        "representativeDistinctId": "invented-grower-twelve",
+        "representativeSessionId": "invented-session-twelve",
+        "examplePaths": ["/basket", "/checkout"],
+        "lifecycle": "planned"
+      },
+      {
+        "rank": 3,
+        "signature": "/market > /cart",
+        "sessionCount": 14,
+        "provenance": "exact",
+        "status": "navigated",
+        "representativeDistinctId": "invented-grower-thirteen",
+        "representativeSessionId": "invented-session-thirteen",
+        "examplePaths": ["/market", "/cart"],
+        "lifecycle": "scaffolded"
+      },
+      {
+        "rank": 4,
+        "signature": "/seedlings > /potting",
+        "sessionCount": 13,
+        "provenance": "exact",
+        "status": "abandoned",
+        "representativeDistinctId": "invented-grower-fourteen",
+        "representativeSessionId": "invented-session-fourteen",
+        "examplePaths": ["/seedlings", "/potting"],
+        "lifecycle": "executed"
+      },
+      {
+        "rank": 5,
+        "signature": "/greenhouse > /watering",
+        "sessionCount": 9,
+        "provenance": "exact",
+        "status": "completed",
+        "statusMix": true,
+        "representativeDistinctId": "invented-grower-fifteen",
+        "representativeSessionId": "invented-session-fifteen",
+        "examplePaths": ["/greenhouse", "/watering"],
+        "lifecycle": "passing"
+      },
+      {
+        "rank": 6,
+        "signature": "/pantry > /preserves",
+        "sessionCount": 8,
+        "provenance": "exact",
+        "status": "completed",
+        "suiteMatch": true,
+        "planned": false,
+        "tested": false,
+        "representativeDistinctId": "invented-grower-sixteen",
+        "representativeSessionId": "invented-session-sixteen",
+        "examplePaths": ["/pantry", "/preserves"]
+      },
+      {
+        "rank": 7,
+        "signature": "/weather > /forecast",
+        "sessionCount": 6,
+        "provenance": "exact",
+        "status": "navigated",
+        "representativeDistinctId": "invented-grower-seventeen",
+        "representativeSessionId": "invented-session-seventeen",
+        "examplePaths": ["/weather", "/forecast"]
+      },
+      {
+        "rank": 8,
+        "signature": "/library > /holds",
+        "sessionCount": 5,
+        "provenance": "coarse",
+        "status": "abandoned",
+        "representativeDistinctId": "invented-grower-eighteen",
+        "representativeSessionId": "invented-session-eighteen",
+        "examplePaths": ["/library", "/holds"]
+      },
+      {
+        "rank": 9,
+        "signature": "/notes > /saved",
+        "sessionCount": 3,
+        "provenance": "exact",
+        "status": "completed",
+        "representativeDistinctId": "invented-grower-nineteen",
+        "representativeSessionId": "invented-session-nineteen",
+        "examplePaths": ["/notes", "/saved"],
+        "lifecycle": "passing",
+        "bugSignals": {
+          "affectedSessionCount": 4,
+          "members": [
+            {
+              "sessionId": "invented-session-nineteen",
+              "distinctId": "invented-grower-nineteen",
+              "rageClicks": { "count": 4 }
+            }
+          ]
+        }
+      }
+    ],
+    "suiteScan": {
+      "filesScanned": 0,
+      "state": "complete",
+      "capped": false,
+      "maxFiles": 500
+    },
+    "cache": {
+      "servedFromCache": false,
+      "scannedAt": "2026-09-17T12:00:00.000Z",
+      "ttlRemainingMs": null
+    },
+    "degraded": null
+  }
+}

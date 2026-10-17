@@ -1,0 +1,5 @@
+Usage:
+  replaytest init [--project <id>] [--token <key>] [--host <host>]
+      Configure PostHog access (writes the repo-root .env), and ensure .env plus
+      .replaytest/ are gitignored: create a minimal .gitignore or append missing entries.
+      --host defaults to us.posthog.com; set it for EU Cloud (eu.posthog.com) or a self-hosted domain.

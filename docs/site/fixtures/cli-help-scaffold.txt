@@ -1,0 +1,5 @@
+Usage:
+  replaytest scaffold <slug> [--force] [--out <path>] [--steal-state-lock]
+      Generate tests/generated/<slug>.spec.ts (and re-render <slug>.md) from an
+      already-written sidecar. Refuses to overwrite an existing spec: pass --force
+      to overwrite it, or --out <path> to write a new file you diff yourself.

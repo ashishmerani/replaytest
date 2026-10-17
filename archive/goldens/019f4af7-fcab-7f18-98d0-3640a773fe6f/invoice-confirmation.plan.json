@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "title": "Invoice confirmation",
+  "source": {
+    "distinctId": "019f4af7-fca4-7eff-803c-199691b5e469",
+    "sessionId": "019f4af7-fcab-7f18-98d0-3640a773fe6f",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 0,
+    "signature": "/ > /invoice.html > /invoice-pay.html > /invoice-confirmation.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Pay an invoice",
+      "locator": "getByRole('link', { name: 'Pay an invoice' })",
+      "url": "/",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Pay this invoice",
+      "locator": "getByTestId('pay-invoice')",
+      "url": "/invoice.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('link', { name: 'Pay this invoice' })"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Name on card",
+      "locator": "getByRole('textbox', { name: 'Name on card' })",
+      "placeholder": true,
+      "url": "/invoice-pay.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Name on card')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Billing email (for your receipt)",
+      "locator": "getByRole('textbox', { name: 'Billing email (for your receipt)' })",
+      "placeholder": true,
+      "url": "/invoice-pay.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Billing email (for your receipt)')"
+        },
+        {
+          "strategy": "placeholder",
+          "locator": "getByPlaceholder('you@example.com')"
+        }
+      ],
+      "inputType": "email",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Submit payment",
+      "locator": "getByTestId('submit-payment')",
+      "url": "/invoice-pay.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Submit payment' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident",
+      "maskedFieldCount": 1,
+      "maskedFieldStubs": [
+        {
+          "locator": "getByLabel('Card number')",
+          "locatorKind": "label",
+          "labelInferredFromAdjacentText": true
+        }
+      ],
+      "maskedFieldLabel": "Card number"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/invoice-confirmation.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Payment Successful",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "surfaced": [
+    {
+      "kind": "exception",
+      "detail": "1 exception during this journey (TypeError)"
+    }
+  ],
+  "caveats": [
+    "Field structure summary: 2 fields with structure captured (Name on card, Billing email (for your receipt)). 1 field masked in the recording and not captured (Card number).",
+    "The recording masked the field \"Card number\" — if it is required, this submit needs a test value for it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ],
+  "maskedFields": [
+    {
+      "route": "http://localhost:8000/invoice-pay.html",
+      "label": "Card number",
+      "selectorHint": "input:nth-of-type(2)",
+      "formKey": "id:pay-form",
+      "labelInferredFromAdjacentText": true
+    }
+  ]
+}

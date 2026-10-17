@@ -1,0 +1,8 @@
+Usage:
+  replaytest regenerate <slug> [--since-hours N] [--app <name>] [--allow-cross-origin] [--json] [--steal-scan-lock]
+      Re-source a stale plan from fresh traffic into the existing proposal slot. It tries
+      the same journey first, then a disclosed successor flow; review diff and apply the
+      spec delta yourself — replaytest never merges a generated spec. Refuses candidates
+      from another origin, spanning origins, or lacking a witnessed origin unless --allow-cross-origin is reviewed.
+      When it finds no candidate, its empty live search records only an evidence trail in the plan
+      sidecar (disclosed on the first write), never your journey definition.

@@ -1,0 +1,528 @@
+{
+  "capturedShape": "deriveDashboardGapMap response member",
+  "count-a": {
+    "sessions": 55,
+    "gapMap": {
+      "dataWindow": {
+        "provenance": "exact",
+        "scanUntil": "2026-09-20T12:00:00.000Z",
+        "degraded": false,
+        "summary": "Includes user traffic up to 2026-09-20T12:00:00.000Z (from the last completed scan)."
+      },
+      "suiteInventory": {
+        "state": "complete",
+        "filesScanned": 3,
+        "eligibleFiles": 3,
+        "heuristicScope": "How we find your own tests: we scan Playwright files for literal page addresses (page.goto / toHaveURL). Tests that build URLs dynamically won't be found.",
+        "summary": "We checked your existing tests (3 files scanned)."
+      },
+      "sections": [
+        {
+          "shape": "form-submit-signal",
+          "noKnownLink": [
+            {
+              "signature": "/checkout > /review > /done",
+              "sessionCount": 29,
+              "sessionCountLabel": "29 user sessions did this",
+              "fidelity": "exact",
+              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+              "action": {
+                "kind": "review-and-plan",
+                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              },
+              "routeLinkState": "no-known-link",
+              "linkState": "no-known-link"
+            },
+            {
+              "signature": "/search > /results",
+              "sessionCount": 17,
+              "sessionCountLabel": "17 user sessions did this",
+              "fidelity": "coarse-likely",
+              "evidence": "These users submitted a form at some point in their visit — we couldn't tell whether it was on this exact page.",
+              "action": {
+                "kind": "analyze-representative-exactly",
+                "label": "Run a detailed scan of one of these sessions first — we need direct evidence before generating a plan.",
+                "command": "replaytest plan fixture-user-2 --session fixture-session-2",
+                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              },
+              "routeLinkState": "no-known-link",
+              "linkState": "no-known-link"
+            }
+          ],
+          "knownLinks": [],
+          "needsReview": [],
+          "superseded": [
+            {
+              "signature": "/billing > /save",
+              "sessionCount": 9,
+              "sessionCountLabel": "9 user sessions did this",
+              "fidelity": "exact",
+              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+              "planSlug": "old-billing",
+              "action": {
+                "kind": "reconcile-link",
+                "label": "This plan was replaced by a newer one — review the newer plan.",
+                "command": "replaytest reconcile old-billing",
+                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              },
+              "routeLinkState": "linked-plan-superseded",
+              "linkState": "linked-plan-superseded"
+            }
+          ],
+          "possibleSuiteMatches": [],
+          "notAssessed": []
+        },
+        {
+          "shape": "deep-wizard",
+          "noKnownLink": [],
+          "knownLinks": [],
+          "needsReview": [],
+          "superseded": [],
+          "possibleSuiteMatches": [],
+          "notAssessed": [
+            {
+              "signature": "/checkout > /review > /done",
+              "sessionCount": 29,
+              "sessionCountLabel": "29 user sessions did this",
+              "fidelity": "not-assessed",
+              "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+              "reason": "This exact row has no single-URL journey-depth evidence.",
+              "action": {
+                "kind": "resolve-unavailable-evidence",
+                "label": "Fix the missing evidence first (see the note on this row).",
+                "command": "replaytest gaps --shape deep-wizard --since-hours 720"
+              },
+              "routeLinkState": "no-known-link",
+              "linkState": "not-assessed"
+            }
+          ]
+        },
+        {
+          "shape": "rage-clicks",
+          "noKnownLink": [],
+          "knownLinks": [],
+          "needsReview": [],
+          "superseded": [],
+          "possibleSuiteMatches": [],
+          "notAssessed": [],
+          "emptyReason": "We checked every ranked row — none matched this pattern."
+        }
+      ],
+      "routeRows": [
+        {
+          "signature": "/checkout > /review > /done",
+          "sessionCount": 29,
+          "rank": 1,
+          "coverage": "noKnownLink",
+          "confidence": "exact",
+          "row": {
+            "signature": "/checkout > /review > /done",
+            "sessionCount": 29,
+            "sessionCountLabel": "29 user sessions did this",
+            "fidelity": "exact",
+            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+            "action": {
+              "kind": "review-and-plan",
+              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+              "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+            },
+            "routeLinkState": "no-known-link"
+          },
+          "kinds": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "noKnownLink",
+              "assessed": true,
+              "row": {
+                "signature": "/checkout > /review > /done",
+                "sessionCount": 29,
+                "sessionCountLabel": "29 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "action": {
+                  "kind": "review-and-plan",
+                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                },
+                "routeLinkState": "no-known-link",
+                "linkState": "no-known-link"
+              }
+            }
+          ],
+          "records": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "noKnownLink",
+              "assessed": true,
+              "row": {
+                "signature": "/checkout > /review > /done",
+                "sessionCount": 29,
+                "sessionCountLabel": "29 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "action": {
+                  "kind": "review-and-plan",
+                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                },
+                "routeLinkState": "no-known-link",
+                "linkState": "no-known-link"
+              }
+            },
+            {
+              "shape": "deep-wizard",
+              "coverage": "notAssessed",
+              "assessed": false,
+              "row": {
+                "signature": "/checkout > /review > /done",
+                "sessionCount": 29,
+                "sessionCountLabel": "29 user sessions did this",
+                "fidelity": "not-assessed",
+                "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+                "reason": "This exact row has no single-URL journey-depth evidence.",
+                "action": {
+                  "kind": "resolve-unavailable-evidence",
+                  "label": "Fix the missing evidence first (see the note on this row).",
+                  "command": "replaytest gaps --shape deep-wizard --since-hours 720"
+                },
+                "routeLinkState": "no-known-link",
+                "linkState": "not-assessed"
+              }
+            }
+          ]
+        },
+        {
+          "signature": "/search > /results",
+          "sessionCount": 17,
+          "rank": 2,
+          "coverage": "noKnownLink",
+          "confidence": "coarse-likely",
+          "row": {
+            "signature": "/search > /results",
+            "sessionCount": 17,
+            "sessionCountLabel": "17 user sessions did this",
+            "fidelity": "coarse-likely",
+            "evidence": "These users submitted a form at some point in their visit — we couldn't tell whether it was on this exact page.",
+            "action": {
+              "kind": "analyze-representative-exactly",
+              "label": "Run a detailed scan of one of these sessions first — we need direct evidence before generating a plan.",
+              "command": "replaytest plan fixture-user-2 --session fixture-session-2",
+              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+            },
+            "routeLinkState": "no-known-link"
+          },
+          "kinds": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "noKnownLink",
+              "assessed": true,
+              "row": {
+                "signature": "/search > /results",
+                "sessionCount": 17,
+                "sessionCountLabel": "17 user sessions did this",
+                "fidelity": "coarse-likely",
+                "evidence": "These users submitted a form at some point in their visit — we couldn't tell whether it was on this exact page.",
+                "action": {
+                  "kind": "analyze-representative-exactly",
+                  "label": "Run a detailed scan of one of these sessions first — we need direct evidence before generating a plan.",
+                  "command": "replaytest plan fixture-user-2 --session fixture-session-2",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                },
+                "routeLinkState": "no-known-link",
+                "linkState": "no-known-link"
+              }
+            }
+          ],
+          "records": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "noKnownLink",
+              "assessed": true,
+              "row": {
+                "signature": "/search > /results",
+                "sessionCount": 17,
+                "sessionCountLabel": "17 user sessions did this",
+                "fidelity": "coarse-likely",
+                "evidence": "These users submitted a form at some point in their visit — we couldn't tell whether it was on this exact page.",
+                "action": {
+                  "kind": "analyze-representative-exactly",
+                  "label": "Run a detailed scan of one of these sessions first — we need direct evidence before generating a plan.",
+                  "command": "replaytest plan fixture-user-2 --session fixture-session-2",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                },
+                "routeLinkState": "no-known-link",
+                "linkState": "no-known-link"
+              }
+            }
+          ]
+        },
+        {
+          "signature": "/billing > /save",
+          "sessionCount": 9,
+          "rank": 3,
+          "coverage": "superseded",
+          "confidence": "exact",
+          "row": {
+            "signature": "/billing > /save",
+            "sessionCount": 9,
+            "sessionCountLabel": "9 user sessions did this",
+            "fidelity": "exact",
+            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+            "planSlug": "old-billing",
+            "action": {
+              "kind": "reconcile-link",
+              "label": "This plan was replaced by a newer one — review the newer plan.",
+              "command": "replaytest reconcile old-billing",
+              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+            },
+            "routeLinkState": "linked-plan-superseded"
+          },
+          "kinds": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "superseded",
+              "assessed": true,
+              "row": {
+                "signature": "/billing > /save",
+                "sessionCount": 9,
+                "sessionCountLabel": "9 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "planSlug": "old-billing",
+                "action": {
+                  "kind": "reconcile-link",
+                  "label": "This plan was replaced by a newer one — review the newer plan.",
+                  "command": "replaytest reconcile old-billing",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                },
+                "routeLinkState": "linked-plan-superseded",
+                "linkState": "linked-plan-superseded"
+              }
+            }
+          ],
+          "records": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "superseded",
+              "assessed": true,
+              "row": {
+                "signature": "/billing > /save",
+                "sessionCount": 9,
+                "sessionCountLabel": "9 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "planSlug": "old-billing",
+                "action": {
+                  "kind": "reconcile-link",
+                  "label": "This plan was replaced by a newer one — review the newer plan.",
+                  "command": "replaytest reconcile old-billing",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                },
+                "routeLinkState": "linked-plan-superseded",
+                "linkState": "linked-plan-superseded"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "count-b": {
+    "sessions": 38,
+    "gapMap": {
+      "dataWindow": {
+        "provenance": "exact",
+        "scanUntil": "2026-09-20T12:00:00.000Z",
+        "degraded": false,
+        "summary": "Includes user traffic up to 2026-09-20T12:00:00.000Z (from the last completed scan)."
+      },
+      "suiteInventory": {
+        "state": "complete",
+        "filesScanned": 3,
+        "eligibleFiles": 3,
+        "heuristicScope": "How we find your own tests: we scan Playwright files for literal page addresses (page.goto / toHaveURL). Tests that build URLs dynamically won't be found.",
+        "summary": "We checked your existing tests (3 files scanned)."
+      },
+      "sections": [
+        {
+          "shape": "form-submit-signal",
+          "noKnownLink": [],
+          "knownLinks": [],
+          "needsReview": [],
+          "superseded": [],
+          "possibleSuiteMatches": [],
+          "notAssessed": []
+        }
+      ],
+      "routeRows": [
+        {
+          "signature": "/checkout > /review > /done",
+          "sessionCount": 29,
+          "rank": 1,
+          "coverage": "noKnownLink",
+          "confidence": "exact",
+          "row": {
+            "signature": "/checkout > /review > /done",
+            "sessionCount": 29,
+            "sessionCountLabel": "29 user sessions did this",
+            "fidelity": "exact",
+            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+            "action": {
+              "kind": "review-and-plan",
+              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+              "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+            }
+          },
+          "kinds": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "noKnownLink",
+              "assessed": true,
+              "row": {
+                "signature": "/checkout > /review > /done",
+                "sessionCount": 29,
+                "sessionCountLabel": "29 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "action": {
+                  "kind": "review-and-plan",
+                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                }
+              }
+            }
+          ],
+          "records": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "noKnownLink",
+              "assessed": true,
+              "row": {
+                "signature": "/checkout > /review > /done",
+                "sessionCount": 29,
+                "sessionCountLabel": "29 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "action": {
+                  "kind": "review-and-plan",
+                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "command": "replaytest plan fixture-user-1 --session fixture-session-1",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                }
+              }
+            }
+          ]
+        },
+        {
+          "signature": "/billing > /save",
+          "sessionCount": 9,
+          "rank": 2,
+          "coverage": "superseded",
+          "confidence": "exact",
+          "row": {
+            "signature": "/billing > /save",
+            "sessionCount": 9,
+            "sessionCountLabel": "9 user sessions did this",
+            "fidelity": "exact",
+            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+            "action": {
+              "kind": "reconcile-link",
+              "label": "This plan was replaced by a newer one — review the newer plan.",
+              "command": "replaytest reconcile old-billing",
+              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+            }
+          },
+          "kinds": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "superseded",
+              "assessed": true,
+              "row": {
+                "signature": "/billing > /save",
+                "sessionCount": 9,
+                "sessionCountLabel": "9 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "action": {
+                  "kind": "reconcile-link",
+                  "label": "This plan was replaced by a newer one — review the newer plan.",
+                  "command": "replaytest reconcile old-billing",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                }
+              }
+            }
+          ],
+          "records": [
+            {
+              "shape": "form-submit-signal",
+              "coverage": "superseded",
+              "assessed": true,
+              "row": {
+                "signature": "/billing > /save",
+                "sessionCount": 9,
+                "sessionCountLabel": "9 user sessions did this",
+                "fidelity": "exact",
+                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
+                "action": {
+                  "kind": "reconcile-link",
+                  "label": "This plan was replaced by a newer one — review the newer plan.",
+                  "command": "replaytest reconcile old-billing",
+                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "empty-map": {
+    "sessions": 0,
+    "gapMap": {
+      "dataWindow": {
+        "provenance": "exact",
+        "degraded": false,
+        "summary": "Includes user traffic up to an unavailable timestamp (from the last completed scan)."
+      },
+      "suiteInventory": {
+        "state": "complete",
+        "heuristicScope": "How we find your own tests: we scan Playwright files for literal page addresses (page.goto / toHaveURL). Tests that build URLs dynamically won't be found.",
+        "summary": "We checked your existing tests (0 files scanned)."
+      },
+      "sections": [
+        {
+          "shape": "form-submit-signal",
+          "noKnownLink": [],
+          "knownLinks": [],
+          "needsReview": [],
+          "superseded": [],
+          "possibleSuiteMatches": [],
+          "notAssessed": [],
+          "emptyReason": "The scan found no ranked traffic in this window."
+        }
+      ],
+      "routeRows": []
+    }
+  },
+  "read-failure": {
+    "sessions": 0,
+    "gapMap": null,
+    "store": {
+      "present": true
+    }
+  },
+  "never-scanned": {
+    "sessions": 0,
+    "gapMap": null,
+    "store": {
+      "present": false
+    }
+  }
+}

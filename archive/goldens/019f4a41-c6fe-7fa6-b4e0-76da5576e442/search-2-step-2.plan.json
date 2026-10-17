@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "title": "2",
+  "source": {
+    "distinctId": "019f4a41-c6f6-7883-bfbe-28404dcb60bf",
+    "sessionId": "019f4a41-c6fe-7fa6-b4e0-76da5576e442",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/flows/search-2 > /flows/search-2/step/:id",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/search-2",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByRole('textbox', { name: 'Search query' })",
+      "placeholder": true,
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f0')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Quantity 2",
+      "locator": "getByRole('spinbutton', { name: 'Quantity 2' })",
+      "placeholder": true,
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Quantity 2')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f1')"
+        }
+      ],
+      "inputType": "number",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Additional notes 3",
+      "locator": "getByLabel('Additional notes 3')",
+      "placeholder": true,
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f2')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Enable option 4",
+      "locator": "getByRole('checkbox', { name: 'Enable option 4' })",
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 4')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f3')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Enable option 4' })",
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 4')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f3')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByRole('textbox', { name: 'Search query' })",
+      "placeholder": true,
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f0')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Search",
+      "locator": "getByRole('button', { name: 'Search' })",
+      "url": "/flows/search-2",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/search-2/step/2",
+      "pattern": "^(?:[^/]+:\\/\\/[^/]+)?\\/flows\\/search-2\\/step\\/[^\\/]+$",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

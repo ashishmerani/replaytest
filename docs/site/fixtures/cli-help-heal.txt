@@ -1,0 +1,16 @@
+Usage:
+  replaytest heal [--results <path>] [--since-hours N] [--sample N] [--app <name>] [--propose] [--force] [--allow-stale] [--json] [--steal-state-lock] [--steal-scan-lock]
+      Batch-triage every genuinely-failed spec from a Playwright JSON-reporter run
+      (default .replaytest/last-run.json — produce it with this Playwright command:
+      `PLAYWRIGHT_JSON_OUTPUT_NAME=.replaytest/last-run.json ./node_modules/.bin/playwright test tests/generated --reporter=json,./node_modules/replaytest/dist/heal-run-hashes-reporter.js`, then
+      run 'replaytest heal' as a separate step). Classifies failure MODE first —
+      flaky/timed-out/interrupted/environment-network specs get no traffic verdict —
+      maps each real
+      failure back to its plan (a slug header, else the tests/generated/ path
+      convention), then runs the same evidence-based check as `triage` for each one,
+      sharing ONE traffic scan across the whole batch. A verdict that looks clean on
+      a spec Playwright actually failed is flagged, never hidden. --propose writes
+      flow-changed proposals + a rendered plan-diff, same as `triage --propose`. Runs older
+      than 6 days require --allow-stale; re-run the Playwright command above for current evidence.
+      --app <name> confines every slug's evidence to one app declared in
+      .replaytest/config.json; the batch still shares ONE traffic scan.

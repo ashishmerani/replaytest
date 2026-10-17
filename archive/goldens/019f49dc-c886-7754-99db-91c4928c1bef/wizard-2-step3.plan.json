@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "title": "Step3",
+  "source": {
+    "distinctId": "019f49dc-c875-71e3-9389-0e94beacbcc5",
+    "sessionId": "019f49dc-c886-7754-99db-91c4928c1bef",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 0,
+    "signature": "/flows/wizard-2 > /flows/wizard-2/step1 > /flows/wizard-2/step2 > /flows/wizard-2/step3",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/wizard-2",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/wizard-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-2-0-wizard-2-p0-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Age",
+      "locator": "getByRole('spinbutton', { name: 'Age' })",
+      "placeholder": true,
+      "url": "/flows/wizard-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Age')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-2-0-wizard-2-p0-f1')"
+        }
+      ],
+      "inputType": "number",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Agree to terms",
+      "locator": "getByRole('checkbox', { name: 'Agree to terms' })",
+      "url": "/flows/wizard-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Agree to terms')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-2-0-wizard-2-p0-f3')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Agree to terms' })",
+      "url": "/flows/wizard-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Agree to terms')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-2-0-wizard-2-p0-f3')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Notes",
+      "locator": "getByLabel('Notes')",
+      "placeholder": true,
+      "url": "/flows/wizard-2",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#wizard-2-0-wizard-2-p0-f2')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Next",
+      "locator": "getByRole('button', { name: 'Next' })",
+      "url": "/flows/wizard-2",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p1-f0",
+      "locator": "locator('#wizard-2-1-wizard-2-p1-f0')",
+      "url": "/flows/wizard-2/step1",
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p1-f1",
+      "locator": "locator('#wizard-2-1-wizard-2-p1-f1')",
+      "placeholder": true,
+      "url": "/flows/wizard-2/step1",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p1-f2",
+      "locator": "locator('#wizard-2-1-wizard-2-p1-f2')",
+      "placeholder": true,
+      "url": "/flows/wizard-2/step1",
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p1-f3",
+      "locator": "locator('#wizard-2-1-wizard-2-p1-f3')",
+      "url": "/flows/wizard-2/step1",
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Next",
+      "locator": "getByRole('button', { name: 'Next' })",
+      "url": "/flows/wizard-2/step1",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "locator('#wizard-2-1-wizard-2-p1-f3')",
+      "url": "/flows/wizard-2/step1",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p2-f0",
+      "locator": "locator('#wizard-2-2-wizard-2-p2-f0')",
+      "url": "/flows/wizard-2/step2",
+      "elementTag": "select",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p2-f1",
+      "locator": "locator('#wizard-2-2-wizard-2-p2-f1')",
+      "placeholder": true,
+      "url": "/flows/wizard-2/step2",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p2-f2",
+      "locator": "locator('#wizard-2-2-wizard-2-p2-f2')",
+      "placeholder": true,
+      "url": "/flows/wizard-2/step2",
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "wizard-2-p2-f3",
+      "locator": "locator('#wizard-2-2-wizard-2-p2-f3')",
+      "url": "/flows/wizard-2/step2",
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "locator('#wizard-2-2-wizard-2-p2-f3')",
+      "url": "/flows/wizard-2/step2",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Submit",
+      "locator": "getByRole('button', { name: 'Submit' })",
+      "url": "/flows/wizard-2/step2",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/wizard-2/step3",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production."
+  ]
+}

@@ -1,0 +1,7 @@
+Usage:
+  replaytest repro <distinctId> [--session <sessionId>] [--out <path>] [--force]
+      Emit a Tier-0 reproduction spec (tests/reproductions/<slug>.repro.spec.ts) for
+      EVERY journey in the session, any status (error/abandoned included) — re-driving
+      the recorded steps IS the smoke; no assertions are active. Notes witnessed
+      exceptions in a header comment. Refuses to overwrite an existing file unless
+      --force; --out <path> writes elsewhere (single-journey sessions only).

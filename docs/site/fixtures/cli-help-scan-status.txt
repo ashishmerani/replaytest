@@ -1,0 +1,7 @@
+Usage:
+  replaytest scan-status [--json]
+      Reports your saved scan history. Makes no PostHog calls and starts no scan.
+      Reads manifest metadata plus local project configuration only; it never opens saved session rows.
+      Shows stored settled UTC-day coverage, first reads awaiting a second count-matching read,
+      and any recorded capped/interrupted gaps. The default view is 30 days; your scans may use
+      a different --since-hours window. --json keeps bounded ranges and gaps structured.

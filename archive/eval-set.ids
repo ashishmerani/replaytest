@@ -1,0 +1,86 @@
+# Curated eval set (78 sessions) — deterministic selection from archive/inventory.jsonl
+# (even-spaced picks, no randomness).
+# Stable local input for offline evaluator checks.
+# organic (all 6)
+019f49ec-95a3-7cf3-8df2-8686bf53ae8b
+019f49e8-75f6-7c5a-a3ec-d01b733ce304
+019f49e4-1238-797f-b0fe-2c8ef8cabdde
+019f49df-f41b-7838-8e7a-025981b44f33
+019f49df-294d-7a0d-a058-83a46a208bca
+019f49dd-09c7-7bc6-a3b6-2104f1d43d2c
+# needle-tagged (all 18)
+019f4a54-3535-76cf-b788-6a3553e7f250
+019f4a4f-ef97-7c15-8470-5d1fccd676f1
+019f4a4f-a59d-7dd9-9b25-c441e7a20c11
+019f4a4f-4bee-7ad0-b10f-922d7c996a54
+019f4a4d-b49a-760c-b6ea-db23b6c7d541
+019f4a4d-9c84-7fa1-b3fc-21629a1b8e14
+019f4a43-cee6-7870-b6e8-aceb922602c3
+019f4a40-6a16-7372-b1ff-eac2fd2e8557
+019f4a3a-5f1b-7e19-bb69-80e9665a380a
+019f49f1-d116-74cf-88bd-37dff1602126
+019f49ed-d00a-7fe3-993c-f6438d3b04ed
+019f49ed-576c-79a2-aeb1-170ad476f929
+019f49eb-99d0-7293-8857-d0e917eee965
+019f49ea-e4f9-7602-87b6-19174fa2a4d4
+019f49e7-db2b-7f00-91d6-4875a6e7ec98
+019f49df-e518-7d04-8a6e-f9e8fe506a67
+019f49da-e781-7565-a91b-5d4bbaf4c54d
+019f49da-e528-71e9-bdbe-8293bc73e3c5
+# clipped-tail sample (30, even-spaced by startTime asc)
+019f4a3a-8ec9-741f-86c7-4bc9015addcc
+019f4a3c-15ee-7d9e-8e9b-f55b2a2a51ef
+019f4a3c-f140-7500-9600-602a54648bd6
+019f4a41-c6fe-7fa6-b4e0-76da5576e442
+019f4a47-60a8-7b2d-bce0-49ca03fa3013
+019f4a49-a5b2-7b39-90ff-59e0d8a8931b
+019f4a4c-6739-7a3d-8f0b-b33dca3877f3
+019f4a50-57ca-77bc-ab82-3496d0420c25
+019f4a56-0efa-7bed-931a-7ce013502dca
+019f4a5a-a5ae-7469-adda-cc0c5ad32419
+019f4a5c-aeea-7d80-b3f4-37a2315011a8
+019f4a5e-b1bf-7e61-af60-eb8c8df86ad6
+019f4a61-16fc-78ba-8cfb-86fecb3f19e1
+019f4a66-e52e-7946-a147-a373c8c5ec98
+019f4a69-ab72-79ad-a62b-4d46d65dafb5
+019f4a69-e8c7-7c2d-8966-574af812358e
+019f4a6e-4761-70a3-9c41-c6576d30a571
+019f4a73-870b-7189-87a6-09402f832e7f
+019f4a76-1845-70bd-a5ae-9d7845b907db
+019f4a78-a740-72ee-9f56-d36e873ee7a2
+019f4a7b-7317-7c82-a41c-59753a6b026f
+019f4a5a-48a6-79aa-80d5-280b15dee17a
+019f4a83-8bbf-7c26-9829-672f504b1d3b
+019f4a61-c815-7c2b-a82d-49b408429ce8
+019f4a87-fab6-72cb-838e-58d1779412d2
+019f4a8d-aa54-7062-bcce-bda97c925a49
+019f4a90-7d3d-724d-97b5-43451db8f6e9
+019f4a78-4e6a-73ce-8ac1-1be3c9456e81
+019f4a82-88d2-70d7-92bd-a3cbf68e73b2
+019f4aa6-5808-7e27-8021-41c23e052e84
+# bulk sample (20, even-spaced by sessionId sort)
+019f20bc-de22-7358-a06a-998d49de45dc
+019f2504-3e4b-7245-8212-9115eba43e5d
+019f2f52-682e-767d-8b89-784649d90834
+019f4963-7e66-7afb-ab30-2695c4adca15
+019f49d0-b182-7154-89c7-885c9c614e12
+019f49dc-c886-7754-99db-91c4928c1bef
+019f49e7-3fac-7747-a7b7-b099a7b6492c
+019f4a47-b2aa-7dfd-a2e9-c7677bf0b2a8
+019f4ac1-5df8-77d6-a665-cb7aee2037c0
+019f4ac7-a2b8-7a59-844f-9bc5afde7946
+019f4aca-18ec-738a-8c11-91352d421ef4
+019f4acd-f7c3-76b3-810f-ab0cb36d0db8
+019f4ad1-6138-71be-9a2f-a9cc365c5db6
+019f4ae6-cde6-7aa5-8fa5-31cf5597700c
+019f4ae9-7d59-7356-bb17-f9760fb22dfd
+019f4aeb-ab23-71cd-a9c7-c5fd021a7cbc
+019f4aee-4204-7067-9669-024807ade7f8
+019f4af0-f40f-7905-9344-9943fa8209c2
+019f4af4-dd3b-702c-8a66-c9b278b89670
+019f4af7-fcab-7f18-98d0-3640a773fe6f
+# gap-fill (3) — deliberate-drive stratum: scripted drives of missing corpus shapes; first member = the first write-flow golden (create-customer); second = the first query-based ?step=N wizard golden; third = the index-spelling circle-back (submit lands on the entry page under the other spelling — pins the narrow-normalization submitted verdict, no false completed plan)
+019f85fe-ef67-7d2e-9a32-22bbe24a3c30
+019f90ab-f661-7623-bbe6-17d4e718eeec
+019fd28f-a0cc-7187-8ed1-cca0f3e9e666
+01a02a1a-d60f-72e0-8847-57ee5e917847

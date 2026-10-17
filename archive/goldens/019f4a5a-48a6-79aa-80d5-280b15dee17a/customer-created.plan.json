@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "title": "Customer created",
+  "source": {
+    "distinctId": "019f4a5a-489e-7a5d-b224-d6f5962fdafc",
+    "sessionId": "019f4a5a-48a6-79aa-80d5-280b15dee17a",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 0,
+    "signature": "/ > /customer-new.html > /customer-created.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Add a customer",
+      "locator": "getByRole('link', { name: 'Add a customer' })",
+      "url": "/",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "name",
+      "locator": "locator('#name')",
+      "placeholder": true,
+      "url": "/customer-new.html",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Email address",
+      "locator": "getByRole('textbox', { name: 'Email address' })",
+      "placeholder": true,
+      "url": "/customer-new.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Email address')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#email')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "company",
+      "locator": "locator('#company')",
+      "placeholder": true,
+      "url": "/customer-new.html",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Create customer",
+      "locator": "getByRole('button', { name: 'Create customer' })",
+      "url": "/customer-new.html",
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/customer-created.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Customer Created",
+      "source": "title",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

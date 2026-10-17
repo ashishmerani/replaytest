@@ -1,0 +1,9 @@
+{
+  "plans": [
+    {"kind":"readable","slug":"planned-checkout","tested":false,"lifecycle":"planned","evidenceBasis":"local plan sidecar","sidecar":{"title":"Checkout","start":"/checkout","source":{"distinctId":"demo-user","sessionId":"demo-session","journeyIndex":0,"generatedAt":"2026-09-20T12:00:00.000Z","tool":"replaytest"},"steps":[],"assertions":[]}},
+    {"kind":"readable","slug":"scaffolded-invoice","tested":true,"lifecycle":"scaffolded","evidenceBasis":"local generated spec","sidecar":{"title":"Invoice","start":"/invoices/1","source":{"distinctId":"demo-user","sessionId":"demo-session","journeyIndex":1,"generatedAt":"2026-09-20T12:00:00.000Z","tool":"replaytest"},"steps":[],"assertions":[]}},
+    {"kind":"readable","slug":"executed-profile","tested":true,"lifecycle":"executed","evidenceBasis":"recorded test run","sidecar":{"title":"Profile","start":"/profile","source":{"distinctId":"demo-user","sessionId":"demo-session","journeyIndex":2,"generatedAt":"2026-09-20T12:00:00.000Z","tool":"replaytest"},"steps":[],"assertions":[]}},
+    {"kind":"readable","slug":"passing-search","tested":true,"lifecycle":"passing","evidenceBasis":"passing recorded test run","sidecar":{"title":"Search","start":"/search","source":{"distinctId":"demo-user","sessionId":"demo-session","journeyIndex":3,"generatedAt":"2026-09-20T12:00:00.000Z","tool":"replaytest"},"steps":[],"assertions":[]}},
+    {"kind":"unusable","slug":"unknown-lifecycle","tested":false,"readError":{"reason":"sidecar could not be read"}}
+  ]
+}

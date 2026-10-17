@@ -1,0 +1,10 @@
+Usage:
+  replaytest suite-status [--since-hours N] [--app <name>] [--json]
+      Reverse pass over every plan: is each one's journey still present in recent
+      traffic at all? Flags DEAD coverage (no matching traffic — never phrased as
+      "delete this test", traffic can be seasonal) separately from UNRESOLVABLE
+      plans (no recorded signature — never counted as dead) and from plans that are
+      not yet scaffolded. Read-only; shares one traffic scan across every plan.
+      --app <name> counts coverage only inside one app declared in .replaytest/config.json,
+      so another site's traffic can neither create nor hide a dead-coverage finding.
+      Differs from suite-health: this is plan-inventory freshness; suite-health diagnoses last test runs plus coverage per generated spec.

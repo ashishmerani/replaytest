@@ -1,0 +1,20 @@
+Usage:
+  replaytest sessions [<sessionId> --from-archive <dir>] [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N] [--steal-scan-lock] [--watch [--interval 15m|1h] [--max-ticks N]]
+      List ranked canonical journeys from recent sessions (default last 720h (30 days); override with --since-hours N).
+      --with-exceptions filters to journeys whose session's events witnessed a JS
+      exception (exact scan only — coarse mode prints an honest one-liner and exits 0
+      with no rows rather than pretending).
+      --shape is repeatable and AND-composed: form-submit-signal, deep-wizard, rage-clicks. Shape-filtered
+      output labels Seen directly, Strong hint, or Couldn't check; unavailable evidence is reported, never treated as no match.
+      Wizard URL overrides: add {"wizardStepParams":["step","phase"]} to
+      .replaytest/config.json. Names are case-insensitive; only ordinal values 1–99 match.
+      App scope: declare {"apps":{"shop":["https://shop.example"]},"app":"shop"} in
+      .replaytest/config.json, or use --app <name> to select a declared app for this scan.
+      --families: Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path. Path-based grouping for path-changing flows.
+      --gaps-only hides only exact rows whose lifecycle is Passing; coarse rows always stay visible.
+      --stored reads the dashboard's one stored snapshot without contacting PostHog; it refuses incompatible filters and names the stored key.
+      --exact is slower — it reads every session's events and bypasses the automatic coarse-scan switch. A forced --exact first states its whole-project session count (not a guessed duration). At the structural page ceiling it returns the exact rows read so far and names the covered sessions, pages, and window.
+      Coarse scans print an expected-case history estimate before work, report completed UTC days of history, name an up-to-date cache, and label every result with its scan mode.
+      --replay-availability adds a bounded live check to JSON replay links; unavailable can mean capture was off or the replay expired, while unknown is never absence.
+      --watch polls PostHog for new sessions on a cadence, printing one line per check and updating the same snapshot the dashboard reads (the next dashboard start picks it up for free; a dashboard already running keeps its in-memory view until restarted).
+      Defaults to the saved auto-check interval (15m/1h); --interval 15m|1h overrides it (15m is the floor). --max-ticks N runs a bounded number of checks. Foreground only — stopping the process (Ctrl-C) stops the checks. Cannot combine with --json or --stored.

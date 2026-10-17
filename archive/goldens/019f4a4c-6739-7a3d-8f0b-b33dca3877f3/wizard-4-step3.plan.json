@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "title": "Wizard 4 step3",
+  "source": {
+    "distinctId": "019f4a4c-6731-7973-b308-b4dacdc6b795",
+    "sessionId": "019f4a4c-6739-7a3d-8f0b-b33dca3877f3",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 1,
+    "signature": "/flows/wizard-4-step1.html > /flows/wizard-4-step2.html > /flows/wizard-4-step3.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/wizard-4-step1.html",
+  "steps": [
+    {
+      "action": "click",
+      "label": "Start",
+      "locator": "getByRole('link', { name: 'Start' })",
+      "url": "/flows/wizard-4-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Start')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/wizard-4-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Subscribe to updates' })",
+      "url": "/flows/wizard-4-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Subscribe to updates')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Subscribe to updates",
+      "locator": "getByRole('checkbox', { name: 'Subscribe to updates' })",
+      "url": "/flows/wizard-4-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Subscribe to updates')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Finish",
+      "locator": "getByRole('button', { name: 'Finish' })",
+      "url": "/flows/wizard-4-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Finish')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/wizard-4-step3.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Wizard 4 complete — Corpus User 777",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

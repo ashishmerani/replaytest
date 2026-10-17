@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 2,
+  "about": "The declared change map. Every deliberate difference between the committed inventory and the dashboard as it stands is written down here, with the place on the page where a reader can still see it.",
+  "usage": "Every entry is checked against the running dashboard before it is allowed to account for a difference. A relocation must still contain its text where it now lives; a rename must carry its new wording, in the disclosure mechanism it declares, at least as many times as the old wording appeared — no copy may go missing, and a string the live walk reaches in more states than the recording did is not a failure; a removal must genuinely be gone from the tab it names; a capture note must name a control that exists and carries the options claimed for it. An entry that cannot be confirmed fails the run instead of excusing anything.",
+  "scope": "An entry accounts for its item ONLY on the tab it was confirmed on, and only for as many copies as it declares. `expectedCount` is the number of copies the entry's own locator must match at the item's new home, and it is also the most the entry may account for in any one recorded state; an entry that declares no count accounts for every copy of its name on its own tab, which is the right answer for wording that exists once and the wrong one for anything generic.",
+  "statusValues": [
+    "proposed",
+    "confirmed"
+  ],
+  "renamed": [
+    {
+      "baselineItem": "Auto-check for new sessions",
+      "newText": "Auto-check schedule",
+      "expectedLocator": "#sessions-more-panel label:has(#auto-check-setting)",
+      "expectedMechanismClass": "rendered",
+      "expectedCount": 1,
+      "tab": "sessions",
+      "reason": "How often the page looks for new sessions is still set behind the More button, in the same box, with the same three choices. Its label now says what it is rather than what it does — a schedule — because the sentence it used to carry duplicated the Check for new sessions button standing next to it. The setting itself did not move and nothing about it was taken away.",
+      "status": "confirmed"
+    },
+    {
+      "baselineItem": "About auto-check for new sessions",
+      "newText": "Auto-check schedule information",
+      "expectedLocator": "#sessions-more-panel button[aria-label=\"Auto-check schedule information\"]",
+      "expectedMechanismClass": "rendered",
+      "expectedCount": 1,
+      "tab": "sessions",
+      "reason": "The one explanation that stayed with its own control, renamed alongside the setting it explains so that the two read as a pair. It still opens the same note about when the automatic check runs and where the choice is saved.",
+      "status": "confirmed"
+    },
+    {
+      "baselineItem": "⚠ worth a look",
+      "newText": "⚠ Needs a look",
+      "expectedLocator": "#tab-sessions .dash-needs-state .dash-chip",
+      "expectedMechanismClass": "rendered",
+      "expectedCount": 25,
+      "tab": "sessions",
+      "reason": "The chip that says a row has witnessed trouble now uses the same two words as the card and the column that count the same rows — Needs a look, against Needs you — so that a reader meets one name for one idea instead of three. The chip marks the row; the evidence behind it opens from the row itself, which is why the chip no longer reports an expanded state of its own.",
+      "status": "confirmed"
+    }
+  ],
+  "augmented": [],
+  "relocated": [
+    {
+      "baselineItem": "Rebuild from scratch",
+      "expectedLocator": "#tab-sessions .dash-top-actions #btn-rescan-sessions",
+      "expectedMechanismClass": "rendered",
+      "expectedCount": 1,
+      "tab": "sessions",
+      "reason": "Rebuilding the whole local history from the provider is one of the two things on this page that contact the provider, and the footer names both of them, so it stands in the top row of actions beside Check for new sessions rather than behind the More button, which now holds settings only. Pressing it opens a confirmation that says what a rebuild clears and how long it takes before anything happens.",
+      "status": "confirmed"
+    },
+    {
+      "baselineItem": "Max rows",
+      "expectedLocator": "#sessions-more-panel label:has(#filter-limit)",
+      "expectedMechanismClass": "rendered",
+      "tab": "sessions",
+      "reason": "A cap on how many journeys are fetched is a setting, not a filter: it is chosen once for a workspace and then rarely touched, so it moved out of the filter row and in with the other set-once settings, keeping its label and its box.",
+      "status": "confirmed"
+    },
+    {
+      "baselineItem": "ⓘ",
+      "expectedLocator": "#sessions-more-panel [data-testid=\"dash-auto-check-info\"]",
+      "expectedMechanismClass": "rendered",
+      "expectedCount": 1,
+      "tab": "sessions",
+      "reason": "One ⓘ per section: the mark that used to stand beside each setting behind the More button is now a single mark belonging to the auto-check schedule, the one setting whose behaviour a reader cannot guess from its label. What a rebuild does is said in the confirmation it opens instead. The count is declared because this item's name is a glyph the whole dashboard uses: without it, one entry would account for every ⓘ anywhere on the page.",
+      "status": "confirmed"
+    }
+  ],
+  "intentionally-removed": [],
+  "capture-artifacts": [
+    {
+      "artifact": "select options recorded against every tab instead of against the control that owns them",
+      "owningControl": "Auto-check schedule",
+      "tab": "sessions",
+      "expectedLocator": "#auto-check-setting",
+      "expectedCount": 1,
+      "expectedOptions": [
+        "Never",
+        "every 15 min",
+        "every hour"
+      ],
+      "affectedTabs": [
+        "gap-map",
+        "suite-health",
+        "plans",
+        "tests",
+        "retired"
+      ],
+      "reason": "An earlier inventory read every option in the document as a free-standing string, so options belonging to one tab's control were recorded on all six tabs. Options now belong to the control that owns them, which is why they no longer appear on the other five. The same earlier inventory also named this control by the whole label it sits in, so its recorded name read as the label with all three of its choices run onto the end; the name is now the label alone.",
+      "status": "confirmed"
+    },
+    {
+      "artifact": "strings made only of digits and punctuation",
+      "examples": [
+        "the smallest results-per-page option",
+        "the numeric halves of a range-of-total count"
+      ],
+      "tab": "sessions",
+      "expectedLocator": "#tab-sessions .table-pagination select[data-testid=\"dash-rows-per-page\"] option[value=\"10\"]",
+      "expectedCount": 1,
+      "reason": "An earlier inventory skipped any string made only of digits and punctuation, so page-size options and counts never entered it. They are inventoried now, which makes the current record a superset rather than a mismatch. The note names the journey list's own pager, which is the one page-size control on screen when the tab opens; the copy of it behind the More button mirrors this select and is filled from it when the panel opens.",
+      "status": "confirmed"
+    },
+    {
+      "artifact": "content reachable only behind a closed drawer, tooltip, menu, expander, detail panel or second page",
+      "tab": "gap-map",
+      "expectedLocator": "#sampled-observations-modal",
+      "expectedCount": 1,
+      "reason": "An earlier inventory opened nothing, so everything a person has to open first was missing from it. The walk opens each of these states and inventories what they reveal, which again makes the current record a superset.",
+      "status": "confirmed"
+    },
+    {
+      "artifact": "names that come from the workspace's own stored data",
+      "tab": "plans",
+      "expectedLocator": "#plans-list .list-item",
+      "expectedCount": 1,
+      "reason": "Plan names, generated-test filenames and journey signatures are read from whatever the workspace holds, so they differ between one workspace and another. The committed inventory is recorded against the deterministic workspace, and these names are that workspace's own.",
+      "status": "confirmed"
+    }
+  ]
+}

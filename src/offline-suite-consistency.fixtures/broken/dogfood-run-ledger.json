@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "runs": [
+    {
+      "runStartedAt": "2026-07-01T12:00:00.000Z",
+      "recordedAt": "2026-07-01T13:00:00.000Z",
+      "appSha": "abc123",
+      "suite": {
+        "roster": ["tests/generated/alpha.spec.ts"],
+        "fingerprint": {
+          "algorithm": "sha256",
+          "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "outcome": "passed",
+      "verdictCounts": {
+        "healthy": 1
+      }
+    }
+  ]
+}

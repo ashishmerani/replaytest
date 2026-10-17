@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "title": "Step2",
+  "source": {
+    "distinctId": "019f4ac7-a2b1-7b45-ac0d-14244e0aea81",
+    "sessionId": "019f4ac7-a2b8-7a59-844f-9bc5afde7946",
+    "origin": "http://localhost:3002",
+    "journeyIndex": 0,
+    "signature": "/flows/settings-4 > /flows/settings-4/step1 > /flows/settings-4/step2",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/settings-4",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Full name",
+      "locator": "getByRole('textbox', { name: 'Full name' })",
+      "placeholder": true,
+      "url": "/flows/settings-4",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Full name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-4-0-settings-4-p0-name')"
+        }
+      ],
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Agree to terms' })",
+      "url": "/flows/settings-4",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Agree to terms')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-4-0-settings-4-p0-f1')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Agree to terms",
+      "locator": "getByRole('checkbox', { name: 'Agree to terms' })",
+      "url": "/flows/settings-4",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Agree to terms')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-4-0-settings-4-p0-f1')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Save settings",
+      "locator": "getByRole('button', { name: 'Save settings' })",
+      "url": "/flows/settings-4",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Save settings')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Comments",
+      "locator": "getByLabel('Comments')",
+      "placeholder": true,
+      "url": "/flows/settings-4/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-4-1-settings-4-p1-f0')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Enable notifications",
+      "locator": "getByRole('checkbox', { name: 'Enable notifications' })",
+      "url": "/flows/settings-4/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable notifications')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-4-1-settings-4-p1-f1')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Enable notifications' })",
+      "url": "/flows/settings-4/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable notifications')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#settings-4-1-settings-4-p1-f1')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Save settings",
+      "locator": "getByRole('button', { name: 'Save settings' })",
+      "url": "/flows/settings-4/step1",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Save settings')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/settings-4/step2",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production."
+  ]
+}

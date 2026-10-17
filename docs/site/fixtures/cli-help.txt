@@ -1,0 +1,205 @@
+replaytest — turn real PostHog sessions into Playwright regression tests
+
+Usage:
+  replaytest init [--project <id>] [--token <key>] [--host <host>]
+      Configure PostHog access (writes the repo-root .env), and ensure .env plus
+      .replaytest/ are gitignored: create a minimal .gitignore or append missing entries.
+      --host defaults to us.posthog.com; set it for EU Cloud (eu.posthog.com) or a self-hosted domain.
+  replaytest version | --version | -v
+      Print the installed replaytest package version.
+  replaytest sessions [<sessionId> --from-archive <dir>] [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N] [--steal-scan-lock] [--watch [--interval 15m|1h] [--max-ticks N]]
+      List ranked canonical journeys from recent sessions (default last 720h (30 days); override with --since-hours N).
+      --with-exceptions filters to journeys whose session's events witnessed a JS
+      exception (exact scan only — coarse mode prints an honest one-liner and exits 0
+      with no rows rather than pretending).
+      --shape is repeatable and AND-composed: form-submit-signal, deep-wizard, rage-clicks. Shape-filtered
+      output labels Seen directly, Strong hint, or Couldn't check; unavailable evidence is reported, never treated as no match.
+      Wizard URL overrides: add {"wizardStepParams":["step","phase"]} to
+      .replaytest/config.json. Names are case-insensitive; only ordinal values 1–99 match.
+      App scope: declare {"apps":{"shop":["https://shop.example"]},"app":"shop"} in
+      .replaytest/config.json, or use --app <name> to select a declared app for this scan.
+      --families: Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path. Path-based grouping for path-changing flows.
+      --gaps-only hides only exact rows whose lifecycle is Passing; coarse rows always stay visible.
+      --stored reads the dashboard's one stored snapshot without contacting PostHog; it refuses incompatible filters and names the stored key.
+      --exact is slower — it reads every session's events and bypasses the automatic coarse-scan switch. A forced --exact first states its whole-project session count (not a guessed duration). At the structural page ceiling it returns the exact rows read so far and names the covered sessions, pages, and window.
+      Coarse scans print an expected-case history estimate before work, report completed UTC days of history, name an up-to-date cache, and label every result with its scan mode.
+      --replay-availability adds a bounded live check to JSON replay links; unavailable can mean capture was off or the replay expired, while unknown is never absence.
+      --watch polls PostHog for new sessions on a cadence, printing one line per check and updating the same snapshot the dashboard reads (the next dashboard start picks it up for free; a dashboard already running keeps its in-memory view until restarted).
+      Defaults to the saved auto-check interval (15m/1h); --interval 15m|1h overrides it (15m is the floor). --max-ticks N runs a bounded number of checks. Foreground only — stopping the process (Ctrl-C) stops the checks. Cannot combine with --json or --stored.
+  replaytest gaps [--app <name>] [--shape <name>]... [--refresh-sample] [--sample-size N] [--json] [--fresh] [--stored] [--exact] [--since-hours N] [--limit N] [--all] [--steal-scan-lock]
+      Read the core traffic-signal link map. It ranks only rows with no known link in
+      this inventory; possible existing-suite matches and unavailable evidence stay in separate lanes.
+      --refresh-sample precomputes newest-session observations (default 50; max 1000) without changing the core map. With --app it checks newest project sessions first, up to the fixed 250-candidate ceiling and the sample time budget, then reports the actual checked count.
+      --exact is slower — it reads every session's events and bypasses the automatic coarse-scan switch. A forced --exact first states its whole-project session count (not a guessed duration). At the structural page ceiling it returns the exact rows read so far and names the covered sessions, pages, and window.
+      Coarse scans print an expected-case history estimate before work, report completed UTC days of history, name an up-to-date cache, and label every result with its scan mode.
+      --stored recomputes the map offline from the sealed coarse-store slices a prior live scan persisted — never contacts PostHog. It refuses (does not fall back to a live scan) when no stored scan covers this workspace, and loudly labels a partially-sealed snapshot. Cannot combine with --exact, --fresh, or --refresh-sample.
+  replaytest scan-status [--json]
+      Reports your saved scan history. Makes no PostHog calls and starts no scan.
+      Reads manifest metadata plus local project configuration only; it never opens saved session rows.
+      Shows stored settled UTC-day coverage, first reads awaiting a second count-matching read,
+      and any recorded capped/interrupted gaps. The default view is 30 days; your scans may use
+      a different --since-hours window. --json keeps bounded ranges and gaps structured.
+  replaytest plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]
+      Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)
+      to .replaytest/plans/ for each plannable journey. Refuses to overwrite a
+      sidecar owned by a different or unknown journey unless --force is passed.
+      Plannable = every completed journey, plus a navigated one holding a single
+      inline-commit create (its spec presses the committing keystroke as a step
+      marked SYNTHESIZED, because no recording captures it).
+      Refuses a journey that spans origins or that witnessed no origin at all,
+      so a plan never asserts one property's URLs against another's — and
+      holds back every other plannable journey in the same session too, since
+      plan writes a session's journeys as one batch. Pass --allow-cross-origin
+      only after reviewing the other property, to release the whole run.
+      Samples up to 8 matching sessions by default for assertion evidence;
+      pass --sample 0 to disable, or --sample N (max 20) to tune it.
+      Archive mode: replaytest plan <sessionId> --from-archive <dir>
+  replaytest scaffold <slug> [--force] [--out <path>] [--steal-state-lock]
+      Generate tests/generated/<slug>.spec.ts (and re-render <slug>.md) from an
+      already-written sidecar. Refuses to overwrite an existing spec: pass --force
+      to overwrite it, or --out <path> to write a new file you diff yourself.
+  replaytest frames <slug> [--from-archive <dir>] [--session <id>] [--steps <a>-<b>] [--all] [--allow-unignored]
+      Create local per-step replay DOM and screenshots for a coding agent. Frames
+      contain real historical user content: keep them local and never commit/share them.
+  replaytest repro <distinctId> [--session <sessionId>] [--out <path>] [--force]
+      Emit a Tier-0 reproduction spec (tests/reproductions/<slug>.repro.spec.ts) for
+      EVERY journey in the session, any status (error/abandoned included) — re-driving
+      the recorded steps IS the smoke; no assertions are active. Notes witnessed
+      exceptions in a header comment. Refuses to overwrite an existing file unless
+      --force; --out <path> writes elsewhere (single-journey sessions only).
+  replaytest preflight <slug> [--json]
+      Check the LOCAL plan's recorded locators against the LIVE APP at TARGET_APP_URL
+      (default http://localhost:8000; warns when that fallback is used). Never calls
+      PostHog or runs the full spec: reports resolves, DEAD, gated-unreachable after a
+      recorded submit, or couldn't check when direct goto cannot reach a page.
+      Exits 1 when it finds dead selectors or verifies no selectors; otherwise each row states
+      what was checked.
+      Triage fresh traffic to learn what a dead locator became — preflight complements,
+      never replaces, triage.
+  replaytest triage <slug> [--sample N] [--since-hours N] [--app <name>] [--propose] [--force] [--json] [--steal-state-lock] [--steal-scan-lock] [--reuse-evidence [--max-age <duration>]]
+      Explain why a generated test may now be failing by checking fresh traffic for
+      the sidecar signature. Never changes your journey definition; healthy live checks
+      record only their own evidence trail in the plan sidecar (disclosed on the first write).
+      Proposals go only to .replaytest/plans/<slug>.proposed.plan.json + <slug>.proposed.md.
+      --app <name> confines the evidence to one app declared in .replaytest/config.json,
+      so a verdict is never derived from another site's traffic; sessions set aside are
+      disclosed, never silently dropped.
+  replaytest regenerate <slug> [--since-hours N] [--app <name>] [--allow-cross-origin] [--json] [--steal-scan-lock]
+      Re-source a stale plan from fresh traffic into the existing proposal slot. It tries
+      the same journey first, then a disclosed successor flow; review diff and apply the
+      spec delta yourself — replaytest never merges a generated spec. Refuses candidates
+      from another origin, spanning origins, or lacking a witnessed origin unless --allow-cross-origin is reviewed.
+      When it finds no candidate, its empty live search records only an evidence trail in the plan
+      sidecar (disclosed on the first write), never your journey definition.
+  replaytest diff <slug> [--json]
+      Re-render the proposed plan sidecar against the current live plan without changing either file.
+      --json emits the same structured change object the propose/regenerate envelopes carry,
+      so a coding agent reads the delta without parsing the rendered Markdown.
+  replaytest doctor [--since-hours N] [--json] [--steal-scan-lock]
+      Read-only provider-capability preflight: 7 independent probes report what
+      this project can feed plan/scaffold (events flowing, autocapture richness,
+      recordings, Tier-3 replay DOM) plus your local Playwright/posthog-cli
+      version fit, and what degrades if a probe is weak. Never writes to PostHog;
+      maintains a local cache under .replaytest/cache/ and exits 0 whenever PostHog is configured.
+  replaytest heal [--results <path>] [--since-hours N] [--sample N] [--app <name>] [--propose] [--force] [--allow-stale] [--json] [--steal-state-lock] [--steal-scan-lock]
+      Batch-triage every genuinely-failed spec from a Playwright JSON-reporter run
+      (default .replaytest/last-run.json — produce it with this Playwright command:
+      `PLAYWRIGHT_JSON_OUTPUT_NAME=.replaytest/last-run.json ./node_modules/.bin/playwright test tests/generated --reporter=json,./node_modules/replaytest/dist/heal-run-hashes-reporter.js`, then
+      run 'replaytest heal' as a separate step). Classifies failure MODE first —
+      flaky/timed-out/interrupted/environment-network specs get no traffic verdict —
+      maps each real
+      failure back to its plan (a slug header, else the tests/generated/ path
+      convention), then runs the same evidence-based check as `triage` for each one,
+      sharing ONE traffic scan across the whole batch. A verdict that looks clean on
+      a spec Playwright actually failed is flagged, never hidden. --propose writes
+      flow-changed proposals + a rendered plan-diff, same as `triage --propose`. Runs older
+      than 6 days require --allow-stale; re-run the Playwright command above for current evidence.
+      --app <name> confines every slug's evidence to one app declared in
+      .replaytest/config.json; the batch still shares ONE traffic scan.
+  replaytest accept <slug> [--force] [--confirm-different-journey] [--json] [--steal-state-lock]
+      Promote .replaytest/plans/<slug>.proposed.plan.json to the live
+      <slug>.plan.json, refresh <slug>.md from that JSON, and retire the
+      consumed proposal artifacts. Refuses an existing live plan unless --force.
+      A different journey needs --confirm-different-journey too; a same-signature
+      regenerate proposal is treated as the same journey, so --force alone promotes it.
+      Does not re-scaffold; on success prints the next command: replaytest scaffold <slug> --force.
+  replaytest retire <slug> [--confirm-retire] [--no-evidence] [--steal-lock] [--steal-state-lock] [--recover-crashed-locks] [--allow-privacy-disclosure] [--json]
+      Review the accumulated empty-search evidence for a journey and, once the
+      evidence bar is met, archive its plan/spec/frames/default-path repro into
+      .replaytest/retired/<slug>/ with a reversal recipe. Read-only by default:
+      no flag presents the trail, the bar status, successor observations, and the
+      consent command. --confirm-retire performs the archival (bar must be met).
+      --confirm-retire --no-evidence retires below the bar on operator assertion
+      (the tool records the assertion, never adopts it). Each flag alone refuses.
+      Keep the archive folder local to preserve the record; see retirement.json to reverse.
+      An interrupted retirement resumes only with --confirm-retire. After a crash,
+      --recover-crashed-locks performs the combined recovery only when BOTH lock owners
+      are dead. Use either --recover-crashed-locks or the explicit steal flags, not both.
+      Granular form: --confirm-retire --steal-lock --steal-state-lock.
+      All shared state writers serialize through one cross-verb state lock; --steal-state-lock
+      may allow one live holder write to land over recent state. Retire still acquires
+      its retire lock first, then the shared state lock; the reverse order is forbidden.
+  replaytest suite-status [--since-hours N] [--app <name>] [--json]
+      Reverse pass over every plan: is each one's journey still present in recent
+      traffic at all? Flags DEAD coverage (no matching traffic — never phrased as
+      "delete this test", traffic can be seasonal) separately from UNRESOLVABLE
+      plans (no recorded signature — never counted as dead) and from plans that are
+      not yet scaffolded. Read-only; shares one traffic scan across every plan.
+      --app <name> counts coverage only inside one app declared in .replaytest/config.json,
+      so another site's traffic can neither create nor hide a dead-coverage finding.
+      Differs from suite-health: this is plan-inventory freshness; suite-health diagnoses last test runs plus coverage per generated spec.
+  replaytest suite-health [--app <name>] [--json]
+      Join local generated specs, plans, and the last heal run with a fresh shared
+      suite-status coverage scan. Shows recorded evidence only: an empty workspace or
+      absent heal run is never inferred to be green.
+      --app <name> is passed straight through to that shared coverage pass.
+      Differs from suite-status: this is per-generated-spec health; suite-status is the plan-inventory freshness reverse check.
+  replaytest reconcile [--apply] [--dry-run]
+      Report sidecars superseded by a newer plan batch for the same recorded session.
+      Default and --dry-run only report; --apply renames sidecars to .superseded.*.
+  replaytest fix-selector <slug> [--apply] [--dry-run] [--occurrence N] [--prefer stability|fidelity] [--from-triage-verdict] [--allow-privacy-disclosure] [--json] [--steal-state-lock]
+      Show the newest persisted triage or heal selector patch by default. --apply replaces
+      exactly one emitted occurrence; when several match, choose one with --occurrence N.
+      --from-triage-verdict tolerates a prior hand-edit: it applies the diagnosed verdict
+      even when the old locator string is gone, and reports "already applied" if the spec
+      already holds the fresh locator (never overwrites a hand-edit silently).
+      --prefer fidelity is the default; --prefer stability selects a recorded alternate
+      only when the latest fresh traffic also verified it.
+  replaytest auth-setup [--allow-privacy-disclosure]
+      Read persisted plan sidecars that witnessed a login, write one shared
+      playwright/auth.setup.ts skeleton, and print an insertable config snippet.
+      It never edits your Playwright config, never stores credentials, and refuses
+      to overwrite an existing auth.setup.ts. The v1 interface is human-readable;
+      --json is intentionally not supported.
+  replaytest dashboard
+      Start the local dashboard (a browser GUI over these same commands) on
+      http://127.0.0.1:4319 — override the port with PORT. Reads/writes the repo
+      you run it from, same as every other command.
+  replaytest explain [<refusal-code>] [--list] [--full] [--json]
+      Explain a known refusal code without reading workspace data or contacting PostHog.
+      Re-run the command that refused with --json and use error.code,
+      then run replaytest explain <verb.code>. For example, a regenerate.origin-unrecorded
+      refusal means no site address could be resolved; use --list to discover codes.
+      The message field is the exact refusal message template; {{…}} marks parts filled in
+      when the command runs — with a value, a context-dependent phrase, or nothing at all.
+      --list prints a compact grouped list; --full requires --list and includes each entry's detail.
+  replaytest help
+      Show this message.
+
+Completion evidence ladder
+- Completed: A form submit followed by a navigation to a distinct witnessed URL.
+  Conditions: A submit step is followed later by a navigation. The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized.
+  Known false-positive shapes: A submit can still be an application-side failure; this records the witnessed route change, not backend validation.
+- Navigated: Typed input followed by a landing on a new route; no form submit was witnessed.
+  Conditions: No submit step exists; at least one input step exists. The last landing is new by exact URL and canonical path, and input occurred away from that landing. Trailing interactions are trimmed to retain the landing witness.
+  Known false-positive shapes: Search-then-open: typed a query and opened an existing result. Typed-then-bailed-elsewhere: changed a field, then navigated away for another reason. Created-then-deleted: later delete activity is trimmed after the landing.
+- Submitted: A form submit, without a distinct post-submit landing.
+  Conditions: At least one submit step exists. The completed submit-then-navigation rule did not hold.
+  Known false-positive shapes: The submit may have succeeded in place or its landing may have been missing from the recording.
+- Abandoned: No form submit was seen, and we didn't see typing followed by arriving on a new page.
+  Conditions: No completed, navigated, or submitted rule matched.
+  Known false-positive shapes: A missing captured event can make an otherwise successful flow appear abandoned.
+- Note: The quick scan reads summary numbers only — it never opens the full recording, so it can't spot Navigated journeys. Quick-scan counts may show fewer Navigated (and more Abandoned) than a full scan finds.
+- Note: Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.
+
+First touch: `replaytest init` → `replaytest sessions` → `replaytest plan <distinctId>` → `replaytest scaffold <slug>` → run the generated test. Use `replaytest doctor` only when something is wrong; use `replaytest preflight <slug>` before a real run. Neither is a first-touch step. For a red test, read AGENT-MAINTENANCE-GUIDE.md (shipped with replaytest).

@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "title": "Settings 3 step2",
+  "source": {
+    "distinctId": "019f4a3c-f138-72cc-8b92-2b37c685e4f5",
+    "sessionId": "019f4a3c-f140-7500-9600-602a54648bd6",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 1,
+    "signature": "/flows/settings-3-step1.html > /flows/settings-3-step2.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/settings-3-step1.html",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Your name",
+      "locator": "getByTestId('settings-3-fld-name')",
+      "placeholder": true,
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Your name' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Your name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Comments",
+      "locator": "getByTestId('settings-3-fld-1')",
+      "placeholder": true,
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Comments')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByTestId('settings-3-fld-2')",
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('checkbox', { name: 'Subscribe to updates' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Subscribe to updates')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-2')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Subscribe to updates",
+      "locator": "getByTestId('settings-3-fld-2')",
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('checkbox', { name: 'Subscribe to updates' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Subscribe to updates')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-2')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Phone number",
+      "locator": "getByTestId('settings-3-fld-3')",
+      "placeholder": true,
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Phone number' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Phone number')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-3')"
+        }
+      ],
+      "inputType": "tel",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByTestId('settings-3-fld-4-2')",
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('radio', { name: 'Mail' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Mail')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Mail",
+      "locator": "getByTestId('settings-3-fld-4-2')",
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('radio', { name: 'Mail' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Mail')"
+        }
+      ],
+      "inputType": "radio",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Save settings",
+      "locator": "getByTestId('settings-3-submit-1')",
+      "url": "/flows/settings-3-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Save settings' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/settings-3-step2.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Settings 3 complete — Corpus User 228",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

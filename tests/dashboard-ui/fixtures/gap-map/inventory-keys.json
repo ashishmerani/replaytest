@@ -1,0 +1,11 @@
+{
+  "sentences": [
+    "What your users actually do — and which of it has no test yet.",
+    "Where this comes from: traffic numbers are from your PostHog scan; the 'has a test' check looks at files in this workspace.",
+    "The scan supplies the traffic signals. This workspace supplies your replaytest plans, your generated test files, and a limited look at your existing tests.",
+    "The Gap map reuses the Sessions tab's Journey families / Flat setting — there is no separate Gap map toggle.",
+    "We pulled a small sample of your most recent sessions and noted practical facts — screen sizes, logins, errors.",
+    "This is a bounded newest-first sample, separate from the traffic map above; it never refreshes from this page.",
+    "This page couldn't load a Gap map. Re-run the scan and refresh."
+  ]
+}

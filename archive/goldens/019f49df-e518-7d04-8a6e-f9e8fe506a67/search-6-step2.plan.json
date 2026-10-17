@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "title": "Step2",
+  "source": {
+    "distinctId": "019f49df-e512-70b5-87a6-dc93845c7643",
+    "sessionId": "019f49df-e518-7d04-8a6e-f9e8fe506a67",
+    "origin": "http://localhost:3001",
+    "journeyIndex": 0,
+    "signature": "/flows/search-6 > /flows/search-6/step2",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/flows/search-6",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByTestId('search-6-s1-field-0')",
+      "placeholder": true,
+      "url": "/flows/search-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Search query' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-6-s1-f0')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "search-6-s1 text field 3",
+      "locator": "getByTestId('search-6-s1-field-2')",
+      "placeholder": true,
+      "url": "/flows/search-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'search-6-s1 text field 3' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('search-6-s1 text field 3')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-6-s1-f2')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Email address 4",
+      "locator": "getByTestId('search-6-s1-field-3')",
+      "placeholder": true,
+      "url": "/flows/search-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Email address 4' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Email address 4')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-6-s1-f3')"
+        }
+      ],
+      "inputType": "email",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByTestId('search-6-s1-field-0')",
+      "placeholder": true,
+      "url": "/flows/search-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('textbox', { name: 'Search query' })"
+        },
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-6-s1-f0')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Search",
+      "locator": "getByTestId('search-6-s1-submit')",
+      "url": "/flows/search-6",
+      "selectorAlternates": [
+        {
+          "strategy": "role",
+          "locator": "getByRole('button', { name: 'Search' })"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/flows/search-6/step2",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "404",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

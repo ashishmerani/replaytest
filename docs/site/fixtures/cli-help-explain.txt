@@ -1,0 +1,9 @@
+Usage:
+  replaytest explain [<refusal-code>] [--list] [--full] [--json]
+      Explain a known refusal code without reading workspace data or contacting PostHog.
+      Re-run the command that refused with --json and use error.code,
+      then run replaytest explain <verb.code>. For example, a regenerate.origin-unrecorded
+      refusal means no site address could be resolved; use --list to discover codes.
+      The message field is the exact refusal message template; {{…}} marks parts filled in
+      when the command runs — with a value, a context-dependent phrase, or nothing at all.
+      --list prints a compact grouped list; --full requires --list and includes each entry's detail.

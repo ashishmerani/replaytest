@@ -1,0 +1,82 @@
+{
+  "name": "replaytest",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "private": false,
+  "type": "module",
+  "description": "replaytest reads your production traffic, sorts it into user journeys, and turns the most common ones into Playwright test scaffolds. It works from the sessions PostHog already records.",
+  "author": "Ashish Merani",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ashishmerani/replaytest.git"
+  },
+  "homepage": "https://github.com/ashishmerani/replaytest",
+  "bugs": {
+    "url": "https://github.com/ashishmerani/replaytest/issues"
+  },
+  "keywords": [
+    "session-replay",
+    "playwright",
+    "regression-testing",
+    "posthog",
+    "test-generation"
+  ],
+  "bin": {
+    "replaytest": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "assets/logo",
+    "docs/AGENT-MAINTENANCE-GUIDE.md",
+    "docs/site",
+    "skills"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node --import tsx scripts/release/clean-dist.mts && tsc -p tsconfig.build.json && node scripts/release/copy-dashboard-asset.mjs && node --import tsx scripts/dashboard-demo-store.ts && node --import tsx scripts/release/build-stamp.mts write",
+    "prepack": "npm run build",
+    "lint": "NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/eslint . --max-warnings 0",
+    "lint:knip": "./node_modules/.bin/knip --config knip.json --include exports,files,dependencies --no-exit-code",
+    "test": "node scripts/test/run-battery.mjs --test tests/dashboard-ui/gates/map-completeness.test.ts tests/dashboard-ui/gates/inventory-keys-fresh.test.ts tests/dashboard-ui/suite-health/label-contract.test.ts tests/dashboard-ui/suite-health/number-truth.test.ts tests/dashboard-ui/suite-health/reachability-map.test.ts tests/dashboard-ui/artifacts/map-completeness.test.ts tests/dashboard-ui/artifacts/reference.test.ts tests/dashboard-ui/artifacts/source-contract.test.ts tests/dashboard-ui/gates/ghosts.test.ts tests/dashboard-ui/gates/reference.test.ts tests/dashboard-ui/gates/stubs.test.ts src/state-lock.test.ts src/state-writes.test.ts src/state-lock.acceptance.test.ts src/artifact-registry.test.ts src/refusal-registry.test.ts src/canonical-url.test.ts src/scenario-title.test.ts src/journey-evidence.test.ts src/app-scope.test.ts src/coarse-store.test.ts src/providers/posthog-adapter.test.ts src/providers/archive-adapter.test.ts src/step-order.test.ts src/journeys.test.ts src/selector.test.ts src/generated-spec-headers.test.ts src/selector-apply.test.ts src/repro-builder.test.ts src/depth.test.ts src/selection.test.ts src/families.test.ts src/frames-render.test.ts src/frames.test.ts src/auth-witness.test.ts src/shapes.test.ts src/gap-map.test.ts src/sampled-register.test.ts src/cli.test.ts src/cli/output-cap.test.ts src/cli/verbs/auth-setup.test.ts src/cli/verbs/diff.test.ts src/cli/verbs/doctor.test.ts src/cli/verbs/explain.test.ts src/cli/verbs/fix-selector.test.ts src/cli/verbs/frames.test.ts src/cli/verbs/gaps.test.ts src/cli/verbs/heal.test.ts src/cli/verbs/init.test.ts src/cli/verbs/plan.test.ts src/cli/verbs/preflight.test.ts src/cli/verbs/reconcile.test.ts src/cli/verbs/regenerate.test.ts src/cli/verbs/retire.test.ts src/retire-slug-regexp.test.ts src/retire-slug-anchor.test.ts src/retire-slug-nonvacuity.test.ts src/retire-crash-candidates.test.ts src/retire-durability.test.ts src/retire-prefix-battery.test.ts src/cli/verbs/repro.test.ts src/cli/verbs/scaffold.test.ts src/cli/verbs/scan-status.test.ts src/cli/verbs/sessions.test.ts src/cli/verbs/suite-health.test.ts src/cli/verbs/suite-status.test.ts src/cli/verbs/triage.test.ts src/cli/verbs/version.test.ts src/triage-report-cache.test.ts src/cli-output-snapshots.test.ts src/cli-verb-help-smoke.test.ts src/cli-verb-outcomes.test.ts src/scaffold.test.ts src/spec-emitted-hashes.test.ts src/dist-seam.test.ts src/dist-freshness.test.ts src/orphan-plans.test.ts src/plan-review-report.test.ts src/sidecar.test.ts src/triage.test.ts src/triage-verdict-lattice.test.ts src/triage-evidence.test.ts src/regenerate.test.ts src/doctor.test.ts src/version-compat.test.ts src/heal-run-hashes-reporter.test.ts src/heal.test.ts src/suite-health.test.ts src/suite-status.test.ts src/accept.test.ts src/suite-scan.test.ts src/offline-suite-consistency.test.ts src/locator-liveness.test.ts src/spec-provenance.test.ts src/placeholder-provenance.test.ts src/dashboard/view-model.test.ts src/dashboard/demo-store.test.ts src/dashboard/copy-grammar.test.ts src/dashboard/server.test.ts src/dashboard/journey-path-display.test.ts src/pii-lint.test.ts src/package-pins.test.ts src/import-coherence.test.ts src/duplicate-json-key.test.ts src/lockfile-sanity.test.ts src/pack-contract.test.ts src/quality-gates.test.ts src/test-discovery.test.ts src/transient-probe-guards.test.ts src/test-roster.test.ts src/test-support/temp-dir.test.ts src/completion-census.test.ts src/completion-evidence.test.ts scripts/corpus/flow-convention.test.mjs scripts/corpus/distribution.test.mjs scripts/corpus/manifest.test.mjs scripts/corpus/budget.test.mjs scripts/corpus/marker.test.mjs scripts/corpus/drive-helpers.test.mjs scripts/corpus/archive-recordings.test.mjs scripts/corpus/foreign-exclusions.test.mts scripts/corpus/validate-archive-events.test.mjs scripts/corpus/export-curated-events.test.mjs scripts/eval/eval-goldens-check.test.mts scripts/eval/eval-goldens.test.mjs scripts/release/pack-install-consume.test.mjs scripts/release/release-plan.test.mts scripts/release/release-workflow.test.mts scripts/release/registry-version-check.test.mts scripts/docs-fixtures/fixtures.test.mts scripts/test/run-battery.test.mjs tests/dashboard-ui/gap-map/fixture-shapes.test.ts tests/dashboard-ui/gap-map/map-completeness.test.ts tests/dashboard-ui/gap-map/reference.test.ts",
+    "gate2:prepare": "node --import tsx scripts/release/pack-install-consume.mts prepare",
+    "gate2:verify": "node --import tsx scripts/release/pack-install-consume.mts verify",
+    "eval:check": "node --import tsx scripts/eval/eval-goldens.mts check",
+    "docs:fixtures": "node --import tsx scripts/docs-fixtures/generate.mts",
+    "cli": "tsx src/cli.ts",
+    "dashboard": "tsx src/dashboard/server.ts",
+    "test:heal": "PLAYWRIGHT_JSON_OUTPUT_NAME=.replaytest/last-run.json ./node_modules/.bin/playwright test tests/generated --reporter=json,./scripts/heal/run-hashes-reporter.ts",
+    "test:dashboard-ui": "./node_modules/.bin/playwright test tests/dashboard-ui",
+    "gates:dashboard": "DASH_GATES_ARMED=1 ./node_modules/.bin/playwright test tests/dashboard-ui/gates",
+    "dashboard:inventory-keys": "node --import tsx scripts/dashboard-inventory-keys.ts",
+    "dashboard:demo-store": "node --import tsx scripts/dashboard-demo-store.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.10.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "knip": "^6.35.1",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0"
+  },
+  "dependencies": {
+    "@rrweb/replay": "2.1.1",
+    "nanoid": "3.3.18",
+    "postcss": "8.5.23"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.30.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    }
+  },
+  "license": "Apache-2.0"
+}

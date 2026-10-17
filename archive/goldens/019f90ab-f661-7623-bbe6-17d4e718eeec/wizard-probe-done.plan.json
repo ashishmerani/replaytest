@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "title": "Wizard probe done",
+  "source": {
+    "distinctId": "019f90ab-f659-7c53-82b2-a677a351d1fe",
+    "sessionId": "019f90ab-f661-7623-bbe6-17d4e718eeec",
+    "origin": "http://localhost:8000",
+    "journeyIndex": 0,
+    "signature": "/wizard-probe-query.html > /wizard-probe-query.html?step=2 > /wizard-probe-query.html?step=3 > /wizard-probe-done.html",
+    "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/wizard-probe-query.html",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Your name",
+      "locator": "getByRole('textbox', { name: 'Your name' })",
+      "placeholder": true,
+      "url": "/wizard-probe-query.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Your name')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-name')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Continue",
+      "locator": "getByRole('link', { name: 'Continue' })",
+      "url": "/wizard-probe-query.html",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-next1')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Company",
+      "locator": "getByRole('textbox', { name: 'Company' })",
+      "placeholder": true,
+      "url": "/wizard-probe-query.html?step=2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Company')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-company')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Continue",
+      "locator": "getByRole('link', { name: 'Continue' })",
+      "url": "/wizard-probe-query.html?step=2",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-next2')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Accept terms' })",
+      "url": "/wizard-probe-query.html?step=3",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Accept terms')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-terms')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Accept terms",
+      "locator": "getByRole('checkbox', { name: 'Accept terms' })",
+      "url": "/wizard-probe-query.html?step=3",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Accept terms')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-terms')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Finish signup",
+      "locator": "getByRole('button', { name: 'Finish signup' })",
+      "url": "/wizard-probe-query.html?step=3",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#wq-submit')"
+        }
+      ],
+      "isSubmit": true,
+      "selectorConfidence": "confident"
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/wizard-probe-done.html",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Signup complete",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
+  ]
+}

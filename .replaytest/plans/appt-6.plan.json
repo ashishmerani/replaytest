@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "title": "Appt 6",
+  "source": {
+    "distinctId": "019f2eb0-11c3-77aa-b5cf-b4aa8af2b5bb",
+    "sessionId": "019f2eb0-11cb-7eff-912c-aa7327b95c49",
+    "journeyIndex": 0,
+    "signature": "/appointments > /appointments/new > /appointments/appt-6",
+    "generatedAt": "2026-07-10T01:09:07.835Z",
+    "tool": "replaytest@0.1.0"
+  },
+  "start": "/appointments",
+  "steps": [
+    {
+      "action": "fill",
+      "label": "Customer",
+      "locator": "getByLabel('Customer')",
+      "elementTag": "select"
+    },
+    {
+      "action": "fill",
+      "label": "Time",
+      "locator": "getByLabel('Time')",
+      "elementTag": "select"
+    },
+    {
+      "action": "fill",
+      "label": "Appointment title",
+      "locator": "getByRole('textbox', { name: 'Appointment title' })",
+      "placeholder": true,
+      "inputType": "text",
+      "elementTag": "input"
+    },
+    {
+      "action": "fill",
+      "label": "Notes",
+      "locator": "getByLabel('Notes')",
+      "placeholder": true,
+      "elementTag": "textarea"
+    },
+    {
+      "action": "click",
+      "label": "Create appointment",
+      "locator": "getByTestId('create-appointment')",
+      "isSubmit": true
+    }
+  ],
+  "assertions": [
+    {
+      "type": "final-url",
+      "value": "/appointments/appt-6",
+      "enabled": true
+    },
+    {
+      "type": "page-shows-text",
+      "value": "Acme Ops Console",
+      "enabled": true
+    },
+    {
+      "type": "no-console-errors",
+      "witnessed": "clean",
+      "enabled": true
+    }
+  ],
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "caveats": [
+    "Session capture masks and drops sensitive required fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
+    "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it.",
+    "1 page transition had no witnessed trigger interaction (/appointments/new) — the recording saw the navigation but not the click/input that caused it (autocapture can drop a click when the page unloads quickly). This flow cannot reproduce that hop on its own — add the real navigation step (the control's click, or a direct goto) before relying on it."
+  ]
+}

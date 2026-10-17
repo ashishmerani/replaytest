@@ -1,0 +1,7 @@
+Usage:
+  replaytest auth-setup [--allow-privacy-disclosure]
+      Read persisted plan sidecars that witnessed a login, write one shared
+      playwright/auth.setup.ts skeleton, and print an insertable config snippet.
+      It never edits your Playwright config, never stores credentials, and refuses
+      to overwrite an existing auth.setup.ts. The v1 interface is human-readable;
+      --json is intentionally not supported.

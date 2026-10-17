@@ -1,0 +1,63 @@
+# Workflow and job `name:` fields are written for a first-time repo visitor:
+# they say what is being checked.
+name: Dependency security audit
+
+# Dependency-advisory gate, isolated from the CI (test) workflow: no available
+# fix and fixes younger than 14 days are reported; only a mature, un-taken fix
+# fails here, preserving a distinct actionable signal from ci.yml.
+
+on:
+  push:
+    branches: [main]
+    # A commit that touches only these bookkeeping files cannot change a
+    # dependency advisory, so it does not start a run. The pull-request trigger
+    # below is deliberately unfiltered.
+    paths-ignore:
+      - 'SYNC-LOG.md'
+      - 'CLAUDE.md'
+      - '.repo-tier'
+  # A pull request that changes the lockfile gets the same advisory check before
+  # it lands. This job runs pull-request-head code with a read-only token and no
+  # secrets; a pull request from a fork additionally waits for maintainer
+  # approval, which is a repository setting rather than anything in this file.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'   # weekly drift watch: advisories move without commits
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: false
+
+# The weekly drift watch above is opt-in per repository, because a scheduled run
+# costs runner time everywhere it is enabled and only earns its keep where the
+# repository is the one people read. The job below is conditioned on
+#   github.event_name != 'schedule' || vars.CI_SCHEDULED_RUNS == 'true'
+# so a repository that has not set the CI_SCHEDULED_RUNS variable to the string
+# "true" skips the scheduled run — a skipped job consumes no runner minutes, and
+# the run still appears in the history, marked skipped, so the schedule stays
+# visible rather than silently removed. Pushes, pull requests and manual
+# dispatches are unaffected. A fork inherits no repository variables, so a fork
+# never pays for the schedule either. The same variable governs ci.yml.
+
+jobs:
+  audit:
+    name: Known-advisory check (fails only on a mature, un-adopted fix)
+    if: github.event_name != 'schedule' || vars.CI_SCHEDULED_RUNS == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      # The script reads package-lock.json and the registry advisory DB directly —
+      # no install needed.
+      - run: node scripts/maintenance/audit-maturity.mts

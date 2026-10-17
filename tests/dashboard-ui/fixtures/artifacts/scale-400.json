@@ -1,0 +1,4 @@
+{
+  "plans": {"count":400,"slugPrefix":"scale-plan","lifecycle":"planned"},
+  "tests": {"count":400,"slugPrefix":"scale-test","lifecycle":"scaffolded"}
+}

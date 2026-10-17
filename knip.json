@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/cli.ts",
+    "src/dashboard/server.ts",
+    "src/**/*.test.ts",
+    "scripts/**/*.test.{ts,mts,mjs}",
+    "scripts/release/copy-dashboard-asset.mjs",
+    "scripts/release/build-stamp.mts",
+    "scripts/release/pack-install-consume.mts",
+    "scripts/eval/eval-goldens.mts",
+    "scripts/docs-fixtures/generate.mts",
+    "scripts/heal/run-hashes-reporter.ts",
+    "scripts/perf/*.mts",
+    "scripts/corpus/*.{mjs,mts,ts}",
+    "playwright.config.ts",
+    "tests/**/*.ts"
+  ],
+  "project": ["src/**", "scripts/**", "tests/**"],
+  "ignore": ["tmp/**", "dist/**", "archive/**", "docs/**", "tests/generated/**"],
+  "ignoreFiles": ["src/offline-suite-consistency.fixtures/**", "src/spec-provenance.fixtures/**"],
+  "ignoreDependencies": ["nanoid", "postcss"],
+  "ignoreExportsUsedInFile": true
+}

@@ -1,0 +1,358 @@
+name: Release to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run all checks and list the package files without publishing
+        type: boolean
+        required: true
+        default: true
+      version:
+        description: Version to release; must match package.json
+        type: string
+        required: true
+      npm_tag:
+        description: npm distribution tag for this version
+        type: choice
+        options:
+          - next
+          - latest
+        default: next
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify the package and prepare release files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      ACTOR: ${{ github.actor }}
+      TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+      OWNER: ${{ github.repository_owner }}
+      REF: ${{ github.ref }}
+      COMMIT_SHA: ${{ github.sha }}
+      NPM_TAG: ${{ inputs.npm_tag }}
+      PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+    outputs:
+      tarball_sha256: ${{ steps.pack.outputs.tarball_sha256 }}
+      tarball_sha512: ${{ steps.pack.outputs.tarball_sha512 }}
+      notes_sha256: ${{ steps.notes.outputs.notes_sha256 }}
+      module_sha256: ${{ steps.notes.outputs.module_sha256 }}
+      dist_tag: ${{ steps.version.outputs.dist_tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      make_latest: ${{ steps.version.outputs.make_latest }}
+      release_point_passed: ${{ steps.release-point.outputs.release_point_passed }}
+    steps:
+      - name: Only the repository owner, only from the default branch
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "A release runs only from refs/heads/main; this dispatch used $REF." >&2
+            exit 1
+          fi
+          if [ "$ACTOR" != "$OWNER" ] || [ "$TRIGGERING_ACTOR" != "$OWNER" ]; then
+            echo "Only $OWNER may release; dispatched by $ACTOR, re-run triggered by $TRIGGERING_ACTOR." >&2
+            exit 1
+          fi
+          echo "Release guard passed: $OWNER on $REF."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Runtime floor — npm must be at least 11.5.1 for trusted publishing
+        run: |
+          node --version
+          npm --version
+          NPM_VERSION="$(npm --version)"
+          export NPM_VERSION
+          # Segment-by-segment NUMERIC compare in the guard module, not a string
+          # compare: "11.19.0" is lexically smaller than "11.5.1" and must not fail.
+          node --input-type=module -e 'const { meetsVersionFloor } = await import("./scripts/release/release-workflow-guard.mts"); const actual = String(process.env.NPM_VERSION ?? "").trim(); if (!meetsVersionFloor(actual, "11.5.1")) { console.error("npm " + actual + " is below the 11.5.1 floor that npm trusted publishing requires."); process.exit(1); } console.log("npm " + actual + " meets the 11.5.1 trusted-publishing floor.");'
+
+      - name: This commit is a release point on main
+        id: release-point
+        run: node scripts/release/release-plan.mts release-point
+
+      - name: The version and npm tag are valid
+        id: version
+        run: node scripts/release/release-plan.mts version
+
+      - name: The runner's gh can create the release
+        run: node scripts/release/release-plan.mts capabilities
+
+      - name: A real release needs a publishable manifest
+        run: |
+          # Asked here, in the first minute, rather than left to the publish job: by
+          # the time that job runs, a reviewer has already approved it, and a fix means
+          # a new commit and a full re-run of everything above. A rehearsal publishes
+          # nothing, so it is not asked to pay for this.
+          if [ "$DRY_RUN" != "true" ]; then
+            node --input-type=module -e 'const fs = await import("node:fs"); const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")); if (manifest.private) { console.error("This manifest is marked private; drop that flag when the public package is first seeded."); process.exit(1); } console.log("The manifest is publishable.");'
+          else
+            echo "Dry run: nothing is published, so the manifest does not have to be publishable yet."
+          fi
+
+      - name: The version is not on the registry yet
+        run: node scripts/release/registry-version-check.mts
+
+      - run: npm ci --ignore-scripts
+      - run: node scripts/maintenance/binding-smoke.mts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: PACK_CONTRACT=1 CLI_HELP_SMOKE=1 DIST_SEAM=1 DIST_FRESHNESS=1 npm test
+      - run: npm run eval:check
+
+      - name: Pack and hash the tested package
+        id: pack
+        run: |
+          npm pack --ignore-scripts --json > pack.json
+          node scripts/release/release-plan.mts pack
+
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        run: node scripts/release/release-plan.mts notes
+
+      - name: Write the release summary
+        run: node scripts/release/release-plan.mts summary
+
+      - name: Assemble the release-candidate artifact
+        run: |
+          mkdir -p release-candidate
+          cp "$TARBALL" release-candidate/
+          cp release-notes.md release-candidate/
+          cp scripts/release/release-plan.mts release-candidate/release-plan.mts
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate
+          path: release-candidate/
+          retention-days: 30
+          if-no-files-found: error
+
+  publish:
+    name: Publish the verified package to npm
+    needs: preflight
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ inputs.version }}
+      PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+      ACTOR: ${{ github.actor }}
+      TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+      OWNER: ${{ github.repository_owner }}
+      REF: ${{ github.ref }}
+      NPM_TAG: ${{ inputs.npm_tag }}
+      EXPECTED_RELEASE_POINT: ${{ needs.preflight.outputs.release_point_passed }}
+      EXPECTED_TARBALL_SHA256: ${{ needs.preflight.outputs.tarball_sha256 }}
+      EXPECTED_TARBALL_SHA512: ${{ needs.preflight.outputs.tarball_sha512 }}
+      EXPECTED_MODULE_SHA256: ${{ needs.preflight.outputs.module_sha256 }}
+      EXPECTED_DIST_TAG: ${{ needs.preflight.outputs.dist_tag }}
+    outputs:
+      bundle_sha256: ${{ steps.attestation-bundle.outputs.bundle_sha256 }}
+    steps:
+      - name: Publishing must be enabled here, by the owner, from the default branch
+        run: |
+          if [ "$EXPECTED_RELEASE_POINT" != "true" ]; then
+            echo "This run's commit was not confirmed as a release point; nothing was published." >&2
+            exit 1
+          fi
+          if [ "$PUBLISH_ENABLED" != "true" ]; then
+            echo "publishing is not enabled in this repository — set the NPM_PUBLISH_ENABLED repository variable to true" >&2
+            exit 1
+          fi
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "A release publishes only from refs/heads/main; this dispatch used $REF." >&2
+            exit 1
+          fi
+          if [ "$ACTOR" != "$OWNER" ] || [ "$TRIGGERING_ACTOR" != "$OWNER" ]; then
+            echo "Only $OWNER may publish; dispatched by $ACTOR, re-run triggered by $TRIGGERING_ACTOR." >&2
+            exit 1
+          fi
+          echo "Publish guard passed: $OWNER on $REF, publishing enabled."
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-candidate
+          path: release-candidate
+
+      - name: The tested package and module match their hashes
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CANDIDATES=(release-candidate/*.tgz)
+          if [ "${#CANDIDATES[@]}" -ne 1 ] || [ ! -f "${CANDIDATES[0]}" ]; then
+            echo "Expected exactly one package file in release-candidate; found ${#CANDIDATES[@]}." >&2
+            exit 1
+          fi
+          if [ -z "$EXPECTED_TARBALL_SHA256" ] || [ -z "$EXPECTED_MODULE_SHA256" ]; then
+            echo "The expected package or module hash is missing." >&2
+            exit 1
+          fi
+          TARBALL="${CANDIDATES[0]}"
+          ACTUAL_TARBALL_SHA256="$(sha256sum "$TARBALL" | cut -d ' ' -f 1)"
+          ACTUAL_MODULE_SHA256="$(sha256sum release-candidate/release-plan.mts | cut -d ' ' -f 1)"
+          if [ "$ACTUAL_TARBALL_SHA256" != "$EXPECTED_TARBALL_SHA256" ]; then
+            echo "The package hash differs: expected $EXPECTED_TARBALL_SHA256, got $ACTUAL_TARBALL_SHA256." >&2
+            exit 1
+          fi
+          if [ "$ACTUAL_MODULE_SHA256" != "$EXPECTED_MODULE_SHA256" ]; then
+            echo "The release-plan module hash differs: expected $EXPECTED_MODULE_SHA256, got $ACTUAL_MODULE_SHA256." >&2
+            exit 1
+          fi
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - name: The package manifest and npm tag are valid
+        run: node release-candidate/release-plan.mts manifest
+
+      - name: Attest the package file
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-candidate/*.tgz
+
+      - name: Save the attestation bundle and its hash
+        id: attestation-bundle
+        run: |
+          mkdir -p release-attestation
+          cp "$BUNDLE_PATH" "release-attestation/replaytest-$VERSION.sigstore.json"
+          node --input-type=module -e 'import fs from "node:fs"; import { createHash } from "node:crypto"; const bytes = fs.readFileSync("release-attestation/replaytest-" + process.env.VERSION + ".sigstore.json"); fs.appendFileSync(process.env.GITHUB_OUTPUT, "bundle_sha256=" + createHash("sha256").update(bytes).digest("hex") + "\n");'
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-attestation
+          path: release-attestation/replaytest-*.sigstore.json
+          retention-days: 30
+          overwrite: true
+          if-no-files-found: error
+
+      - name: Check the registry, then publish
+        run: |
+          MODE="$(node release-candidate/release-plan.mts classify-publish)"
+          if [ "$MODE" = "publish" ]; then
+            trap 'echo "npm refused the publish. If it says this version already exists, the package is live: wait a few minutes and use Re-run failed jobs again." >&2' ERR
+            npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag "$EXPECTED_DIST_TAG"
+            trap - ERR
+          elif [ "$MODE" = "already-published" ]; then
+            echo "replaytest@$VERSION is already on the registry with these exact bytes; not publishing again."
+          else
+            echo "The registry classifier returned an unknown mode; nothing was published." >&2
+            exit 1
+          fi
+
+  release:
+    name: Create the GitHub release
+    needs: [preflight, publish]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      ACTOR: ${{ github.actor }}
+      TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+      OWNER: ${{ github.repository_owner }}
+      REF: ${{ github.ref }}
+      GH_TOKEN: ${{ github.token }}
+      NPM_TAG: ${{ inputs.npm_tag }}
+      EXPECTED_TARBALL_SHA256: ${{ needs.preflight.outputs.tarball_sha256 }}
+      EXPECTED_NOTES_SHA256: ${{ needs.preflight.outputs.notes_sha256 }}
+      EXPECTED_MODULE_SHA256: ${{ needs.preflight.outputs.module_sha256 }}
+      EXPECTED_PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+      EXPECTED_MAKE_LATEST: ${{ needs.preflight.outputs.make_latest }}
+      EXPECTED_BUNDLE_SHA256: ${{ needs.publish.outputs.bundle_sha256 }}
+    steps:
+      - name: Only the repository owner, only from the default branch
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "A release runs only from refs/heads/main; this dispatch used $REF." >&2
+            exit 1
+          fi
+          if [ "$ACTOR" != "$OWNER" ] || [ "$TRIGGERING_ACTOR" != "$OWNER" ]; then
+            echo "Only $OWNER may release; dispatched by $ACTOR, re-run triggered by $TRIGGERING_ACTOR." >&2
+            exit 1
+          fi
+          echo "Release guard passed: $OWNER on $REF."
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-candidate
+          path: release-candidate
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-attestation
+          path: release-attestation
+
+      - name: The release files match what was tested
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          CANDIDATES=(release-candidate/*.tgz)
+          if [ "${#CANDIDATES[@]}" -ne 1 ] || [ ! -f "${CANDIDATES[0]}" ]; then
+            echo "Expected exactly one package file in release-candidate; found ${#CANDIDATES[@]}." >&2
+            exit 1
+          fi
+          TARBALL="${CANDIDATES[0]}"
+          check_hash() {
+            FILE="$1"
+            EXPECTED="$2"
+            LABEL="$3"
+            if [ -z "$EXPECTED" ] || [ ! -f "$FILE" ]; then
+              echo "The expected $LABEL hash or file is missing." >&2
+              exit 1
+            fi
+            ACTUAL="$(sha256sum "$FILE" | cut -d ' ' -f 1)"
+            if [ "$ACTUAL" != "$EXPECTED" ]; then
+              echo "The $LABEL hash differs: expected $EXPECTED, got $ACTUAL." >&2
+              exit 1
+            fi
+          }
+          check_hash "$TARBALL" "$EXPECTED_TARBALL_SHA256" package
+          check_hash release-candidate/release-notes.md "$EXPECTED_NOTES_SHA256" notes
+          check_hash release-candidate/release-plan.mts "$EXPECTED_MODULE_SHA256" module
+          check_hash "release-attestation/replaytest-$VERSION.sigstore.json" "$EXPECTED_BUNDLE_SHA256" bundle
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - name: Check the attestation
+        run: |
+          TARBALL="$(find release-candidate -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          gh attestation verify "$TARBALL" --bundle "release-attestation/replaytest-$VERSION.sigstore.json" -R "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-digest "$GITHUB_SHA"
+
+      - name: Decide and create the release
+        run: node release-candidate/release-plan.mts release
