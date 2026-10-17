@@ -728,12 +728,13 @@ test('the hand-off contract runs the workflow scripts from the guard reader with
   assert.equal(shellRun(releaseGuard!, root, fixtureEnv(root, hashes)).status, 0);
   const handoff = shellRun(publishHandoff!, root, env);
   assert.equal(handoff.status, 0, handoff.stderr);
-  assert.match(fs.readFileSync(env.GITHUB_ENV, 'utf8'), /TARBALL=release-candidate\/replaytest-0\.1\.0\.tgz/);
+  assert.match(fs.readFileSync(env.GITHUB_ENV, 'utf8'), /^TARBALL=\.\/release-candidate\/replaytest-0\.1\.0\.tgz$/m);
   const manifest = shellRun(manifestCheck!, root, fixtureEnv(root, hashes, 'absent', 'publish'));
   assert.equal(manifest.status, 0, manifest.stderr);
   const published = shellRun(publishCommand!, root, fixtureEnv(root, hashes, 'absent', 'publish'));
   assert.equal(published.status, 0, published.stderr);
-  assert.match(fs.readFileSync(calls, 'utf8'), /npm publish release-candidate\/replaytest-0\.1\.0\.tgz --provenance --access public --ignore-scripts --tag next/);
+  // npm must see a ./-prefixed file path; a bare release-candidate/x.tgz parses as a GitHub owner/repo shorthand.
+  assert.match(fs.readFileSync(calls, 'utf8'), /^npm publish \.\/release-candidate\/replaytest-0\.1\.0\.tgz --provenance --access public --ignore-scripts --tag next$/m);
 
   const bootstrap = shellRun(releaseBootstrap!, root, fixtureEnv(root, hashes));
   assert.equal(bootstrap.status, 0, bootstrap.stderr);

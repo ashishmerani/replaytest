@@ -73,6 +73,16 @@ test('the complete workflow has a zero-finding baseline', () => {
   assert.deepEqual(checkReleaseWorkflows(realFiles()), []);
 });
 
+test('the publish job hands npm a ./-prefixed package path, never a bare owner/repo-shaped one', () => {
+  // npm parses a bare "release-candidate/x.tgz" as a GitHub shorthand and tries git ls-remote
+  // (the first live 0.1.0 run failed this way before anything was published).
+  const text = realFiles().get(RELEASE_WORKFLOW)!;
+  const publishJob = text.slice(text.indexOf('\n  publish:\n'), text.indexOf('\n  release:\n'));
+  const assignments = publishJob.split('\n').filter((line) => /^\s*TARBALL=/.test(line));
+  assert.deepEqual(assignments.map((line) => line.trim()), ['TARBALL="./${CANDIDATES[0]}"']);
+  assert.match(publishJob, /npm publish "\$TARBALL"/);
+});
+
 test('pin 23: all seven shipped jobs pin Ubuntu 24.04', () => {
   const files = realFiles();
   let checked = 0;

@@ -217,7 +217,7 @@ export const RELEASE_SCRIPT_SHA256: Readonly<Record<string, Readonly<Record<stri
     'Assemble the release-candidate artifact': 'e861316dc1f1c016ba16fb666f6fd38dd9f62b3c6f0460971d1129256375e352',
   },
   publish: {
-    'The tested package and module match their hashes': '15b3dabc218b92da465823cd13794d060ece0989eb4df4ca04fcabd06b75877f',
+    'The tested package and module match their hashes': '811cb30d0d10067e32e51520ca5bb31830f480ec57a3ceac55f396a025d9a5cd',
     'The package manifest and npm tag are valid': 'ec6922aa3f28d3bfe53f9f4d3926aa9231d85fde3c4cbe4cf59b7fcc33b86bd0',
     'Save the attestation bundle and its hash': '52c26c95cd62af4fe9ab784d2b436e5ec34a05304f4a7368eb85b57021cf7acb',
     'Check the registry, then publish': 'e4ebf187e34be4694af488e7539aef5cc0da9eddaa2aea1f369bb372607d6c4e',
