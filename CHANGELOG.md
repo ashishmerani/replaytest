@@ -2,7 +2,7 @@
 
 All notable changes to replaytest are recorded here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - 2026-10-15
+## [0.1.0] - 2026-10-17
 
 First public release.
 
