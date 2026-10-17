@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-[npm package](https://www.npmjs.com/package/replaytest)
+[![npm](https://img.shields.io/npm/v/replaytest)](https://www.npmjs.com/package/replaytest) [![license](https://img.shields.io/npm/l/replaytest)](LICENSE) [![node](https://img.shields.io/node/v/replaytest)](package.json) [![CI](https://github.com/ashishmerani/replaytest/actions/workflows/ci.yml/badge.svg)](https://github.com/ashishmerani/replaytest/actions/workflows/ci.yml)
 
 **replaytest reads your production traffic, sorts it into user journeys, and turns the most common ones into Playwright test scaffolds.** Your coding agent gets what it needs to finish them and keep them working: page snapshots from the real recording and a repair skill.
 
