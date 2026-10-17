@@ -5,6 +5,8 @@
   </picture>
 </h1>
 
+[npm package](https://www.npmjs.com/package/replaytest)
+
 **replaytest reads your production traffic, sorts it into user journeys, and turns the most common ones into Playwright test scaffolds.** Your coding agent gets what it needs to finish them and keep them working: page snapshots from the real recording and a repair skill.
 
 It works from the sessions PostHog already records. For each journey your coding agent picks, it writes a plain-English test plan to review, then a test scaffold from that plan.
