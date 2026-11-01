@@ -29,7 +29,7 @@ import { test, expect } from '@playwright/test';
 //   - Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.
 //   - This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.
 //   - The asserted page text comes from one session — verify it is not user-specific before relying on it.
-//   - 1 page transition had no witnessed trigger interaction (/flows/feedback-5-step1.html) — the recording saw the navigation but not the click/input that caused it (autocapture can drop a click when the page unloads quickly). This flow cannot reproduce that hop on its own — add the real navigation step (the control's click, or a direct goto) before relying on it.
+//   - This test checks the step change to /flows/feedback-5-step3.html, not the whole flow.
 
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -39,8 +39,7 @@ test('Feedback 5 step3', async ({ page }) => {
     if (msg.type() === 'error') consoleErrors.push(msg.text());
   });
 
-  await page.goto('/flows/search-1-step3.html');
-  // TODO: replaytest-marker: missing-navigation-hop — add the real trigger for the witnessed transition to /flows/feedback-5-step1.html before relying on this flow.
+  await page.goto('/flows/feedback-5-step1.html');
   // recorded action 1: click "Start"
   await page.getByRole('link', { name: 'Start' }).click();
   // recorded action 2: fill "Your name"
@@ -57,6 +56,13 @@ test('Feedback 5 step3', async ({ page }) => {
   // If submit is blocked by a required field the recording didn't capture (e.g. a masked input), add its synthetic fill above.
   // recorded action 6: click "Continue"
   await page.getByRole('button', { name: 'Continue' }).click();
+  // recorded action 7: click "Input"
+  await page.getByRole('radio', { name: '5' }).click();
+  // The recording witnessed a checkbox/radio interaction but not its resulting state
+  // (masking/no captured value at the seam) — .check() assumes the common case;
+  // use .uncheck() if this control should end up unchecked.
+  // recorded action 8: fill "5"
+  await page.getByRole('radio', { name: '5' }).check();
 
   await expect(page).toHaveURL('/flows/feedback-5-step3.html');
   await expect(page.getByText('Feedback 5')).toBeVisible();

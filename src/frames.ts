@@ -17,7 +17,7 @@ import { segmentJourneys, type Journey } from './journeys.js';
 import type { NeutralSession, NeutralStep } from './neutral-session.js';
 import { findPiiLikeStrings, type PiiLintFinding } from './pii-lint.js';
 import { journeySignature } from './selection.js';
-import type { Sidecar } from './sidecar.js';
+import { needsSegmentationReview, SEGMENTATION_MIGRATION_REVIEW_NOTE, type Sidecar } from './sidecar.js';
 import type {
   CaptureKind,
   CaptureRequest,
@@ -28,6 +28,27 @@ import type { ReplayStreamWindow } from './providers/posthog-adapter.js';
 
 export const DEFAULT_FRAMES_CAP = 15;
 export const FRAMES_RENDERER = '@rrweb/replay@2.1.0';
+/** Fallback when a set-aside replay window carries no decode reason of its own. */
+const REPLAY_UNREADABLE_FALLBACK = 'None of its recorded events could be read.';
+const CLAMPED_CAVEAT =
+  'Step timestamp is at or after the recording\'s last event — showing the final recorded state at the clamped offset.';
+// Both partial caveats end with the same pointer to the saved file, so a
+// person reading manifest.json finds it the same way for either one.
+const PARTIAL_SAVED_FILE_NOTE = 'What was saved is listed in this entry (htmlFile or pngFile).';
+const CLAMPED_PARTIAL_CAVEAT =
+  `Step timestamp is at or after the recording's last event; only part of this capture was drawn, so it may not show the complete final recorded state. ${PARTIAL_SAVED_FILE_NOTE}`;
+// A clamped capture with no picture (not drawn, ambiguous, or not returned)
+// must not claim to show anything.
+const CLAMPED_UNDRAWN_CAVEAT =
+  'Step timestamp is at or after the recording\'s last event; no picture of the final recorded state could be drawn.';
+const PARTIAL_CAPTURE_CAVEAT =
+  `Only part of this capture was drawn. ${PARTIAL_SAVED_FILE_NOTE}`;
+// A screenshot saved without its page HTML may follow a failed pause, which
+// leaves the replayer where the previous capture stopped.
+const SCREENSHOT_ONLY_PARTIAL_CAVEAT =
+  'The page could not be read at this point, so this screenshot may show an earlier moment of the recording.';
+const RENDERER_DID_NOT_RETURN_REASON = 'The renderer did not return this capture.';
+const NO_CAPTURE_OUTPUT_REASON = 'The renderer returned no page content or screenshot for this capture.';
 
 export interface FrameStepRange {
   first: number;
@@ -88,6 +109,7 @@ export interface FramesManifestCapture {
   htmlFile?: string;
   pngFile?: string;
   fidelity: FrameCaptureFidelity;
+  reason?: string;
   containsPii: boolean;
   piiFindings?: PiiLintFinding[];
   caveats: string[];
@@ -245,6 +267,51 @@ function pairForSubmit(steps: FrameStep[], index: number, firstTimestampMs: numb
 
 function requestedStepSet(steps: FrameStep[], range: FrameStepRange | undefined): Set<number> {
   return new Set(steps.filter((step) => range === undefined || (step.step >= range.first && step.step <= range.last)).map((step) => step.step));
+}
+
+/**
+ * The refusal for a run that would plan no captures. It never rebuilds a
+ * command line: the user's other flags (`--session`, `--from-archive`,
+ * `--allow-unignored`) are theirs to keep, so it names only the range to use.
+ */
+export function buildFramesEmptySelectionMessage(
+  steps: FrameStep[],
+  requestedRange: FrameStepRange | undefined,
+): string {
+  if (steps.length > 0 && requestedRange !== undefined) {
+    const firstStep = steps[0].step;
+    const lastStep = steps[steps.length - 1].step;
+    return (
+      `Requested --steps ${requestedRange.first}-${requestedRange.last} matches no steps in this journey (steps ${firstStep}-${lastStep}). ` +
+      `Run the same command with --steps ${firstStep}-${lastStep}, or without --steps.`
+    );
+  }
+  // Defensive: not reachable today. Every journey has at least one step
+  // (journeys are kept only when they hold an interaction), and without
+  // --steps the journey's last step is always captured, so only an
+  // out-of-range --steps can select nothing.
+  return 'No frame captures could be selected for this journey.';
+}
+
+/**
+ * The note for a --steps range that runs past the journey's last step but
+ * still selects something; undefined when the range lies inside the journey.
+ */
+export function buildFramesRangePastJourneyWarning(
+  steps: FrameStep[],
+  requestedRange: FrameStepRange | undefined,
+): string | undefined {
+  if (requestedRange === undefined || steps.length === 0) return undefined;
+  const lastStep = steps[steps.length - 1].step;
+  if (requestedRange.last <= lastStep || requestedRange.first > lastStep) return undefined;
+  const pastFirst = lastStep + 1;
+  const past = pastFirst === requestedRange.last
+    ? `step ${pastFirst} is`
+    : `steps ${pastFirst}-${requestedRange.last} are`;
+  const capturing = requestedRange.first === lastStep
+    ? `step ${lastStep}`
+    : `steps ${requestedRange.first}-${lastStep}`;
+  return `Warning: ${past} past this journey's last step (${lastStep}); the range covers ${capturing}.`;
 }
 
 /**
@@ -457,7 +524,11 @@ These frames may contain on-screen PII, including real names and email addresses
 - This is one historical exemplar; it is not the canonical behavior of every user or session.
 - Visual text is never an assertion source. Keep Tier-1 assertions tied to witnessed plan facts.
 - An unchanged \`next-recorded-state\` frame does not mean nothing happened.
-- A \`clamped\` capture was requested outside this replay window; compare its \`requestedOffsetMs\` and \`effectiveOffsetMs\` in the manifest. It is not complete fidelity.
+- A \`clamped\` capture's step time is at or after the recording's last event, so it shows the final recorded state, not the moment the step asked for. Compare its \`requestedOffsetMs\` and \`effectiveOffsetMs\` in the manifest.
+- A \`partial\` capture is missing its page HTML or its screenshot. The manifest lists which file was saved; read the caveats before relying on it.
+- A \`partial\` or \`not-renderable\` capture whose step time was at or after the recording's last event also carries \`requestedOffsetMs\` and \`effectiveOffsetMs\`.
+- A \`not-renderable\` capture couldn't be drawn. Its \`reason\` in the manifest says why, and it has no HTML or PNG file.
+- An \`ambiguous-window\` capture was not drawn because this journey's time matched more than one recorded window; it has no HTML or PNG file, and when its step time was at or after the recording's last event it also carries \`requestedOffsetMs\` and \`effectiveOffsetMs\`.
 - Masked boxes stay masked. Do not infer or reconstruct masked values.
 - Never derive NEW expected behavior from an apparent visual result.
 
@@ -482,12 +553,31 @@ function buildManifestCapture(
 ): PreparedManifestCapture {
   const html = result?.html;
   const findings = html === undefined ? [] : findPiiLikeStrings(html);
-  const hasFiles = result !== undefined && fidelity !== 'ambiguous-window';
+  // Save only non-empty output, so a partial capture never leaves an empty
+  // HTML or PNG file that looks like a picture to anything listing the folder.
+  const canWriteFiles = result !== undefined && fidelity !== 'ambiguous-window' && fidelity !== 'not-renderable';
+  const hasHtmlFile = canWriteFiles && html !== undefined && html.length > 0;
+  const hasPngFile = canWriteFiles && result.pngBuffer.length > 0;
   const stem = frameArtifactStem(capture.step, capture.kind);
-  const caveats = [...capture.caveats];
   const wasClamped = capture.requestedOffsetMs !== undefined;
-  if (fidelity === 'ambiguous-window') caveats.push('Several replay windows bracket this journey; no window was rendered automatically.');
-  if (result === undefined && fidelity !== 'ambiguous-window') caveats.push('The renderer did not return this capture.');
+  const caveats = capture.caveats.map((caveat) => {
+    if (caveat !== CLAMPED_CAVEAT) return caveat;
+    if (fidelity === 'ambiguous-window' || fidelity === 'not-renderable') return CLAMPED_UNDRAWN_CAVEAT;
+    return fidelity === 'partial' ? CLAMPED_PARTIAL_CAVEAT : caveat;
+  });
+  if (fidelity === 'partial' && !wasClamped) caveats.push(PARTIAL_CAPTURE_CAVEAT);
+  if (fidelity === 'partial' && hasPngFile && !hasHtmlFile) caveats.push(SCREENSHOT_ONLY_PARTIAL_CAVEAT);
+  if (fidelity === 'ambiguous-window') caveats.push('Several recorded windows bracket this journey; no window was rendered automatically.');
+  // A capture the renderer did not return says so once, in its `reason`.
+  const reason = result?.reason ?? (
+    fidelity === 'ambiguous-window'
+      ? undefined
+      : result === undefined
+        ? RENDERER_DID_NOT_RETURN_REASON
+        : !hasHtmlFile && !hasPngFile
+          ? NO_CAPTURE_OUTPUT_REASON
+          : undefined
+  );
   return {
     manifest: {
       step: capture.step,
@@ -497,13 +587,16 @@ function buildManifestCapture(
         ? { requestedOffsetMs: capture.requestedOffsetMs, effectiveOffsetMs: capture.offsetMs }
         : {}),
       url: capture.url,
-      ...(hasFiles ? { htmlFile: `${stem}.html`, pngFile: `${stem}.png` } : {}),
+      ...(hasHtmlFile ? { htmlFile: `${stem}.html` } : {}),
+      ...(hasPngFile ? { pngFile: `${stem}.png` } : {}),
       fidelity,
+      ...(reason === undefined ? {} : { reason }),
       containsPii: findings.length > 0,
       ...(findings.length > 0 ? { piiFindings: findings } : {}),
       caveats,
     },
-    ...(hasFiles ? { html: html ?? '', pngBuffer: result?.pngBuffer ?? Buffer.alloc(0) } : {}),
+    ...(hasHtmlFile ? { html } : {}),
+    ...(hasPngFile ? { pngBuffer: result.pngBuffer } : {}),
   };
 }
 
@@ -541,11 +634,17 @@ function deduplicateConsecutiveCaptureFiles(prepared: PreparedManifestCapture[])
     }
 
     if (manifest.pngFile !== undefined && current.pngBuffer !== undefined) {
-      if (previousPng !== undefined && current.pngBuffer.equals(previousPng.content)) {
+      // A screenshot-only partial may follow a failed pause, leaving the
+      // replayer at an earlier state. Keep it as its own artifact and never
+      // use it as the comparison source for a later capture.
+      const uncertainScreenshot = manifest.fidelity === 'partial' && manifest.htmlFile === undefined;
+      if (!uncertainScreenshot && previousPng !== undefined && current.pngBuffer.equals(previousPng.content)) {
         manifest.pngFile = previousPng.file;
         manifest.caveats.push(sharedStateNote('PNG screenshot', previousPng.manifest));
       }
-      previousPng = { content: current.pngBuffer, file: manifest.pngFile, manifest };
+      previousPng = uncertainScreenshot
+        ? undefined
+        : { content: current.pngBuffer, file: manifest.pngFile, manifest };
     } else {
       previousPng = undefined;
     }
@@ -555,13 +654,37 @@ function deduplicateConsecutiveCaptureFiles(prepared: PreparedManifestCapture[])
 /** Formats the one concise command-boundary result for the CLI. */
 export function formatFramesRunResult(result: FramesRunResult): string[] {
   if (result.kind === 'refusal') return [...(result.warnings ?? []), result.message];
+  // Count only captures with at least one saved picture file (a capture that
+  // shares an identical earlier file counts), so the line never claims
+  // pictures that were not written.
+  const total = result.manifest.captures.length;
+  const withFiles = result.manifest.captures.filter(
+    (capture) => capture.htmlFile !== undefined || capture.pngFile !== undefined,
+  ).length;
+  // Defensive: `runFrames` refuses a run that plans no captures before it
+  // writes anything, so a written result always has at least one capture.
+  // The branch stays so an empty list can never be described as pictures
+  // that were omitted.
+  const wroteLine = total === 0
+    ? 'No frame captures were planned.'
+    : withFiles === 0
+      ? `No picture files were written. manifest.json in ${result.outputDir} lists each frame capture and why none of them has a picture.`
+      : withFiles === total
+        ? `Wrote ${total} frame capture(s) to ${result.outputDir}`
+        : `Wrote ${withFiles} of ${total} frame capture(s) to ${result.outputDir}`;
+  // The sensitivity warning is about saved pictures, so it is printed only
+  // when at least one picture file was written.
   return [
     ...result.warnings,
-    `Wrote ${result.manifest.captures.length} frame capture(s) to ${result.outputDir}`,
-    'Frame sensitivity warning:',
-    'Frames may contain on-screen PII, including real names or email addresses.',
-    'They stay local. Sending them anywhere, including to a cloud AI agent, is your deliberate choice.',
-    'We never redact exported frames and never claim they are safe to share.',
+    wroteLine,
+    ...(withFiles === 0
+      ? []
+      : [
+          'Frame sensitivity warning:',
+          'Frames may contain on-screen PII, including real names or email addresses.',
+          'They stay local. Sending them anywhere, including to a cloud AI agent, is your deliberate choice.',
+          'We never redact exported frames and never claim they are safe to share.',
+        ]),
   ];
 }
 
@@ -623,11 +746,30 @@ export async function runFrames(options: FramesRunOptions, deps: FramesRunDeps):
   if (journey === undefined) {
     return {
       kind: 'refusal',
-      message: buildFramesPlanPredatesMessage(sidecar.source.distinctId, sessionId),
+      message: `${needsSegmentationReview(sidecar.source) ? `${SEGMENTATION_MIGRATION_REVIEW_NOTE} ` : ''}${buildFramesPlanPredatesMessage(sidecar.source.distinctId, sessionId)}`,
       exitCode: 1,
       warnings,
     };
   }
+  const outcomeWarning = frameOutcomeWarning(journey);
+  if (outcomeWarning !== undefined) warnings.push(outcomeWarning);
+
+  // Which steps are captured depends only on the journey's steps and the
+  // requested range, never on the recording's timestamps, so a selection
+  // that plans nothing is refused here: before the full recording is pulled,
+  // and before an unavailable recording could hide the range problem.
+  const frameSteps = toFrameSteps(journey, sidecar);
+  const range = options.steps === undefined ? undefined : parseFrameStepRange(options.steps);
+  if (selectFrameCaptures(frameSteps, 0, { all: options.all, range }).captures.length === 0) {
+    return {
+      kind: 'refusal',
+      message: buildFramesEmptySelectionMessage(frameSteps, range),
+      exitCode: 1,
+      warnings,
+    };
+  }
+  const rangeWarning = buildFramesRangePastJourneyWarning(frameSteps, range);
+  if (rangeWarning !== undefined) warnings.push(rangeWarning);
 
   let windows: ReplayStreamWindow[];
   try {
@@ -635,7 +777,7 @@ export async function runFrames(options: FramesRunOptions, deps: FramesRunDeps):
   } catch (error) {
     return {
       kind: 'refusal',
-      message: `Frames could not fetch replay windows: ${plainError(error)}.`,
+      message: `Frames could not fetch recorded windows: ${plainError(error)}.`,
       exitCode: 1,
       warnings,
     };
@@ -644,31 +786,47 @@ export async function runFrames(options: FramesRunOptions, deps: FramesRunDeps):
     return { kind: 'refusal', message: buildFramesUnavailableMessage(), exitCode: 1, warnings };
   }
 
-  const attributable = selectReplayWindowsForJourney(windows, journey);
-  if (attributable.length === 0) {
+  const overlapping = selectReplayWindowsForJourney(windows, journey);
+  if (overlapping.length === 0) {
     return {
       kind: 'refusal',
-      message: 'Replay windows do not bracket this journey; frames unavailable — the plan and spec are still valid.',
+      message: 'Recorded windows do not bracket this journey; frames unavailable — the plan and spec are still valid.',
       exitCode: 1,
       warnings,
     };
   }
+  // A window none of whose events could be read cannot be drawn. It must not
+  // make a readable window ambiguous or be picked ahead of it; it is set
+  // aside, and its reason travels with every capture. When no overlapping
+  // window is readable, the first one is used so each capture comes out
+  // not-renderable with its reason.
+  const readable = overlapping.filter((window) => window.events.length > 0);
+  const setAside = readable.length > 0 ? overlapping.filter((window) => window.events.length === 0) : [];
+  const attributable = readable.length > 0 ? readable : [overlapping[0]];
+  const setAsideCaveats = [...new Set(setAside.flatMap((window) => window.decodeIssues ?? [REPLAY_UNREADABLE_FALLBACK]))]
+    .map((reason) => `Another recorded window overlapping this journey couldn't be read and was skipped: ${reason}`);
+  for (const caveat of setAsideCaveats) warnings.push(`Warning: ${caveat}`);
 
-  const frameSteps = toFrameSteps(journey, sidecar);
-  const range = options.steps === undefined ? undefined : parseFrameStepRange(options.steps);
+  // Same selection as the check above, now with real offsets, so it plans at
+  // least one capture.
   const plan = selectFrameCaptures(frameSteps, attributable[0].firstTimestampMs, { all: options.all, range });
-  // Overlap-selected windows can leave step offsets past the recording's last
-  // event; render the final recorded state there and say so per capture.
-  const windowDurationMs = attributable[0].lastTimestampMs - attributable[0].firstTimestampMs;
+  // Overlap-selected windows can leave step offsets at or past the recording's
+  // last event; render the final recorded state there and say so per capture.
+  // The replayer applies only events strictly BEFORE the pause point, so the
+  // end of the recording is one millisecond past its last event — otherwise
+  // the last recorded change would be missing from the final-state picture.
+  // An offset exactly AT the last event is treated as the end too: the
+  // recording has nothing later to show, and leaving it unclamped would label
+  // `complete` a picture that silently omits that last recorded change.
+  const lastEventOffsetMs = attributable[0].lastTimestampMs - attributable[0].firstTimestampMs;
+  const endOfRecordingOffsetMs = lastEventOffsetMs + 1;
   for (const capture of plan.captures) {
-    if (capture.offsetMs > windowDurationMs) {
+    if (capture.offsetMs >= lastEventOffsetMs) {
       capture.requestedOffsetMs = capture.offsetMs;
-      capture.offsetMs = windowDurationMs;
-      capture.caveats = [
-        ...capture.caveats,
-        'Step timestamp is after the recording\'s last event — showing the final recorded state at the clamped offset.',
-      ];
+      capture.offsetMs = endOfRecordingOffsetMs;
+      capture.caveats = [...capture.caveats, CLAMPED_CAVEAT];
     }
+    if (setAsideCaveats.length > 0) capture.caveats = [...capture.caveats, ...setAsideCaveats];
   }
   const outputDir = path.join(deps.framesDir, options.slug);
   const previous = readPreviousManifest(outputDir);
@@ -700,14 +858,52 @@ export async function runFrames(options: FramesRunOptions, deps: FramesRunDeps):
   const resultsById = new Map(rendered.map((result) => [result.id, result]));
   const prepared = plan.captures.map((capture) => {
     const result = resultsById.get(capture.id);
-    const fidelity = ambiguous
+    const hasHtml = result !== undefined && result.html.length > 0;
+    const hasPng = result !== undefined && result.pngBuffer.length > 0;
+    // Precedence: ambiguous-window > not-renderable (including a missing
+    // result or no output) > partial > clamped > complete. A partial capture
+    // keeps its clamp offsets but never claims to show the complete final state.
+    const fidelity: FrameCaptureFidelity = ambiguous
       ? 'ambiguous-window'
-      : capture.requestedOffsetMs === undefined
-        ? result?.fidelity ?? 'partial'
-        : 'clamped';
+      : result === undefined || result.fidelity === 'not-renderable' || (!hasHtml && !hasPng)
+        ? 'not-renderable'
+        : result.fidelity === 'partial' || !hasHtml || !hasPng
+          ? 'partial'
+          : capture.requestedOffsetMs === undefined
+            ? result.fidelity
+            : 'clamped';
     return buildManifestCapture(capture, result, fidelity);
   });
   deduplicateConsecutiveCaptureFiles(prepared);
+  // Warn on every capture that was not fully drawn, so none passes silently.
+  // The not-renderable warning counts only captures carrying that label (a
+  // partial capture can carry a renderer-supplied reason too); partial and
+  // ambiguous-window captures each get one count line of their own.
+  const undrawnByReason = new Map<string, number>();
+  let partialCount = 0;
+  let ambiguousCount = 0;
+  for (const capture of prepared) {
+    const { fidelity, reason } = capture.manifest;
+    // Every not-renderable capture carries a reason (buildManifestCapture).
+    if (fidelity === 'not-renderable' && reason !== undefined) {
+      undrawnByReason.set(reason, (undrawnByReason.get(reason) ?? 0) + 1);
+    } else if (fidelity === 'partial') {
+      partialCount += 1;
+    } else if (fidelity === 'ambiguous-window') {
+      ambiguousCount += 1;
+    }
+  }
+  if (ambiguousCount > 0) {
+    warnings.push(
+      `Warning: ${ambiguousCount} frame capture(s) were not drawn: this journey's time matched more than one recorded window, so the command could not tell which window to draw. They are marked ambiguous-window in manifest.json.`,
+    );
+  }
+  for (const [reason, count] of undrawnByReason) {
+    warnings.push(`Warning: couldn't draw ${count} frame capture(s), marked not-renderable in manifest.json: ${reason}`);
+  }
+  if (partialCount > 0) {
+    warnings.push(`Warning: ${partialCount} frame capture(s) were only partly drawn and are marked partial in manifest.json.`);
+  }
 
   const manifest: FramesManifest = {
     slug: options.slug,
@@ -750,4 +946,10 @@ export async function runFrames(options: FramesRunOptions, deps: FramesRunDeps):
   }
 
   return { kind: 'written', manifest, outputDir, warnings };
+}
+
+/** Outcome coverage can appear on a signature-selected journey even when that journey was not plannable. */
+export function frameOutcomeWarning(journey: Journey): string | undefined {
+  if (journey.outcomeCoverage === undefined) return undefined;
+  return journey.outcomeCoverage === 'not-captured' ? 'Outcome not captured.' : 'Outcome not recognized.';
 }

@@ -18,7 +18,7 @@ on:
         options:
           - next
           - latest
-        default: next
+        default: latest
         required: true
 
 permissions: {}
@@ -139,6 +139,17 @@ jobs:
           cp release-notes.md release-candidate/
           cp scripts/release/release-plan.mts release-candidate/release-plan.mts
 
+      - name: Dry-run the publish command
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            # The publish job asks the same module for this path from the same layout, so npm sees the same value.
+            TARBALL="$(node release-candidate/release-plan.mts package-path)"
+            EXPECTED_DIST_TAG="$DIST_TAG"
+            npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag "$EXPECTED_DIST_TAG" --dry-run
+          else
+            echo "Live release: package publishing runs in the publish job."
+          fi
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-candidate
@@ -216,9 +227,7 @@ jobs:
             echo "The expected package or module hash is missing." >&2
             exit 1
           fi
-          # The ./ prefix matters: npm reads a bare "release-candidate/x.tgz" as a GitHub owner/repo shorthand.
-          TARBALL="./${CANDIDATES[0]}"
-          ACTUAL_TARBALL_SHA256="$(sha256sum "$TARBALL" | cut -d ' ' -f 1)"
+          ACTUAL_TARBALL_SHA256="$(sha256sum "${CANDIDATES[0]}" | cut -d ' ' -f 1)"
           ACTUAL_MODULE_SHA256="$(sha256sum release-candidate/release-plan.mts | cut -d ' ' -f 1)"
           if [ "$ACTUAL_TARBALL_SHA256" != "$EXPECTED_TARBALL_SHA256" ]; then
             echo "The package hash differs: expected $EXPECTED_TARBALL_SHA256, got $ACTUAL_TARBALL_SHA256." >&2
@@ -228,6 +237,8 @@ jobs:
             echo "The release-plan module hash differs: expected $EXPECTED_MODULE_SHA256, got $ACTUAL_MODULE_SHA256." >&2
             exit 1
           fi
+          # Asked only after the module hash matches. The dry run asks the same module from the same layout.
+          TARBALL="$(node release-candidate/release-plan.mts package-path)"
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
 
       - name: The package manifest and npm tag are valid
@@ -260,7 +271,7 @@ jobs:
         run: |
           MODE="$(node release-candidate/release-plan.mts classify-publish)"
           if [ "$MODE" = "publish" ]; then
-            trap 'echo "npm refused the publish. If it says this version already exists, the package is live: wait a few minutes and use Re-run failed jobs again." >&2' ERR
+            trap 'echo "Publishing failed; see the npm message above. One possible cause is that this version is already published. If npm says so, wait a few minutes and use Re-run failed jobs; the re-run checks the registry first." >&2' ERR
             npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag "$EXPECTED_DIST_TAG"
             trap - ERR
           elif [ "$MODE" = "already-published" ]; then

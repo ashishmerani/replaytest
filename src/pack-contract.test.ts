@@ -225,12 +225,14 @@ test('the shared pack and installed-package path contract affirmatively requires
     'dist/dashboard/index.html',
     'dist/dashboard/demo-store.json',
     'dist/providers/posthog-adapter.js',
+    'dist/tool-identifier.js',
     'dist/.build-meta.json',
     ...Array.from({ length: 21 }, (_, index) => `dist/filler-${index}.js`),
   ];
   const buildSources = [
     'src/cli.ts',
     'src/providers/posthog-adapter.ts',
+    'src/tool-identifier.ts',
     ...Array.from({ length: 21 }, (_, index) => `src/filler-${index}.ts`),
   ];
   const manifest: PackageManifest = { name: 'replaytest', version: '0.1.0', bin: 'dist/cli.js' };

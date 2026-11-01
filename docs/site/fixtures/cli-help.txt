@@ -9,6 +9,10 @@ Usage:
       Print the installed replaytest package version.
   replaytest sessions [<sessionId> --from-archive <dir>] [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N] [--steal-scan-lock] [--watch [--interval 15m|1h] [--max-ticks N]]
       List ranked canonical journeys from recent sessions (default last 720h (30 days); override with --since-hours N).
+      --completed selects Completed rows only (not Stopped mid-flow rows).
+      --navigated selects Navigated rows only.
+      --submitted selects Submitted rows only.
+      Stopped mid-flow rows appear only when no status filter is set. The Sessions scan cannot show Error after submit.
       --with-exceptions filters to journeys whose session's events witnessed a JS
       exception (exact scan only — coarse mode prints an honest one-liner and exits 0
       with no rows rather than pretending).
@@ -16,6 +20,7 @@ Usage:
       output labels Seen directly, Strong hint, or Couldn't check; unavailable evidence is reported, never treated as no match.
       Wizard URL overrides: add {"wizardStepParams":["step","phase"]} to
       .replaytest/config.json. Names are case-insensitive; only ordinal values 1–99 match.
+      Configured wizard step parameters group plans and signatures; continuation into the next step reads only the `step` parameter.
       App scope: declare {"apps":{"shop":["https://shop.example"]},"app":"shop"} in
       .replaytest/config.json, or use --app <name> to select a declared app for this scan.
       --families: Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path. Path-based grouping for path-changing flows.
@@ -42,10 +47,12 @@ Usage:
   replaytest plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]
       Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)
       to .replaytest/plans/ for each plannable journey. Refuses to overwrite a
-      sidecar owned by a different or unknown journey unless --force is passed.
-      Plannable = every completed journey, plus a navigated one holding a single
+      sidecar when its session, journey position, or recorded flow shape differs, or when it cannot be read, unless --force is passed.
+      Plannable = every Completed journey or Stopped mid-flow journey (the plan checks the step change it saw),
+      plus a Navigated one holding a single
       inline-commit create (its spec presses the committing keystroke as a step
       marked SYNTHESIZED, because no recording captures it).
+      Submitted, Abandoned, and Error after submit journeys are not plannable.
       Refuses a journey that spans origins or that witnessed no origin at all,
       so a plan never asserts one property's URLs against another's — and
       holds back every other plannable journey in the same session too, since
@@ -187,19 +194,27 @@ Usage:
       Show this message.
 
 Completion evidence ladder
-- Completed: A form submit followed by a navigation to a distinct witnessed URL.
-  Conditions: A submit step is followed later by a navigation. The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized.
-  Known false-positive shapes: A submit can still be an application-side failure; this records the witnessed route change, not backend validation.
-- Navigated: Typed input followed by a landing on a new route; no form submit was witnessed.
+- Completed: A form submit followed by a navigation to a distinct URL seen in the session's events.
+  Conditions: A submit step is followed later by a navigation. The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized. Nothing seen says the landing was a further unfinished step or that the last submit was refused.
+  Known false-positive shapes: A submit can still be an application-side failure; this records the route change seen, not backend validation.
+- Stopped mid-flow: A submit reached the next step of the same flow, then the user stopped there.
+  Conditions: The last submit reached the next step of the same flow, shown by typing there or by a new empty form in the recording. The journey can be planned as a check of that step change, not of the whole flow.
+  Known false-positive shapes: A later step may exist even though the session stopped here; the plan checks only the step change that was seen.
+- Error after submit: An error appeared after a submit while its form stayed on the page or appeared again after a reload.
+  Conditions: The recording shows an error within 10 seconds after the last submit while the submitted form is still present. A page reload that shows the same submitted form again with an error counts too, even when the events alone showed a new page. An error seen while the submitted form is still on the page counts, even when the recording ends early.
+  Known false-positive shapes: An error-styled element can flash during a successful redirect. A refused side action such as a promo code can show an error even though the user then went on to finish. We never see card fields inside a payment frame or any area the recording blocks, so an error shown there is not counted.
+- Navigated: Typed input followed by a landing on a new route; no submit seen.
   Conditions: No submit step exists; at least one input step exists. The last landing is new by exact URL and canonical path, and input occurred away from that landing. Trailing interactions are trimmed to retain the landing witness.
   Known false-positive shapes: Search-then-open: typed a query and opened an existing result. Typed-then-bailed-elsewhere: changed a field, then navigated away for another reason. Created-then-deleted: later delete activity is trimmed after the landing.
-- Submitted: A form submit, without a distinct post-submit landing.
-  Conditions: At least one submit step exists. The completed submit-then-navigation rule did not hold.
+- Submitted: A form submit with no new page and no error seen after it.
+  Conditions: A submit happened with no new page and no error seen after it.
   Known false-positive shapes: The submit may have succeeded in place or its landing may have been missing from the recording.
 - Abandoned: No form submit was seen, and we didn't see typing followed by arriving on a new page.
-  Conditions: No completed, navigated, or submitted rule matched.
+  Conditions: No other rule matched.
   Known false-positive shapes: A missing captured event can make an otherwise successful flow appear abandoned.
+- Finish checked means the recording showed the final page settle with no form left open on it (neither from the same flow nor any other new form), the submitted form was not shown again, no error appeared after the last submit, and the moment after the last submit was fully recorded.
+- Note: Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; `plan` and `frames` read the recording.
 - Note: The quick scan reads summary numbers only — it never opens the full recording, so it can't spot Navigated journeys. Quick-scan counts may show fewer Navigated (and more Abandoned) than a full scan finds.
-- Note: Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.
+- Note: Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once, so a low Navigated count is never on its own evidence that this class is rare.
 
 First touch: `replaytest init` → `replaytest sessions` → `replaytest plan <distinctId>` → `replaytest scaffold <slug>` → run the generated test. Use `replaytest doctor` only when something is wrong; use `replaytest preflight <slug>` before a real run. Neither is a first-touch step. For a red test, read AGENT-MAINTENANCE-GUIDE.md (shipped with replaytest).

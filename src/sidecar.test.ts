@@ -13,7 +13,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+
+import { runVersion } from './cli/verbs/version.js';
+import { makeTempDir } from './test-support/temp-dir.test-support.js';
+import { toolIdentifier } from './tool-identifier.js';
 
 import {
   buildSidecar,
@@ -22,6 +30,8 @@ import {
   SUBMIT_WRITE_HONEST_NOTE,
   renderPlanMarkdown,
   renderScaffoldSpec,
+  needsSegmentationReview,
+  planReviewReasons,
   SIGNATURE_SEMANTICS_VERSION,
   signatureSemanticsReview,
   SPEC_HONESTY_MARKER_PREFIX,
@@ -29,12 +39,34 @@ import {
   type SidecarAssertion,
   type SidecarContext,
 } from './sidecar.js';
+import { SEGMENTATION_VERSION } from './journeys.js';
 import { parseSidecarJson } from './triage.js';
 import type { Journey } from './journeys.js';
 import type { NeutralException, NeutralStep, NeutralStepKind, NeutralTarget } from './neutral-session.js';
 
 const BASE = 'http://localhost:8000';
 const ENTRY_URL = `${BASE}/index.html`;
+
+test('tool identifier follows package.json through the same reader the version command prints', (t) => {
+  const packageJsonPath = fileURLToPath(new URL('../package.json', import.meta.url));
+  const packageManifest = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { version: string };
+  const printed: string[] = [];
+  runVersion([], { log: (line) => printed.push(line) });
+  assert.deepEqual(printed, [packageManifest.version]);
+  assert.equal(toolIdentifier(), `replaytest@${packageManifest.version}`);
+  assert.equal(buildSidecar(invoiceJourney, ctx()).source.tool, `replaytest@${packageManifest.version}`);
+
+  const temporaryRoot = makeTempDir(t, path.join(os.tmpdir(), 'replaytest-tool-identifier-'));
+  const alternateManifest = path.join(temporaryRoot, 'package.json');
+  fs.writeFileSync(alternateManifest, JSON.stringify({ type: 'module', version: '9.8.7' }), 'utf8');
+  assert.equal(toolIdentifier(alternateManifest), 'replaytest@9.8.7');
+  // An explicit manifest never replaces the installed identifier.
+  assert.equal(toolIdentifier(), `replaytest@${packageManifest.version}`);
+  fs.writeFileSync(alternateManifest, JSON.stringify({ type: 'module' }), 'utf8');
+  assert.throws(() => toolIdentifier(alternateManifest), /Cannot read replaytest's package version/);
+  fs.writeFileSync(alternateManifest, JSON.stringify({ type: 'module', version: '' }), 'utf8');
+  assert.throws(() => toolIdentifier(alternateManifest), /Cannot read replaytest's package version/);
+});
 
 // Monotonically-increasing fixture timestamps — mirrors journeys.test.ts /
 // repro-builder.test.ts; absolute values are never
@@ -133,20 +165,91 @@ test('buildSidecar: source carries distinctId/sessionId/journeyIndex/signature/t
 test('buildSidecar: live URL-semantics context records the version and effective names, while the default shape remains legacy-compatible', () => {
   const legacy = buildSidecar(invoiceJourney, ctx());
   assert.equal(legacy.source.signatureSemanticsVersion, undefined);
+  assert.equal(legacy.source.segmentationVersion, undefined);
   assert.equal(legacy.source.wizardStepParamNames, undefined);
 
   const live = buildSidecar(invoiceJourney, ctx({
     signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
     wizardStepParamNames: ['step', 'phase'],
   }));
   assert.equal(live.source.signatureSemanticsVersion, SIGNATURE_SEMANTICS_VERSION);
+  assert.equal(live.source.segmentationVersion, SEGMENTATION_VERSION);
   assert.deepEqual(live.source.wizardStepParamNames, ['step', 'phase']);
   const defaultEraCurrentVersion = { ...legacy.source, signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION };
   assert.equal(signatureSemanticsReview(defaultEraCurrentVersion, ['step']), undefined);
   assert.deepEqual(signatureSemanticsReview(defaultEraCurrentVersion, ['step', 'phase']), {
     kind: 'recognized-param-names-changed',
-    note: 'ⓘ Generated with recognized wizard parameters [step]; current names are [step, phase] — review because its signature may have changed.',
+    note: 'ⓘ This plan and the current settings recognize different URL parameters for wizard steps ([step] and [step, phase]).',
   });
+});
+
+test('planReviewReasons keeps signature and visit-boundary reasons separate and uses the shared segmentation predicate', () => {
+  const current = {
+    signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
+    wizardStepParamNames: ['step'],
+  };
+  const segmentationOnly = { ...current, segmentationVersion: 0 };
+  const signatureOnly = { ...current, signatureSemanticsVersion: 0 };
+  const both = { wizardStepParamNames: ['step'] };
+  const newerSignature = { ...current, signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION + 1 };
+  const newerSegmentation = { ...current, segmentationVersion: SEGMENTATION_VERSION + 1 };
+
+  assert.deepEqual(planReviewReasons(current, ['step']), []);
+  assert.deepEqual(planReviewReasons(signatureOnly, ['step']).map(({ kind }) => kind), ['older-url-semantics']);
+  assert.deepEqual(planReviewReasons(segmentationOnly, ['step']).map(({ kind }) => kind), ['older-journey-boundaries']);
+  assert.deepEqual(planReviewReasons(both, ['step']).map(({ kind }) => kind), [
+    'older-url-semantics',
+    'older-journey-boundaries',
+  ]);
+  assert.deepEqual(planReviewReasons(newerSegmentation, ['step']), []);
+  assert.deepEqual(planReviewReasons(newerSignature, ['step']), [{
+    kind: 'older-url-semantics',
+    note: 'ⓘ This plan was built under different URL rules.',
+  }]);
+
+  const oddMarkers = [
+    { segmentationVersion: undefined },
+    { segmentationVersion: null },
+    { segmentationVersion: '1' },
+    { segmentationVersion: 0 },
+    { segmentationVersion: SEGMENTATION_VERSION },
+    { segmentationVersion: SEGMENTATION_VERSION + 1 },
+  ];
+  for (const marker of oddMarkers) {
+    const source = marker as unknown as Parameters<typeof needsSegmentationReview>[0];
+    const combinedSource = { ...current, ...marker } as unknown as Parameters<typeof planReviewReasons>[0];
+    assert.equal(
+      planReviewReasons(combinedSource, ['step']).some((reason) => reason.kind === 'older-journey-boundaries'),
+      needsSegmentationReview(source),
+      `combined review agrees for segmentationVersion=${String(marker.segmentationVersion)}`,
+    );
+  }
+  assert.equal(needsSegmentationReview({ segmentationVersion: null } as unknown as Parameters<typeof needsSegmentationReview>[0]), true);
+  assert.equal(needsSegmentationReview({ segmentationVersion: '1' } as unknown as Parameters<typeof needsSegmentationReview>[0]), false);
+});
+
+test('buildSidecar: stopped-mid-flow plans record their outcome and the displayed final path caveat', () => {
+  const rawJourney = journey([
+    step('navigation', `${BASE}/signup?phase=2`),
+    step('submit', `${BASE}/signup?phase=2`, { tag: 'button', text: 'Continue' }),
+    step('navigation', `${BASE}/signup?phase=4`),
+  ]);
+  const stopped: Journey = {
+    ...rawJourney,
+    status: 'abandoned-mid-flow',
+    stoppedAtStep: 4,
+    midFlowEvidence: 'typed-on-next-step',
+  };
+  const sidecar = buildSidecar(stopped, ctx({
+    segmentationVersion: SEGMENTATION_VERSION,
+    wizardStepParamNames: ['step', 'phase'],
+  }));
+  const expectedCaveat = 'This test checks the step change to /signup?step=4, not the whole flow.';
+  assert.equal(sidecar.source.outcome, 'abandoned-mid-flow');
+  assert.ok(sidecar.caveats?.includes(expectedCaveat));
+  assert.ok(renderPlanMarkdown(sidecar).includes(expectedCaveat));
 });
 
 test('buildSidecar: privacy boundary version is additive on live context and absent from legacy context', () => {
@@ -229,7 +332,7 @@ test('buildSidecar: omits absent action URLs while adding the structural placeho
       journeyIndex: 0,
       signature: '/ > /invoice-pay.html > /invoice-confirmation.html',
       generatedAt: emitted.source.generatedAt,
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/index.html',
     steps: [
@@ -1009,7 +1112,7 @@ function sidecar(overrides: Partial<Sidecar> = {}): Sidecar {
       journeyIndex: 0,
       signature: '/index.html > /invoice-confirmation.html',
       generatedAt: '2026-07-04T00:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/index.html',
     steps: [],
@@ -3436,7 +3539,7 @@ test('inline commit: the write-safety caveat fires, with the right mechanic and 
   const writeCaveat = (built.caveats ?? []).find((caveat) => caveat.startsWith('This flow performs writes'));
 
   assert.ok(writeCaveat !== undefined, 'an inline-commit create writes a real record');
-  assert.match(writeCaveat ?? '', /committing an inline edit — no form submit was witnessed/);
+  assert.match(writeCaveat ?? '', /committing an inline edit — no form submit was seen/);
   assert.equal(/\(form submissions\)/.test(writeCaveat ?? ''), false, 'no form was submitted');
   assert.match(writeCaveat ?? '', /NOT idempotent: every run creates another new record/);
   assert.equal(built.performsWrites, true);
@@ -3543,10 +3646,30 @@ test('completed journeys keep the literal last-segment title (78 goldens depend 
   assert.equal(buildSidecar(idBearing, ctx()).title, 'Inv 1003');
 });
 
-test('inline commit: the plan states plainly that triage cannot yet assess it', () => {
-  const built = buildSidecar(inlineCommitJourney(), ctx());
+const CURRENT_INLINE_COMMIT_TRIAGE_CAVEAT =
+  'Triage does not score this plan: a journey that ends on a new page without a submit is not counted as a regression ' +
+  'success or failure. Fresh traffic for this journey reports as insufficient evidence rather than healthy or regressed. ' +
+  'Check it by hand.';
+
+test('inline commit: a plan written under the current journey boundaries explains that triage does not score these journeys yet', () => {
+  const built = buildSidecar(inlineCommitJourney(), ctx({ signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION, segmentationVersion: SEGMENTATION_VERSION }));
   assert.ok(
-    (built.caveats ?? []).some((caveat) => caveat.startsWith('Triage cannot yet assess this plan')),
-    'plannability does not make the class triageable — the regression arithmetic still excludes it',
+    (built.caveats ?? []).includes(CURRENT_INLINE_COMMIT_TRIAGE_CAVEAT),
+    'plannability does not make a new-page landing without a submit a regression success or failure',
+  );
+  assert.doesNotMatch((built.caveats ?? []).join('\n'), /navigated/i);
+});
+
+test('inline commit: the caveat follows the segmentation marker, not the signature-semantics marker', () => {
+  // The signature-semantics marker alone (every live plan before the
+  // segmentation marker existed) keeps the caveat the plan was built with.
+  const signatureOnly = buildSidecar(inlineCommitJourney(), ctx({ signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION }));
+  assert.equal((signatureOnly.caveats ?? []).includes(CURRENT_INLINE_COMMIT_TRIAGE_CAVEAT), false);
+  const unmarked = buildSidecar(inlineCommitJourney(), ctx());
+  assert.ok(
+    (unmarked.caveats ?? []).some((caveat) => caveat.startsWith(
+      'Triage does not assess this plan: regression checks cover completed, submitted, and abandoned outcomes only',
+    )),
+    'an archive-built plan stays byte-stable',
   );
 });

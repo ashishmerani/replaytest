@@ -21,7 +21,12 @@
  * selection.ts. Family counts are their union, never a sum of row counts.
  */
 
-import type { JourneyStatus } from './journeys.js';
+import {
+  assertNeverJourneyStatus,
+  type JourneyFinality,
+  type JourneyStatus,
+  type MidFlowEvidence,
+} from './journeys.js';
 // Type-only on purpose: `selection.ts` imports `statusRank` from THIS module at
 // runtime, so a value import back would close a module cycle.
 import type { JourneyStatusMix, RankedJourney } from './selection.js';
@@ -77,15 +82,21 @@ export interface RankedFamily {
   headSignature: string;
   /** Distinct-session union across every nested member. */
   sessionCount: number;
-  /** Strongest witnessed member status: completed > submitted > navigated > abandoned. */
+  /** Plannable-first headline member status, following `statusRank`. */
   status?: JourneyStatus;
   /**
    * Per-status instance counts across every member, present only when the
-   * family's members did NOT all end the same way. `status` is a MAX, never a
-   * vote, so five navigated members plus one stray submitted would otherwise
-   * headline as "Submitted" with nothing recording the other five.
+   * family's members did NOT all end the same way. `status` is the
+   * rank-preferred member, not a vote: one navigated member can headline above
+   * five submitted members, while this mix keeps both counts visible.
    */
   statusMix?: JourneyStatusMix;
+  /** Whether a completed headline's final page was checked to be the real finish. */
+  finality?: JourneyFinality;
+  /** Step ordinal where a stopped-mid-flow headline ended, when its URL carries one. */
+  stoppedAtStep?: number;
+  /** What showed a stopped-mid-flow headline. */
+  midFlowEvidence?: MidFlowEvidence;
   /** Exact-signature rows, unchanged from the existing flat ranking. */
   members: RankedJourney[];
   /**
@@ -95,13 +106,13 @@ export interface RankedFamily {
    */
   coverage?: FamilyCoverageSummary;
   /**
-   * The exact completed member a family-level Plan action should target.
-   * Highest session count wins; ties prefer the deeper route sequence.
-   * Omitted when the family contains no completed member.
+   * The exact completed or stopped-mid-flow member a family-level Plan action should target.
+   * Completed wins first; within a status, highest session count wins and ties prefer the deeper route sequence.
+   * Omitted when the family contains neither status.
    */
   planTarget?: { signature: string; sessionId?: string };
   /**
-   * The strongest navigated member, tracked SEPARATELY from `planTarget` even
+   * The best-ranked navigated member, tracked SEPARATELY from `planTarget` even
    * though the class is now plannable. Deliberate: a completed journey replays
    * a witnessed submit, a navigated one replays a SYNTHESIZED commit
    * keystroke, and a customer must be able to tell which kind of plan they are
@@ -182,17 +193,23 @@ export function containsContiguousSubsequence(haystack: string[], needle: string
   return false;
 }
 
-/** The existing selection status preference, extracted for family headlines. */
+/** Plannable-first status preference, shared with journey selection. */
 export function statusRank(status: JourneyStatus): number {
   switch (status) {
     case 'completed':
-      return 3;
-    case 'submitted':
-      return 2;
+      return 6;
+    case 'abandoned-mid-flow':
+      return 5;
     case 'navigated':
-      return 1;
+      return 4;
+    case 'submitted':
+      return 3;
+    case 'error-after-submit':
+      return 2;
     case 'abandoned':
-      return 0;
+      return 1;
+    default:
+      return assertNeverJourneyStatus(status, 'family ranking');
   }
 }
 
@@ -352,8 +369,10 @@ function compareMembers(a: RankedJourney, b: RankedJourney): number {
   return a.signature.localeCompare(b.signature);
 }
 
-/** Strongest-witness-first, matching `statusRank`. */
-const FAMILY_STATUS_MIX_ORDER: readonly JourneyStatus[] = ['completed', 'submitted', 'navigated', 'abandoned'];
+/** Plannable-first, matching `statusRank`. */
+const FAMILY_STATUS_MIX_ORDER: readonly JourneyStatus[] = [
+  'completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned',
+];
 
 /**
  * Rolls every member's own mix (or its single status) into one family mix, or
@@ -384,16 +403,25 @@ export function familyStatusMix(members: readonly RankedJourney[]): JourneyStatu
  * The headline status (a MAX over members, unchanged) travelling with the mix
  * that produced it, so a family whose members disagree can say so.
  */
-function bestFamilyStatus(members: RankedJourney[]): { status?: JourneyStatus; statusMix?: JourneyStatusMix } {
-  let best: JourneyStatus | undefined;
+function bestFamilyStatus(members: RankedJourney[]): {
+  status?: JourneyStatus;
+  statusMix?: JourneyStatusMix;
+  finality?: JourneyFinality;
+  stoppedAtStep?: number;
+  midFlowEvidence?: MidFlowEvidence;
+} {
+  let best: RankedJourney | undefined;
   for (const member of members) {
-    if (member.status !== undefined && (best === undefined || statusRank(member.status) > statusRank(best))) {
-      best = member.status;
+    if (member.status !== undefined && (best === undefined || statusRank(member.status) > statusRank(best.status as JourneyStatus))) {
+      best = member;
     }
   }
   const statusMix = familyStatusMix(members);
   return {
-    ...(best === undefined ? {} : { status: best }),
+    ...(best?.status === undefined ? {} : { status: best.status }),
+    ...(best?.finality === undefined ? {} : { finality: best.finality }),
+    ...(best?.stoppedAtStep === undefined ? {} : { stoppedAtStep: best.stoppedAtStep }),
+    ...(best?.midFlowEvidence === undefined ? {} : { midFlowEvidence: best.midFlowEvidence }),
     ...(statusMix === undefined ? {} : { statusMix }),
   };
 }
@@ -402,7 +430,7 @@ function bestFamilyStatus(members: RankedJourney[]): { status?: JourneyStatus; s
 function bestPlanTarget(
   members: RankedJourney[],
 ): { planTarget?: { signature: string; sessionId?: string }; navigatedTarget?: { signature: string; sessionId?: string } } {
-  const completed = members.filter((member) => member.status === 'completed');
+  const planned = members.filter((member) => member.status === 'completed' || member.status === 'abandoned-mid-flow');
   const navigated = members.filter((member) => member.status === 'navigated');
 
   const comparePlanTargets = (a: RankedJourney, b: RankedJourney): number => {
@@ -412,7 +440,10 @@ function bestPlanTarget(
     if (depthDelta !== 0) return depthDelta;
     return a.signature.localeCompare(b.signature);
   };
-  completed.sort(comparePlanTargets);
+  planned.sort((a, b) => {
+    const statusDelta = statusRank(b.status as JourneyStatus) - statusRank(a.status as JourneyStatus);
+    return statusDelta || comparePlanTargets(a, b);
+  });
   navigated.sort(comparePlanTargets);
 
   const targetFor = (winner: RankedJourney): { signature: string; sessionId?: string } =>
@@ -420,7 +451,7 @@ function bestPlanTarget(
       ? { signature: winner.signature }
       : { signature: winner.signature, sessionId: winner.representativeSessionId };
 
-  const winner = completed[0];
+  const winner = planned[0];
   return {
     ...(winner === undefined ? {} : { planTarget: targetFor(winner) }),
     ...(navigated[0] === undefined ? {} : { navigatedTarget: targetFor(navigated[0]) }),

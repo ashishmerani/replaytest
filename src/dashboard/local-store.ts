@@ -41,7 +41,15 @@ const AUTO_CHECK_SETTINGS: readonly AutoCheckSetting[] = ['never', '15m', '1h'];
  */
 // Version 6 adds the offline store/read-state facts and the snapshot totals
 // used by the Sessions summary cards; older envelopes cannot provide them.
-export const DASHBOARD_LAST_SCAN_PAYLOAD_SCHEMA_VERSION = 6;
+// Version 7 adds the six-status census and display labels. Version 8 marks
+// rows grouped under the current visit and wizard-step journey boundaries
+// (with the Stopped mid-flow and Error after submit statuses). Some builds
+// wrote 7 with the new labels but the previous grouping, so a 7 snapshot is
+// refused like any older one. An older snapshot's rows were grouped under the
+// previous boundaries or lack the new vocabulary, so they must be fetched
+// again: `sessions --stored` refuses them rather than print them as current,
+// whatever its filters.
+export const DASHBOARD_LAST_SCAN_PAYLOAD_SCHEMA_VERSION = 8;
 
 /** Version of the completed Suite Health response stored on disk. Version 3 refreshes payloads whose inventory shape predates unreadable-artifact reporting. */
 export const DASHBOARD_SUITE_HEALTH_PAYLOAD_SCHEMA_VERSION = 3;

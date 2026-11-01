@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "title": "Search 5 step2",
+  "title": "Search 5 step4",
   "source": {
     "distinctId": "019f4a4c-6731-7973-b308-b4dacdc6b795",
     "sessionId": "019f4a4c-6739-7a3d-8f0b-b33dca3877f3",
     "origin": "http://localhost:8000",
     "journeyIndex": 2,
-    "signature": "/flows/search-5-step1.html > /flows/search-5-step2.html",
+    "signature": "/flows/search-5-step1.html > /flows/search-5-step2.html > /flows/search-5-step3.html > /flows/search-5-step4.html",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
   "start": "/flows/search-5-step1.html",
   "steps": [
@@ -107,17 +107,32 @@
       "url": "/flows/search-5-step1.html",
       "isSubmit": true,
       "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Result A",
+      "locator": "getByRole('link', { name: 'Result A' })",
+      "url": "/flows/search-5-step2.html",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Select this result",
+      "locator": "getByRole('link', { name: 'Select this result' })",
+      "url": "/flows/search-5-step3.html",
+      "selectorConfidence": "confident"
     }
   ],
   "assertions": [
     {
       "type": "final-url",
-      "value": "/flows/search-5-step2.html",
+      "value": "/flows/search-5-step4.html",
       "enabled": true
     },
     {
       "type": "page-shows-text",
-      "value": "Search 5 — Results",
+      "value": "Search 5 — Complete",
+      "source": "title",
       "enabled": true
     },
     {

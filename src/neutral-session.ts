@@ -9,7 +9,7 @@
  * The types below define the neutral contract and mapping rationale.
  *
  * ── What a SECOND adapter must supply ────────────────────────────────────
- * Only one adapter exists today, so three consumer-side expectations are
+ * Only one adapter exists today, so four consumer-side expectations are
  * easy to miss when mapping a new provider into this contract. They are
  * facts about the CURRENT consumers, recorded here so the next adapter
  * author does not have to rediscover them by reading consumer code:
@@ -38,9 +38,27 @@
  *    locator) and preserve the missing-id / adjacent-label resolution
  *    intent, not the specific attribute names.
  *
+ * 4. `NeutralStep.afterSubmit`, `landing`, and `inPageChrome` are optional
+ *    evidence, and `undefined` always means the fact was not witnessed. An
+ *    adapter never fabricates them.
+ *    - `afterSubmit` (submit steps) and `landing` (navigation steps) are
+ *      DOM-recording evidence. A provider without DOM recordings leaves them
+ *      `undefined`. If a recording fetch was attempted but failed, `coverage`
+ *      is explicitly `no-recording` or `undecodable`, never silent absence.
+ *    - `inPageChrome` (input steps) is element-chain evidence: it comes from
+ *      the input event's own element ancestry, so an adapter sets it on every
+ *      load path, with or without a recording, whenever that ancestry is
+ *      captured. Leaving it unset on an events-only load would let typing in
+ *      a header search box read as typing in the page's own form.
+ *    All three carry only closed, privacy-safe vocabulary (the token lists
+ *    live in `src/journey-outcome.ts`) — never captured text, values, or raw
+ *    selector strings.
+ *
  * These are documentation of the socket, not a conformance suite; contract
  * tests for a second adapter are deliberately deferred until one is built.
  */
+
+import type { AppearedTag, ErrorToken, SuccessToken } from './journey-outcome.js';
 
 /** One user session, normalized from a provider; downstream segmentation assigns its evidence status. */
 export interface NeutralSession {
@@ -157,6 +175,153 @@ export interface NeutralStep {
   target?: NeutralTarget; // present for click / input / submit
   title?: string; // present on navigation steps: the destination page's title (Tier-1 expected-text source)
   pageHeading?: string; // this step's route's main heading, recovered from the DOM snapshot (first <h1>'s direct text, else first <h2>'s) — a richer, route-specific alternative to `title` for a "page shows" assertion. `undefined` when the route has no snapshot or no heading at all (route-aware DOM-selector enrichment).
+  /**
+   * DOM-recording evidence of what the page did right after this submit.
+   * Set only on `kind === 'submit'` steps; absent means not witnessed.
+   */
+  afterSubmit?: {
+    /**
+     * Evidence attaches only where a recording window's pages line up
+     * one-to-one with the session's page visits (one exact run of URLs,
+     * each pair close in time, no other visit starting inside the
+     * recording's time span, and no visit lined up with a page after the
+     * recording's first page starting before that first page did); a
+     * submit whose visit no recording page lines up with reads
+     * `no-recording`. Pages at the start or the end of a
+     * recording whose URL the session's events never carry (such as a
+     * redirect page) are left out before the line-up and attach nothing; such
+     * a page in the middle means nothing in that recording attaches. The time
+     * span is the whole recording's, those left-out pages included. A visit
+     * inside the time span of a recording window that could not be read reads
+     * `undecodable`.
+     */
+    coverage: 'covered' | 'clipped' | 'ambiguous' | 'no-anchor' | 'undecodable' | 'no-recording';
+    windowMs?: number;
+    formStillPresent?: boolean;
+    fieldsMarkedInvalid: number;
+    /**
+     * How many errors seen in this submit's reaction window were already gone
+     * when a page change with no user action ended the window: the field marks,
+     * and the `appeared` entries with error tokens and no success tokens, that
+     * the adapter's persistence rule dropped from `fieldsMarkedInvalid` and
+     * `appeared`. Absent when none was dropped. A count only — never which
+     * element, and never its text. It never changes a status (the error
+     * decision does not read it); the outcome classifier reads a count of 1 or
+     * more as "finish not checked", because the recording did see an error
+     * after the submit.
+     */
+    goneAtPageChange?: number;
+    /**
+     * Elements that appeared after the submit; capped at 20 per submit. A
+     * newly added element with a listed tag becomes an `appeared` entry even
+     * when it has no text of its own: every non-interactive, listed-tag
+     * element added in the window is its own entry (each element of an added
+     * subtree included), unless one of the adapter's exclusions removes it
+     * (such as the exclusion of a dialog added in the window that holds a
+     * button, with everything inside it).
+     */
+    appeared: Array<{
+      how: 'added' | 'shown' | 'text-set';
+      /**
+       * Lower-case tag name from the closed admission list `APPEARED_TAGS`.
+       * The adapter emits an entry only for a listed tag, or as `other` only
+       * when the element carries `role="alert"`/`"status"` or `aria-live`;
+       * interactive elements are excluded before this mapping, and no
+       * page-authored (custom element) tag name is ever carried.
+       */
+      tag: AppearedTag;
+      role?: 'alert' | 'status';
+      live?: 'assertive' | 'polite';
+      /** Only members of the closed error list (`ERROR_TOKENS`); never raw attribute strings. */
+      errorTokens: ErrorToken[];
+      /** Only members of the closed success list (`SUCCESS_TOKENS`); never raw attribute strings. */
+      successTokens: SuccessToken[];
+    }>;
+  };
+  /**
+   * DOM-recording evidence of the page this navigation landed on.
+   * Set only on `kind === 'navigation'` steps; absent means not witnessed.
+   */
+  landing?: {
+    /**
+     * `no-occurrence`: a recording was read, but none of its pages lines up
+     * with this visit (the same rule as `afterSubmit.coverage`). A landing
+     * that is not the first page change after its submit, while forms were
+     * already on screen, is never `settled`: those forms were not re-read.
+     * A page load that replaces the screen (a full snapshot) re-reads every
+     * form on it, so such a landing may settle; a full snapshot that cannot
+     * be read leaves the screen unknown, so no landing it covers (the first
+     * after a submit included) is ever `settled`.
+     */
+    coverage: 'settled' | 'seen-unsettled' | 'clipped' | 'undecodable' | 'no-occurrence' | 'no-recording';
+    /**
+     * The two open-form facts, `relatedOpenForm` and `unrelatedOpenForm`,
+     * follow one rule. Both are judged against the nearest preceding submit.
+     *
+     * A form QUALIFIES when it is in main content (not inside header, nav,
+     * footer, aside, or a `role=search|complementary` region), has at least one
+     * submit-capable control, and its set of control names differs from that of
+     * the submitted form — a new form, not the submitted form shown again
+     * (that one is `rePresentsSubmittedForm`). When the submitted form cannot
+     * be identified (the submit has no anchored form in the recording: its
+     * `afterSubmit.coverage` is `no-anchor`, `ambiguous`, `undecodable` or
+     * `no-recording`, or `afterSubmit` is absent), every main-content form with
+     * a submit-capable control qualifies.
+     *
+     * The landing's qualifying forms go to ONE fact, chosen by URL: when
+     * `flowStepRelation(submit page URL, landing URL)` is `forward` they are
+     * reported in `relatedOpenForm` and `unrelatedOpenForm` is `none`;
+     * otherwise they are reported in `unrelatedOpenForm` and `relatedOpenForm`
+     * is `none`. At most one of the two is ever other than `none`.
+     *
+     * Value: `empty` when some qualifying form is empty; else `filled` when
+     * some form qualifies (a qualifying form with zero counted controls is
+     * `filled` — present, not empty); else `none`. Empty means a strict
+     * majority of the form's counted controls have the value `''` or no value
+     * attribute; which controls are counted is defined by the provider
+     * adapter. With no preceding submit, both are `none`.
+     *
+     * Presence counts as soon as it is seen; `none` claims an absence only
+     * when `coverage` is `settled`. The outcome classifier reads
+     * `relatedOpenForm` to decide "stopped mid-flow", and needs BOTH facts to
+     * be `none` for a checked finish. `unrelatedOpenForm` never changes a
+     * status.
+     */
+    relatedOpenForm: 'none' | 'empty' | 'filled';
+    /** The second open-form fact; see `relatedOpenForm` for the shared rule. */
+    unrelatedOpenForm: 'none' | 'empty' | 'filled';
+    /**
+     * True when the landing shows the submitted form again (its set of control
+     * names equals the submitted form's). Present exactly when the submitted
+     * form is known — the nearest preceding submit has an anchored form in the
+     * recording (its `afterSubmit.coverage` is `covered` or `clipped`) — and
+     * absent exactly when it is not (see `relatedOpenForm`); `errorShown` is
+     * then absent too. Absent therefore means "submitted form unknown", never
+     * "not shown again". As for the open-form facts, `true` counts as soon as
+     * it is seen, and `false` claims an absence only when `coverage` is
+     * `settled`: `false` with any other coverage means "not seen re-presented
+     * in what was recorded", and a reader takes it as an absence only when
+     * the landing settled.
+     */
+    rePresentsSubmittedForm?: boolean;
+    /**
+     * Judged at one point: the earlier of the end of the 1 s settle window and
+     * the user's first click, input or submit on that page. True when an error
+     * is shown on the re-presented form at that point; false only when the
+     * judgement point is the end of the settle window and no such error is
+     * shown; absent otherwise (including when the user acted before the page
+     * settled, or the form was re-presented only after the settle window).
+     * Only when `rePresentsSubmittedForm`.
+     */
+    errorShown?: boolean;
+  };
+  /**
+   * Element-chain evidence, on every load path: true when the input sits inside
+   * page chrome (header, nav, footer, aside, or a search or complementary
+   * region). Set only on `kind === 'input'` steps; absent means the element
+   * chain did not show it.
+   */
+  inPageChrome?: boolean;
 }
 
 /** Selector material for a step's target element. No captured values — ever. */

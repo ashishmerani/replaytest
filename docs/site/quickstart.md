@@ -14,7 +14,7 @@ This page takes you from nothing installed to a running generated test. Your cod
 
 | Component | Compatibility |
 | --- | --- |
-| `@playwright/test` | Floor `>=1.30.0` (optional peer); verified at 1.30.0, 1.61.0, 1.62.1, and 1.63.0; between = expected but untested. |
+| `@playwright/test` | Floor `>=1.30.0` (optional peer); verified at 1.30.0, 1.61.0, 1.62.1, 1.63.0, and 1.64.1; between = expected but untested. |
 | Node.js | `engines >=22`; verified on Node 22 LTS and Node 24 (full test suite + a packaged-install consumer check). |
 | PostHog CLI | Verified at 0.7.32, 0.8.4, 0.9.1, 0.9.4, 0.10.0, 0.13.3, and 0.16.0; the install command pins the newest. |
 | PostHog | Cloud/self-hosted service, unversioned — we depend on three API surfaces: the HogQL query API, the session-recordings list API, and the recording-snapshot endpoint; `doctor` probes all three live. |

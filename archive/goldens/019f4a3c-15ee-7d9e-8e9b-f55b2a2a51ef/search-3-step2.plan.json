@@ -6,120 +6,12 @@
     "sessionId": "019f4a3c-15ee-7d9e-8e9b-f55b2a2a51ef",
     "origin": "http://localhost:3002",
     "journeyIndex": 0,
-    "signature": "/flows/settings-6 > /flows/search-3 > /flows/search-3/step2",
+    "signature": "/flows/search-3 > /flows/search-3/step2",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
-  "start": "/flows/settings-6",
+  "start": "/flows/search-3",
   "steps": [
-    {
-      "action": "fill",
-      "label": "Work email",
-      "locator": "getByTestId('settings-6-0-settings-6-p0-f3')",
-      "placeholder": true,
-      "url": "/flows/settings-6",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('textbox', { name: 'Work email' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Work email')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#settings-6-0-settings-6-p0-f3')"
-        }
-      ],
-      "inputType": "email",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "click",
-      "label": "Input",
-      "locator": "getByTestId('settings-6-0-settings-6-p0-f1-Platinum')",
-      "url": "/flows/settings-6",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('radio', { name: 'Platinum' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Platinum')"
-        }
-      ],
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Full name",
-      "locator": "getByTestId('settings-6-0-settings-6-p0-f2')",
-      "placeholder": true,
-      "url": "/flows/settings-6",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('textbox', { name: 'Full name' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Full name')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#settings-6-0-settings-6-p0-f2')"
-        }
-      ],
-      "inputType": "text",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Full name",
-      "locator": "getByTestId('settings-6-0-settings-6-p0-name')",
-      "placeholder": true,
-      "url": "/flows/settings-6",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('textbox', { name: 'Full name' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Full name')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#settings-6-0-settings-6-p0-name')"
-        }
-      ],
-      "inputType": "text",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Platinum",
-      "locator": "getByTestId('settings-6-0-settings-6-p0-f1-Platinum')",
-      "url": "/flows/settings-6",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('radio', { name: 'Platinum' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Platinum')"
-        }
-      ],
-      "inputType": "radio",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
     {
       "action": "fill",
       "label": "Search query",

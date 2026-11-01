@@ -4,6 +4,7 @@
  * touched.
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -68,7 +69,7 @@ function sidecar(overrides: Partial<Sidecar> = {}): Sidecar {
       journeyIndex: 0,
       signature: '/cart > /checkout > /confirmation',
       generatedAt: '2026-07-09T12:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/cart',
     steps: [{ action: 'click', label: 'Pay now', locator: "getByRole('button', { name: 'Pay now' })", isSubmit: true }],

@@ -108,12 +108,18 @@ test('the shipped 26-row demo corpus has its Short-path golden', () => {
     'shipments', 'locations', 'suppliers', 'carriers', 'invoices', 'refunds', 'warehouses', 'pricing', 'promotions',
     'forecasts', 'audits', 'contracts', 'receiving', 'packing', 'manifests', 'exceptions',
   ];
+  // The demo's Stopped mid-flow rows walk step 1 to step 2 so they can show "(at step 2)".
+  const stoppedMidFlowAreas = new Set(['inventory', 'alerts', 'locations', 'warehouses', 'contracts']);
   const input = demo.sessions.sessions.map((row) => row.signature.split(' > '));
   const result = display(input);
   assert.equal(input.length, 26);
-  assert.deepEqual(input.map(signatureOf), areas.map((area) => `/workspace/${area} → /workspace/${area}/complete`));
+  assert.deepEqual(input.map(signatureOf), areas.map((area) => (stoppedMidFlowAreas.has(area)
+    ? `/workspace/${area}/step/1 → /workspace/${area}/step/2`
+    : `/workspace/${area} → /workspace/${area}/complete`)));
   assert.equal(result.prefix, '/workspace');
-  assert.deepEqual(result.labels, areas.map((area) => `${area} → complete`));
+  assert.deepEqual(result.labels, areas.map((area) => (stoppedMidFlowAreas.has(area)
+    ? `${area}/step/1 → /${area}/step/2`
+    : `${area} → complete`)));
 });
 
 test('Short-path labels do not depend on input order', () => {

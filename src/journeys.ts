@@ -1,150 +1,48 @@
 /**
- * Journey detection — segments a `NeutralSession`'s flat, time-ordered step
- * list into discrete user journeys, and classifies each as `completed`,
- * `navigated`, `submitted`, or `abandoned`. This module header is the durable
- * decision record for the heuristic — there is no separate design doc for
- * this step.
+ * Journey segmentation and classification over provider-neutral session steps.
+ * This file owns event-derived visit boundaries, journey boundaries, the
+ * events-only status and plannability. Recording fields are read only by the
+ * single overlay in `journey-outcome.ts` after event status, trailing trim and
+ * every structural field are final.
  *
- * WHY: a single provider session frequently contains more than one logical
- * journey. A representative session spans three journeys: pay-an-invoice
- * (completed), an abandoned second attempt at paying an invoice (the user
- * filled the name field, then bailed back to the index page), and
- * add-a-customer (completed).
- * Turning that flat timeline into separate test-plan candidates requires
- * knowing where one journey ends and the next begins, and which ones are
- * worth turning into a regression test at all — only a completed journey is
- * test-plan material.
+ * RECORDING INVARIANT: recording evidence may move a journey to a less
+ * testable outcome, or leave it unchanged. It never promotes one. Light and
+ * DOM-enriched segmentation hold the same journeys, steps and structural
+ * fields. The DOM plannable list is a subset of the light list; the difference
+ * is exactly the journeys the recording demoted. The overlay uses the shared
+ * `RECORDING_STATUS_MOVES` table as its only status gate.
  *
- * SEGMENTATION HEURISTIC (`segmentJourneys`):
- *   - The session's ENTRY URL is the `url` of its FIRST `navigation` step —
- *     whichever page the session actually opened on. In practice this is a
- *     "home"/index page that a user returns to between otherwise-unrelated
- *     flows.
- *   - A NEW journey starts at every `navigation` step whose `url` equals the
- *     entry url (the first such step included — it starts journey 1).
- *     Everything up to — but not including — the next boundary belongs to
- *     the journey that boundary started.
- *   - A journey also ends — and a new one starts — at
- *     the next `navigation` step once the chunk accumulated so far already
- *     contains a completed submission: a `submit` step followed later by a
- *     `navigation` (that submission's own "landing" page). See
- *     `hasSubmitFollowedByNavigation` below — the exact same "submit led
- *     somewhere" notion `computeStatus` uses to classify completion, shared
- *     rather than reimplemented.
+ * VISITS AND JOURNEYS: `segmentJourneys` first splits visits using a running
+ * maximum timestamp: a navigation after a pause strictly greater than 120 s
+ * opens a visit unless an old-page click/submit falls within ±1 s or it is a
+ * reload of the visit's last navigation URL. A pause strictly greater than
+ * 10 min opens a visit for any step. Unparseable timestamps never split.
+ * Each visit's first page and the session's first page remain raw URL
+ * boundaries. A pending submit's first navigation is its landing only through
+ * 30 s; after that it starts a new chunk. A landed-submit boundary continues
+ * to split persistent navigation, except an interacted forward step of the
+ * same flow, which stays in the current journey. `flowStepRelation` supplies
+ * this relation; only its fixed default `step` ordinal source is used.
  *
- *     WHY: a persistent-nav SPA lets a user complete flow 1, then click
- *     straight into flow 2 via a nav link — WITHOUT ever returning to the
- *     entry url — so the entry-url boundary alone never fires and both
- *     flows collapse into one giant journey.
+ * CLASSIFICATION ORDER: compute the events-only status on the untrimmed chunk,
+ * including eligible typing on the journey's final page when it is a forward
+ * step of the last submit's page. Then apply the existing trailing
+ * non-navigation trim only when that status is `completed` or `navigated`.
+ * Compute `steps`, URLs, timestamps, visit and malformed-time state from that
+ * final step list, and recompute the events status on it (the final-page
+ * typing refines it only when it is still `completed`). One recording overlay
+ * then changes only status-side fields. A trimmed-away submit is never read by
+ * recording rules.
  *
- *     BOUNDARY PLACEMENT: the LANDING navigation belongs to the journey it
- *     completes (it becomes that journey's `finalUrl` — the confirmation
- *     page a Tier-1 assertion checks). For the submit-then-land boundary
- *     (not the separate entry-url boundary), a navigation is a boundary only
- *     if the chunk ALREADY held a submit-then-nav pair BEFORE this step was
- *     considered AND the chunk has no later, still-pending submit. The first
- *     navigation after every submit (that submit's landing) therefore always
- *     joins the completing chunk; only a subsequent navigation after all
- *     submits in the chunk have landed starts the fresh chunk. Worked trace for
- *     `... submit -> nav(resultA) -> nav(flow2) ...`: processing
- *     `nav(resultA)`, the chunk-so-far is `[..., submit]` — no navigation
- *     after the submit yet, so not a boundary, and `nav(resultA)` joins
- *     journey 1; processing `nav(flow2)`, the chunk-so-far is now
- *     `[..., submit, ..., nav(resultA)]` — submit-followed-by-a-later-nav is
- *     now true and no submit remains pending, so `nav(flow2)` IS a boundary
- *     and starts journey 2. In a multi-stage wizard, by contrast,
- *     `[..., submitA, nav(stageB), ..., submitB]` has a pending `submitB`, so
- *     its incoming `nav(resultC)` joins the same journey as `submitB`'s
- *     landing.
+ * Segmentation emits all six statuses across the events and recording paths.
+ * `submitted` is never promoted to `completed` by a recording. `navigated`
+ * remains the guarded input-then-new-route shape.
+ * Decision rationale and known residuals are recorded in the indexed journey
+ * boundaries and outcomes decision record.
  *
- *     ADDITIVE: a multi-page app that dutifully returns to its entry url
- *     between flows keeps splitting on the original boundary exactly as
- *     before, and pre-submit page navigations (moving between pages before
- *     any submit has happened) never trip this new condition — it only
- *     fires once a submit is already sitting in the chunk.
- *
- *     KNOWN LIMITATION: the boundary rule narrows the former multi-stage-submit over-split:
- *     a pending later submit now keeps its landing in the same journey. The
- *     mechanism still cannot distinguish "a new flow" from "more of the same
- *     flow" when a user interacts without submitting after a landed submit
- *     and then navigates onward. That shape can still OVER-split. Accepted
- *     tradeoff — the apps under test are single-submit-per-flow.
- *
- *     TRAILING-DANGLING-INTERACTION TRIM: after segmentation,
- *     a completed or navigated journey ending in one or more interactions is trimmed back
- *     to its last navigation. This prevents a self-contradiction where a
- *     plan's trailing click leaves the page that its final-URL
- *     assertion claims; submitted and abandoned journeys are never trimmed.
- *   - TRIVIAL journeys — a run of steps with no `click` / `input` / `submit`
- *     in it, i.e. nothing but a bare re-navigation to the entry page — are
- *     dropped as navigation noise. Real sessions produce these: the
- *     session has two consecutive entry-page hits back to back with nothing
- *     done in between, sitting right between the abandoned invoice journey
- *     and the add-a-customer journey.
- *
- * CLASSIFICATION HEURISTIC (`classifyJourney`) — four evidence-labelled states:
- *   - COMPLETED iff the journey contains a `submit` step FOLLOWED (later in
- *     the same journey — not necessarily immediately) by a `navigation` — the
- *     submission actually led somewhere — AND its full final URL differs from
- *     its full entry URL after ONLY terminal index-file and trailing-slash
- *     spelling variance is normalized. Origin, port, query, fragment, and all
- *     other pathname differences remain meaningful witnessed destinations.
- *     "Followed by", not "immediately followed by": autocapture can interleave the button
- *     `click` that CAUSED the submit between the `submit` and its `navigation`,
- *     and can even timestamp the submit a millisecond or two BEFORE that click
- *     (the submit/click causal-order behavior).
- *   - SUBMITTED iff a `submit` was witnessed but did NOT lead to a distinct
- *     post-submit URL — an inline-success SPA completion (submit succeeds,
- *     success shown in place, no route change), a submit that circled back to
- *     the same URL apart from index-file/trailing-slash spelling, or a submit
- *     whose landing nav was lost. A completion CANDIDATE, not a
- *     witnessed completion: from the events stream alone the outcome is
- *     unwitnessed (no DOM at broad-scan scale), so we neither claim `completed`
- *     (a flaky promise) nor bury it as `abandoned` (the user DID submit). The
- *     deep DOM-confirm (a witnessed same-route success-state, Tier-3) promotes
- *     `submitted` -> `completed` for a chosen journey when a witnessed
- *     same-route success state is available.
- *   - NAVIGATED iff no `submit` was witnessed and a conservative
- *     input-then-new-route predicate holds. We call it navigated, rather than
- *     completed, because the event stream witnessed typed input followed by a
- *     new landing but cannot witness the committing keystroke or the user's
- *     intent. Its guards are deliberately structural and provider-neutral:
- *       b1: at least one `input` was captured;
- *       b2: after trailing-interaction trimming, the landing route has no later interaction;
- *       b3: that exact landing URL was not visited earlier;
- *       b4: its canonical path differs from every earlier navigation (rejects
- *           pagination and same-template re-entry);
- *       b5: an input happened away from the landing route; and
- *       b6: the entry URL differs from the last navigation URL using the same
- *           deliberately narrow spelling comparison as the completed verdict.
- *     The completed journey's trailing-interaction trim applies before
- *     these guards. That lets a user continue working after a landing without
- *     losing the witnessed navigation, but it also admits the irreducible
- *     created-then-deleted shape. The other irreducible shapes are
- *     search-then-open and typed-then-bailed-elsewhere. The status is surfaced
- *     honestly AND is test-plan material when it holds at most ONE
- *     input-then-new-route commit (`isPlannableJourney` /
- *     `countInputCommitTransitions`); a merged multi-create journey is
- *     refused rather than planned wrongly. The generated spec replays the
- *     committing keystroke as an explicitly MARKED synthesis — no provider
- *     tier captures it.
- *   - ABANDONED otherwise: no `submit` was ever captured (the user browsed and
- *     left, or filled a field and bailed before submitting).
- *
- * Both heuristics are purely structural — step `kind` and `url` only. No
- * hardcoded URLs, page names, or button text: this must work against any
- * app the session was captured from (open-source / self-hostable posture).
- *
- * SEAM GUARD: this file's core functions (`segmentJourneys`, `classifyJourney`,
- * `selectPlannableJourneys`) import ONLY types from `./neutral-session` and
- * must never reference provider-specific vocabulary — dollar-prefixed
- * property names, the provider's own element/target parser, or its raw
- * row-level id columns all stay inside `./providers/posthog-adapter.ts` and
- * ONLY there. The demo `main()` below is the one place in this file allowed
- * to import `./providers/posthog-adapter` — it calls the adapter's own
- * clean, already-neutral-typed functions (`fetchSessionRows` +
- * `toNeutralSession`) to wire the real pipeline end to end; it never touches
- * a provider field name directly.
+ * The pipeline is provider-neutral: core logic reads only `NeutralSession`
+ * and `NeutralStep`. The demo `main()` may use the PostHog adapter's clean
+ * neutral-returning functions, but no provider field names enter this module.
  */
 
 import * as path from 'node:path';
@@ -155,6 +53,12 @@ import {
   extractPathname,
   normalizeUrlSpellingForVerdict,
 } from './canonical-url.js';
+import {
+  applyRecordingEvidence,
+  elapsedAgainstLimit,
+  flowStepRelation,
+  type OutcomeCoverage,
+} from './journey-outcome.js';
 import type { NeutralSession, NeutralStep } from './neutral-session.js';
 import { fetchSessionRows, toNeutralSession } from './providers/posthog-adapter.js';
 
@@ -162,7 +66,40 @@ import { fetchSessionRows, toNeutralSession } from './providers/posthog-adapter.
 // Types
 // ---------------------------------------------------------------------------
 
-export type JourneyStatus = 'completed' | 'navigated' | 'submitted' | 'abandoned';
+/**
+ * Every journey status, as a runtime list. `JourneyStatus` is derived from it,
+ * so the union and the list cannot drift apart. Every consumer handles all six;
+ * the answer-key scorer's own status list is tested against this one.
+ */
+export const JOURNEY_STATUSES = [
+  'completed',
+  'navigated',
+  'submitted',
+  'abandoned',
+  'abandoned-mid-flow',
+  'error-after-submit',
+] as const;
+
+export type JourneyStatus = (typeof JOURNEY_STATUSES)[number];
+
+/**
+ * Version of the journey segmentation rules. Plan sidecars record it as
+ * `source.segmentationVersion` (written by `plan`, `regenerate` and triage's
+ * rebuild) and the stored-scan key carries it, so a plan or a cache built by
+ * older rules is recognisable.
+ */
+export const SEGMENTATION_VERSION = 1;
+
+/** Whether a completed journey's final page was checked to be the real finish. */
+export type JourneyFinality = 'witnessed' | 'unchecked';
+
+/** What showed that a journey stopped part-way through a multi-step flow. */
+export type MidFlowEvidence = 'typed-on-next-step' | 'new-form-on-next-step';
+
+/** Exhaustiveness check for a `switch` over `JourneyStatus`: unreachable when every member has a case. */
+export function assertNeverJourneyStatus(status: never, where: string): never {
+  throw new Error(`Unhandled journey status in ${where}: ${String(status)}`);
+}
 
 /** The exact structural witness behind a status that may claim a landing. */
 export type CompletionEvidence = 'submit-then-nav' | 'commit-then-new-route';
@@ -172,7 +109,36 @@ export interface Journey {
   entryUrl: string;
   finalUrl: string;
   status: JourneyStatus;
-  /** Present only for the two landing-witnessed statuses. Never persisted into a plan. */
+  /** Which visit of the session this journey belongs to; always present on segmented journeys. */
+  visit?: { index: number; count: number };
+  /** Set on completed journeys when final-page evidence is classified. */
+  finality?: JourneyFinality;
+  /** Evidence for an abandoned-mid-flow classification. */
+  midFlowEvidence?: MidFlowEvidence;
+  /** Step ordinal of a stopped mid-flow journey's final page, when its URL carries one. */
+  stoppedAtStep?: number;
+  /**
+   * Whether this journey's label drew on session-recording evidence:
+   * `recording` only when some submit of the journey carries `afterSubmit`
+   * with coverage `covered` or `clipped`, or a landing a rule read (the last
+   * submit's own landing, the final page, or the next chunk's navigation when
+   * the same-URL look-ahead applies) has coverage other than `no-recording`, `undecodable` or
+   * `no-occurrence` (`ambiguous` and `no-anchor` read the recording but
+   * attached nothing, so they do not count); otherwise `events`. Provenance
+   * only — never a claim that anything was verified. Optional until the
+   * classifier sets it on every journey.
+   */
+  classifiedFrom?: 'events' | 'recording';
+  /**
+   * Set only on a `submitted` journey whose last submit carries `afterSubmit`.
+   * `not-recognised` only when that submit's window was `covered`, nothing
+   * matched, and — when the window ended at a page change — that page's
+   * landing settled and its outcome was established; `not-captured` in every
+   * other case. Absent on an events-only load. Shown as a printed caveat line,
+   * never a plan-file field.
+   */
+  outcomeCoverage?: OutcomeCoverage;
+  /** Present on completed, abandoned-mid-flow and navigated journeys. Never persisted into a plan. */
   completionEvidence?: CompletionEvidence;
   startedAt: string; // ISO, earliest timestamp among the journey's steps
   endedAt: string; // ISO, latest timestamp among the journey's steps
@@ -185,14 +151,88 @@ export interface Journey {
 // segmentJourneys
 // ---------------------------------------------------------------------------
 
-/** Segments a session's flat step timeline into journeys. Entry-url segmentation stays raw. */
-export function segmentJourneys(session: NeutralSession): Journey[] {
-  const entryUrl = findEntryUrl(session.steps);
-  if (entryUrl === undefined) return [];
+const G = 120_000;
+const G_LONG = 10 * 60_000;
+/**
+ * `L`: a navigation more than this long after a still-pending submit is never
+ * that submit's landing. Segmentation's boundary and the recording overlay's
+ * same-URL look-ahead both read it, through one clock (`elapsedAgainstLimit`).
+ */
+export const PENDING_SUBMIT_LANDING_MS = 30_000;
+/** `W`: the outcome window after a submit whose next navigation's landing must have settled. */
+export const OUTCOME_WINDOW_MS = 10_000;
+const CLICK_TIMING_GUARD = 1_000;
 
-  return splitAtEntryUrl(session.steps, entryUrl)
-    .filter((steps) => steps.some(isInteractionStep))
-    .map((steps) => buildJourney(steps));
+/** Test-only threshold overrides; production call sites use the fixed defaults. */
+export interface SegmentJourneyOptions {
+  visitGapMs?: number;
+  longVisitGapMs?: number;
+  pendingSubmitLandingMs?: number;
+  clickTimingGuardMs?: number;
+}
+
+interface VisitChunk {
+  steps: NeutralStep[];
+  visitIndex: number;
+  visitCount: number;
+  boundaryFromEntryUrl: boolean;
+}
+
+/**
+ * Splits event-derived visits and journeys, then applies exactly one recording
+ * overlay after status, trim and structural fields have been fixed. The overlay
+ * cannot change steps, URLs, timestamps or visit membership.
+ */
+export function segmentJourneys(session: NeutralSession, options: SegmentJourneyOptions = {}): Journey[] {
+  const sessionEntryUrl = findEntryUrl(session.steps);
+  if (sessionEntryUrl === undefined) return [];
+
+  const visits = splitAtVisitGap(session.steps, options);
+  const sessionFirstNavigationIndex = session.steps.findIndex((step) => step.kind === 'navigation');
+  const visitChunks: VisitChunk[] = [];
+  let visitOffset = 0;
+  visits.forEach((visitSteps, visitIndex) => {
+    const visitStart = visitOffset;
+    visitOffset += visitSteps.length;
+    // The session-entry rule: a step of any kind (a click included) before the
+    // session's first pageview has no witnessed entry and belongs to no
+    // journey. A visit lying wholly before that pageview yields no journey.
+    // A later visit may still begin on any step kind after the long-gap cut.
+    const keepFrom = Math.max(0, sessionFirstNavigationIndex - visitStart);
+    if (keepFrom >= visitSteps.length) return;
+    const scopedVisitSteps = visitSteps.slice(keepFrom);
+    const scopedFirstStep = scopedVisitSteps[0];
+    const visitEntryUrl = scopedFirstStep?.kind === 'navigation'
+      ? scopedVisitSteps.find((step) => step.kind === 'navigation')?.url
+      : scopedFirstStep?.url;
+    if (visitEntryUrl === undefined) return;
+    const chunks = splitAtEntryUrl(scopedVisitSteps, sessionEntryUrl, visitEntryUrl, options);
+    for (const chunk of chunks) {
+      visitChunks.push({ ...chunk, visitIndex: visitIndex + 1, visitCount: visits.length });
+    }
+  });
+
+  const timing = {
+    landingCeilingMs: options.pendingSubmitLandingMs ?? PENDING_SUBMIT_LANDING_MS,
+    outcomeWindowMs: OUTCOME_WINDOW_MS,
+  };
+  const journeys: Journey[] = [];
+  for (let index = 0; index < visitChunks.length; index += 1) {
+    const chunk = visitChunks[index];
+    if (chunk === undefined || !chunk.steps.some(isInteractionStep)) continue;
+    const next = visitChunks[index + 1];
+    const lookAhead =
+      next !== undefined &&
+      next.visitIndex === chunk.visitIndex &&
+      next.boundaryFromEntryUrl &&
+      next.steps[0]?.kind === 'navigation'
+        ? next.steps[0]
+        : undefined;
+    journeys.push(
+      buildJourney(chunk.steps, { index: chunk.visitIndex, count: chunk.visitCount }, lookAhead, timing),
+    );
+  }
+  return journeys;
 }
 
 function isInteractionStep(step: NeutralStep): boolean {
@@ -204,96 +244,271 @@ function findEntryUrl(steps: NeutralStep[]): string | undefined {
   return steps.find((step) => step.kind === 'navigation')?.url;
 }
 
-/**
- * True if `steps` contains a `submit` step FOLLOWED — later in the list, not
- * necessarily immediately — by a `navigation` step: a submission that "led
- * somewhere" rather than being the last thing that happened. Shared by
- * `computeStatus` (a submit that led somewhere is one ingredient of
- * "completed", modulo the narrow final/entry URL spelling guard) and by
- * `splitAtEntryUrl`'s submit-then-land segmentation boundary —
- * both need the exact same "submit led somewhere" notion, so it lives here
- * once rather than being reimplemented twice.
- */
-function hasSubmitFollowedByNavigation(steps: NeutralStep[]): boolean {
-  return steps.some((step, i) => {
-    if (step.kind !== 'submit') return false;
-    return steps.slice(i + 1).some((later) => later.kind === 'navigation');
-  });
-}
+function splitAtVisitGap(steps: NeutralStep[], options: SegmentJourneyOptions): NeutralStep[][] {
+  const gap = options.visitGapMs ?? G;
+  const longGap = options.longVisitGapMs ?? G_LONG;
+  const clickGuard = options.clickTimingGuardMs ?? CLICK_TIMING_GUARD;
+  const visits: NeutralStep[][] = [];
+  const oldPageInteractions = indexOldPageInteractions(steps);
+  let runningMax: number | undefined;
+  let lastNavigationUrl: string | undefined;
 
-/** True if a submit occurs after the chunk's last navigation — its landing is still pending. */
-function hasPendingSubmit(steps: NeutralStep[]): boolean {
-  return steps.some((step, i) => {
-    if (step.kind !== 'submit') return false;
-    return !steps.slice(i + 1).some((later) => later.kind === 'navigation');
-  });
-}
-
-/**
- * Splits `steps` into chunks, starting a new chunk at every `navigation`
- * step that is a segmentation boundary — either of:
- *   - its url equals `entryUrl` (the original heuristic), or
- *   - the chunk accumulated SO FAR (before this step
- *     is appended) already satisfies `hasSubmitFollowedByNavigation` AND has
- *     no `hasPendingSubmit` — i.e. a completed submission already landed and
- *     no later submit still awaits its landing, so this navigation must be
- *     starting the NEXT flow.
- * See the module header's "SEGMENTATION HEURISTIC" section for the full
- * rationale and a worked trace of the submit-then-land boundary.
- * The step that trips a boundary becomes the new chunk's first element.
- * Steps occurring before the first boundary — not expected in practice,
- * since `entryUrl` is itself derived from the first `navigation` step —
- * belong to no chunk and are dropped.
- */
-function splitAtEntryUrl(steps: NeutralStep[], entryUrl: string): NeutralStep[][] {
-  const chunks: NeutralStep[][] = [];
   for (const step of steps) {
-    const currentChunk = chunks[chunks.length - 1];
-    const isEntryUrlBoundary = step.kind === 'navigation' && step.url === entryUrl;
-    const isSubmitThenLandBoundary =
-      step.kind === 'navigation' &&
-      currentChunk !== undefined &&
-      hasSubmitFollowedByNavigation(currentChunk) &&
-      !hasPendingSubmit(currentChunk);
-    if (isEntryUrlBoundary || isSubmitThenLandBoundary) {
-      chunks.push([step]);
-    } else if (currentChunk !== undefined) {
-      currentChunk.push(step);
+    const timestamp = Date.parse(step.at);
+    const parseable = Number.isFinite(timestamp);
+    const startsVisit = isVisitBoundary(
+      step,
+      timestamp,
+      parseable,
+      runningMax,
+      lastNavigationUrl,
+      oldPageInteractions,
+      gap,
+      longGap,
+      clickGuard,
+    );
+
+    if (visits.length === 0 || startsVisit) {
+      visits.push([step]);
+      lastNavigationUrl = step.kind === 'navigation' ? step.url : undefined;
+    } else {
+      visits[visits.length - 1]?.push(step);
+      if (step.kind === 'navigation') lastNavigationUrl = step.url;
     }
+    if (parseable && (runningMax === undefined || timestamp > runningMax)) runningMax = timestamp;
+  }
+  return visits;
+}
+
+function isVisitBoundary(
+  step: NeutralStep,
+  timestamp: number,
+  parseable: boolean,
+  runningMax: number | undefined,
+  lastNavigationUrl: string | undefined,
+  oldPageInteractions: OldPageInteractionIndex,
+  gap: number,
+  longGap: number,
+  clickGuard: number,
+): boolean {
+  const elapsed = parseable && runningMax !== undefined ? timestamp - runningMax : undefined;
+  if (elapsed !== undefined && elapsed > longGap) return true;
+  if (step.kind !== 'navigation' || elapsed === undefined || elapsed <= gap) return false;
+  if (step.url === lastNavigationUrl) return false;
+  return !hasOldPageInteractionNear(
+    timestamp,
+    lastNavigationUrl,
+    oldPageInteractions,
+    clickGuard,
+  );
+}
+
+/** Each page's click and submit times (parseable ones only), sorted ascending, built once per session. */
+type OldPageInteractionIndex = ReadonlyMap<string, readonly number[]>;
+
+function indexOldPageInteractions(steps: NeutralStep[]): OldPageInteractionIndex {
+  const byUrl = new Map<string, number[]>();
+  for (const step of steps) {
+    if (step.kind !== 'click' && step.kind !== 'submit') continue;
+    const at = Date.parse(step.at);
+    if (!Number.isFinite(at)) continue;
+    const times = byUrl.get(step.url);
+    if (times === undefined) byUrl.set(step.url, [at]);
+    else times.push(at);
+  }
+  for (const times of byUrl.values()) times.sort((left, right) => left - right);
+  return byUrl;
+}
+
+/**
+ * Whether any click or submit on `lastNavigationUrl` (anywhere in the session) lies within
+ * `clickGuard` of `timestamp`. A binary search over that page's sorted times finds the earliest
+ * time not more than `clickGuard` before `timestamp`; it is the nearest candidate at or after the
+ * lower edge, so the check is one comparison per call instead of a scan of every interaction.
+ */
+function hasOldPageInteractionNear(
+  timestamp: number,
+  lastNavigationUrl: string | undefined,
+  interactions: OldPageInteractionIndex,
+  clickGuard: number,
+): boolean {
+  if (lastNavigationUrl === undefined) return false;
+  const times = interactions.get(lastNavigationUrl);
+  if (times === undefined) return false;
+  let low = 0;
+  let high = times.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (timestamp - (times[middle] ?? 0) <= clickGuard) high = middle;
+    else low = middle + 1;
+  }
+  const candidate = times[low];
+  return candidate !== undefined && Math.abs(timestamp - candidate) <= clickGuard;
+}
+
+function isInteractionStepForContinuation(step: NeutralStep): boolean {
+  return step.kind === 'click' || step.kind === 'input' || step.kind === 'submit';
+}
+
+/**
+ * Splits a visit in one pass. The landing navigation joins its submit's chunk;
+ * a later navigation starts the next chunk unless it is a forward continuation
+ * with an interaction on the old page. Entry-URL boundaries retain raw URL
+ * comparisons, including the session's entry URL inside every visit.
+ */
+function splitAtEntryUrl(
+  steps: NeutralStep[],
+  sessionEntryUrl: string,
+  visitEntryUrl: string,
+  options: SegmentJourneyOptions,
+): Omit<VisitChunk, 'visitIndex' | 'visitCount'>[] {
+  const chunks: Omit<VisitChunk, 'visitIndex' | 'visitCount'>[] = [];
+  const landingCeiling = options.pendingSubmitLandingMs ?? PENDING_SUBMIT_LANDING_MS;
+  let current: Omit<VisitChunk, 'visitIndex' | 'visitCount'> | undefined;
+  let currentPageUrl: string | undefined;
+  let pendingSubmit: NeutralStep | undefined;
+  let hasLandedSubmit = false;
+  let interactionSinceNavigation = false;
+
+  const startChunk = (step: NeutralStep, boundaryFromEntryUrl: boolean): void => {
+    current = { steps: [step], boundaryFromEntryUrl };
+    chunks.push(current);
+    currentPageUrl = step.kind === 'navigation' ? step.url : undefined;
+    pendingSubmit = undefined;
+    hasLandedSubmit = false;
+    interactionSinceNavigation = false;
+  };
+
+  for (const step of steps) {
+    if (current === undefined) {
+      startChunk(step, false);
+      continue;
+    }
+
+    if (step.kind === 'navigation') {
+      const entryBoundary = step.url === sessionEntryUrl || step.url === visitEntryUrl;
+      if (shouldStartChunkAtNavigation(
+        step,
+        entryBoundary,
+        pendingSubmit,
+        landingCeiling,
+        currentPageUrl,
+        interactionSinceNavigation,
+        hasLandedSubmit,
+      )) {
+        startChunk(step, entryBoundary);
+        continue;
+      }
+
+      current.steps.push(step);
+      if (pendingSubmit !== undefined) hasLandedSubmit = true;
+      pendingSubmit = undefined;
+      currentPageUrl = step.url;
+      interactionSinceNavigation = false;
+      continue;
+    }
+
+    current.steps.push(step);
+    if (isInteractionStepForContinuation(step)) interactionSinceNavigation = true;
+    if (step.kind === 'submit') pendingSubmit = step;
   }
   return chunks;
 }
 
-function buildJourney(steps: NeutralStep[]): Journey {
+function shouldStartChunkAtNavigation(
+  step: NeutralStep,
+  entryBoundary: boolean,
+  pendingSubmit: NeutralStep | undefined,
+  landingCeiling: number,
+  currentPageUrl: string | undefined,
+  interactionSinceNavigation: boolean,
+  hasLandedSubmit: boolean,
+): boolean {
+  return entryBoundary || isLatePendingLanding(step, pendingSubmit, landingCeiling) ||
+    isLandedSubmitBoundary(step, pendingSubmit, currentPageUrl, interactionSinceNavigation, hasLandedSubmit);
+}
+
+function isLatePendingLanding(
+  navigation: NeutralStep,
+  pendingSubmit: NeutralStep | undefined,
+  landingCeiling: number,
+): boolean {
+  if (pendingSubmit === undefined) return false;
+  // An unparseable gap never cuts: the navigation stays the landing.
+  return elapsedAgainstLimit(navigation, pendingSubmit, landingCeiling) === 'beyond';
+}
+
+function isLandedSubmitBoundary(
+  navigation: NeutralStep,
+  pendingSubmit: NeutralStep | undefined,
+  currentPageUrl: string | undefined,
+  interactionSinceNavigation: boolean,
+  hasLandedSubmit: boolean,
+): boolean {
+  if (pendingSubmit !== undefined || !hasLandedSubmit) return false;
+  return !isForwardContinuation(navigation, currentPageUrl, interactionSinceNavigation);
+}
+
+function isForwardContinuation(
+  navigation: NeutralStep,
+  currentPageUrl: string | undefined,
+  interactionSinceNavigation: boolean,
+): boolean {
+  return currentPageUrl !== undefined &&
+    interactionSinceNavigation &&
+    normalizeUrlSpellingForVerdict(navigation.url) !== normalizeUrlSpellingForVerdict(currentPageUrl) &&
+    flowStepRelation(currentPageUrl, navigation.url) === 'forward';
+}
+
+function buildJourney(
+  steps: NeutralStep[],
+  visit: { index: number; count: number },
+  lookAhead: NeutralStep | undefined,
+  timing: { landingCeilingMs: number; outcomeWindowMs: number },
+): Journey {
   const entryUrl = steps[0].url;
   const originalFinalUrl = steps[steps.length - 1].url;
-  const originalStatus = computeStatus(steps, entryUrl, originalFinalUrl);
+  const untrimmedStatus = computeStatus(steps, entryUrl, originalFinalUrl);
+  const eventsMidFlow = inspectEventsMidFlow(steps);
+  // The trim is keyed on the untrimmed events status, typing on the final
+  // page included: that typing is a trailing step the trim would remove.
+  const trimKeyStatus = untrimmedStatus === 'completed' && eventsMidFlow.fires
+    ? 'abandoned-mid-flow'
+    : untrimmedStatus;
   const journeySteps =
-    (originalStatus === 'completed' || originalStatus === 'navigated') && steps[steps.length - 1].kind !== 'navigation'
+    (trimKeyStatus === 'completed' || trimKeyStatus === 'navigated') && steps[steps.length - 1].kind !== 'navigation'
       ? trimTrailingNonNavigationSteps(steps)
       : steps;
   const last = journeySteps[journeySteps.length - 1];
   const { earliestStepAt, latestStepAt, hasUnparseableTimestamps } = stepTimestampBounds(journeySteps);
   const finalUrl = last.url;
-  const status = computeStatus(journeySteps, entryUrl, finalUrl);
-  return {
+  // The events status is recomputed on the trimmed steps: the trim can remove
+  // the trailing step whose URL made the final page distinct (a spelling-only
+  // return to the entry page, then a click stamped on another URL, is
+  // `submitted`). Typing on the final page refines only a result that is
+  // still `completed`.
+  const trimmedStatus = computeStatus(journeySteps, entryUrl, finalUrl);
+  const eventsOnlyStatus = trimmedStatus === 'completed' && eventsMidFlow.fires
+    ? 'abandoned-mid-flow'
+    : trimmedStatus;
+  const journey: Journey = {
     entryUrl,
     finalUrl,
-    status,
-    ...(completionEvidenceForStatus(status) === undefined
-      ? {}
-      : { completionEvidence: completionEvidenceForStatus(status) }),
+    status: eventsOnlyStatus,
     startedAt: earliestStepAt,
     endedAt: latestStepAt,
+    visit,
     ...(hasUnparseableTimestamps ? { hasUnparseableTimestamps: true as const } : {}),
     steps: journeySteps,
   };
-}
-
-function completionEvidenceForStatus(status: JourneyStatus): CompletionEvidence | undefined {
-  if (status === 'completed') return 'submit-then-nav';
-  if (status === 'navigated') return 'commit-then-new-route';
-  return undefined;
+  return {
+    ...journey,
+    ...applyRecordingEvidence(journey, eventsOnlyStatus, {
+      ...(lookAhead === undefined ? {} : { nextChunkNavigation: lookAhead }),
+      e1GuardSuppressedInput: eventsMidFlow.suppressedInput,
+      ...timing,
+    }),
+  };
 }
 
 /** Removes every consecutive trailing interaction while preserving the last navigation. */
@@ -301,6 +516,68 @@ function trimTrailingNonNavigationSteps(steps: NeutralStep[]): NeutralStep[] {
   let end = steps.length;
   while (end > 0 && steps[end - 1].kind !== 'navigation') end -= 1;
   return steps.slice(0, end);
+}
+
+function nearestFormId(step: NeutralStep): string | undefined {
+  const target = step.target;
+  if (target === undefined) return undefined;
+  if (target.tag === 'form') return target.id;
+  return target.ancestors?.find((ancestor) => ancestor.tag === 'form' && ancestor.id !== undefined)?.id;
+}
+
+/**
+ * Forward-landing typing refines the events-only result; a matching form id
+ * suppresses that input. It judges the journey's final page `L` (its last
+ * navigation, which follows the last submit `S`): `L` must be a forward step
+ * of `S`'s flow, and only inputs typed on `L` after it count. Typing on an
+ * earlier page the user then left by a forward continuation does not count.
+ */
+function inspectEventsMidFlow(steps: NeutralStep[]): { fires: boolean; suppressedInput: boolean } {
+  if (steps.length === 0 || computeStatus(steps, steps[0].url, steps[steps.length - 1].url) !== 'completed') {
+    return { fires: false, suppressedInput: false };
+  }
+  const lastSubmitIndex = findLastStepIndex(steps, 'submit');
+  if (lastSubmitIndex === -1) return { fires: false, suppressedInput: false };
+  const submit = steps[lastSubmitIndex];
+  if (submit === undefined) return { fires: false, suppressedInput: false };
+  const finalPageIndex = findLastStepIndex(steps, 'navigation');
+  const finalPage = steps[finalPageIndex];
+  if (
+    finalPageIndex <= lastSubmitIndex ||
+    finalPage === undefined ||
+    flowStepRelation(submit.url, finalPage.url) !== 'forward'
+  ) return { fires: false, suppressedInput: false };
+
+  const submittedFormId = nearestFormId(submit);
+  return inspectFinalPageInputs(steps, finalPageIndex, finalPage.url, submittedFormId);
+}
+
+function findLastStepIndex(steps: NeutralStep[], kind: NeutralStep['kind']): number {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    if (steps[index]?.kind === kind) return index;
+  }
+  return -1;
+}
+
+function inspectFinalPageInputs(
+  steps: NeutralStep[],
+  finalPageIndex: number,
+  finalPageUrl: string,
+  submittedFormId: string | undefined,
+): { fires: boolean; suppressedInput: boolean } {
+  let suppressedInput = false;
+  let fires = false;
+  for (let index = finalPageIndex + 1; index < steps.length; index += 1) {
+    const input = steps[index];
+    if (input?.kind !== 'input' || input.url !== finalPageUrl || input.inPageChrome === true) continue;
+    const inputFormId = nearestFormId(input);
+    if (submittedFormId !== undefined && inputFormId !== undefined && submittedFormId === inputFormId) {
+      suppressedInput = true;
+      continue;
+    }
+    fires = true;
+  }
+  return { fires, suppressedInput };
 }
 
 /** Timestamp extrema from a journey's semantic-order steps, independent of array position. */
@@ -323,8 +600,6 @@ function stepTimestampBounds(steps: NeutralStep[]): {
     if (latestStepAt === undefined || at > Date.parse(latestStepAt)) latestStepAt = step.at;
   }
 
-  // An all-malformed journey has no safe boundary. Retain the first witnessed
-  // value for provenance while the explicit flag prevents attribution.
   return {
     earliestStepAt: earliestStepAt ?? steps[0].at,
     latestStepAt: latestStepAt ?? steps[0].at,
@@ -336,7 +611,20 @@ function stepTimestampBounds(steps: NeutralStep[]): {
 // classifyJourney
 // ---------------------------------------------------------------------------
 
-/** Classifies a single journey. See module header for the heuristic. */
+/** A submit has landed when a later navigation follows it in semantic order. */
+function hasSubmitFollowedByNavigation(steps: NeutralStep[]): boolean {
+  return steps.some((step, index) =>
+    step.kind === 'submit' && steps.slice(index + 1).some((later) => later.kind === 'navigation'),
+  );
+}
+
+/**
+ * The events base status of a journey's own (trimmed) steps: `completed`,
+ * `submitted`, `navigated` or `abandoned`, before typing on the final page
+ * refines it and before the recording overlay. It can therefore differ from
+ * `journey.status`, which carries both; read `journey.status` for the
+ * journey's status. See module header for the heuristic.
+ */
 export function classifyJourney(journey: Journey): JourneyStatus {
   return computeStatus(journey.steps, journey.entryUrl, journey.finalUrl);
 }
@@ -372,12 +660,10 @@ function computeStatus(
   // an inline-success SPA completion (submit succeeds, success shown in place,
   // NO route change), a submit that circled back, or a submit whose landing nav
   // was lost in delivery. From the events stream alone the outcome is
-  // unwitnessed (there is no DOM at broad-scan scale), so we neither claim
+  // unwitnessed (there is no recording evidence), so we neither claim
   // `completed` (unwitnessed → a flaky promise) nor bury it as `abandoned` (the
-  // user DID submit). It is a completion CANDIDATE, surfaced honestly as
-  // `submitted`; the deep DOM-confirm (a witnessed same-route success-state via
-  // the Tier-3 machinery) promotes `submitted` -> `completed` when a journey is
-  // chosen for a plan/scaffold.
+  // user DID submit). It remains `submitted`; recording evidence may refine it
+  // to `error-after-submit`, but never promotes it to a plannable status.
   if (steps.some((step) => step.kind === 'submit')) return 'submitted';
 
   // Trim parity: evaluate the input-anchored arm against the same semantic tail
@@ -496,14 +782,15 @@ export function countInputCommitTransitions(journey: Journey): number {
  * site holding its own copy would silently re-resolve a persisted plan
  * against a differently-shaped list. See `journeys.test.ts`'s drift guard.
  *
- *   - `completed` (submit-then-nav): unchanged, always plannable.
+ *   - `completed` (submit-then-nav) and `abandoned-mid-flow` (a witnessed
+ *     step change): plannable.
  *   - `navigated` (commit-then-new-route): plannable when the journey holds at
  *     most ONE input-then-new-route commit. A multi-create merge is refused —
  *     see `countInputCommitTransitions`.
- *   - `submitted` / `abandoned`: never plannable.
+ *   - `submitted`, `abandoned` and `error-after-submit`: never plannable.
  */
 export function isPlannableJourney(journey: Journey): boolean {
-  if (journey.status === 'completed') return true;
+  if (journey.status === 'completed' || journey.status === 'abandoned-mid-flow') return true;
   if (journey.status !== 'navigated') return false;
   return countInputCommitTransitions(journey) <= 1;
 }
@@ -548,6 +835,7 @@ export function isMergedMultiCreateJourney(journey: Journey): boolean {
  * record — the exact case the write-safety caveat most needs to cover.
  */
 export function journeyPerformsWrites(journey: Journey): boolean {
+  if (journey.status === 'abandoned-mid-flow' || journey.status === 'error-after-submit') return true;
   if (journey.steps.some((step) => step.kind === 'submit')) return true;
   return journey.completionEvidence === 'commit-then-new-route';
 }
@@ -593,7 +881,7 @@ function main(): void {
 
   const journeys = segmentJourneys(session);
   journeys.forEach((journey, i) => {
-    console.log(`Journey ${i + 1}: ${journey.status}`);
+    console.log(`Journey ${i + 1}: ${journey.status} (visit ${journey.visit?.index}/${journey.visit?.count})`);
     console.log(`  entryUrl: ${journey.entryUrl}`);
     console.log(`  finalUrl: ${journey.finalUrl}`);
     console.log(`  steps (${journey.steps.length}): ${describeKinds(journey.steps)}`);

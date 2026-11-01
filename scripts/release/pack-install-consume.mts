@@ -19,6 +19,7 @@ import {
   compareGoldenArtifacts,
   consumerManifestSeed,
   installCommand,
+  installedToolStampFailures,
   newestStatePath,
   normalizeArchivePathEcho,
   parseGate2State,
@@ -323,6 +324,7 @@ function verify(argv: string[]): void {
       return new Set();
     }
   };
+  const stampedSidecars: ArtifactMap = new Map();
   for (const sessionId of GATE2_GOLDEN_SESSION_IDS) {
     const namesBefore = listPlanFileNames();
     const plan = runCommand(installedBin, ['plan', sessionId, '--from-archive', state.archiveDir], state.consumer, environment);
@@ -341,6 +343,7 @@ function verify(argv: string[]): void {
       for (const name of listPlanFileNames()) {
         if (!namesBefore.has(name) && !generated.has(name)) generated.set(name, readGenerated(name));
       }
+      for (const [name, raw] of generated) stampedSidecars.set(`${sessionId}/${name}`, raw);
       const comparison = compareGoldenArtifacts(goldens, generated);
       const passed = comparison.verdict === 'PASS';
       results.push(reportResult(`installed plan ${sessionId} matches its committed golden`, passed, passed ? undefined : formatComparisonFailure(comparison)));
@@ -348,6 +351,13 @@ function verify(argv: string[]): void {
     } catch (error) {
       results.push(reportResult(`installed plan ${sessionId} matches its committed golden`, false, error instanceof Error ? error.message : String(error)));
     }
+  }
+
+  try {
+    const stampFailures = installedToolStampFailures(fs.readFileSync(path.join(installedPackage, 'package.json'), 'utf8'), stampedSidecars);
+    results.push(reportResult('installed plans stamp replaytest@<installed package.json version> in source.tool', stampFailures.length === 0, stampFailures.join('; ')));
+  } catch (error) {
+    results.push(reportResult('installed plans stamp replaytest@<installed package.json version> in source.tool', false, error instanceof Error ? error.message : String(error)));
   }
 
   const passed = results.filter(Boolean).length;

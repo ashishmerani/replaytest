@@ -6,7 +6,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
+  NORMALIZED_FIELD_PATHS,
   NORMALIZED_GENERATED_AT,
+  NORMALIZED_TOOL_IDENTIFIER,
+  NORMALIZATION_REPORT,
   compareArtifactMaps,
   normalizeArtifact,
   parseEvalSessionIds,
@@ -43,12 +46,46 @@ test('eval report routing keeps the dev default and honors explicit external out
   assert.equal(viaFlag.reportDir, '/tmp/stage-eval-reports');
 });
 
-test('normalization replaces only the documented generatedAt provenance field in plan sidecars', () => {
-  const input = `${JSON.stringify({ source: { generatedAt: '2026-07-11T20:00:00.000Z', sessionId: 'session-1' }, steps: [] })}\n`;
+test('normalization replaces generatedAt and the package identifier in plan sidecars', () => {
+  const input = `${JSON.stringify({ source: { generatedAt: '2026-07-11T20:00:00.000Z', tool: 'replaytest@0.1.0', sessionId: 'session-1' }, steps: [] })}\n`;
   const normalized = normalizeArtifact('checkout.plan.json', input);
   assert.equal(JSON.parse(normalized).source.generatedAt, NORMALIZED_GENERATED_AT);
+  assert.equal(JSON.parse(normalized).source.tool, NORMALIZED_TOOL_IDENTIFIER);
   assert.equal(JSON.parse(normalized).source.sessionId, 'session-1');
   assert.equal(normalizeArtifact('checkout.md', '# unchanged\n'), '# unchanged\n');
+  assert.deepEqual(NORMALIZATION_REPORT.fields, NORMALIZED_FIELD_PATHS);
+});
+
+test('normalization masks source.tool only when it is exactly replaytest@<semver>, so a broken identifier still differs', () => {
+  /** @param {unknown} tool */
+  const normalizedSidecarWithTool = (tool) => normalizeArtifact('checkout.plan.json', `${JSON.stringify({ source: { tool } })}\n`);
+  for (const valid of ['replaytest@0.1.0', 'replaytest@0.2.0', 'replaytest@10.20.30', 'replaytest@0.2.0-rc.1+build.4']) {
+    assert.equal(JSON.parse(normalizedSidecarWithTool(valid)).source.tool, NORMALIZED_TOOL_IDENTIFIER, valid);
+  }
+  for (const broken of [
+    'replaytest@',
+    'replaytest@undefined',
+    'replaytest@1',
+    'replaytest@0.1.0-extra junk',
+    'replaytest@0.1.0x',
+    'xreplaytest@0.1.0',
+    'replaytest@0.1.0\n',
+    'Replaytest@0.1.0',
+    'other-tool@0.1.0',
+  ]) {
+    assert.equal(JSON.parse(normalizedSidecarWithTool(broken)).source.tool, broken, broken);
+  }
+  for (const nonString of [42, null, ['replaytest@0.1.0'], { version: '0.1.0' }]) {
+    assert.deepEqual(JSON.parse(normalizedSidecarWithTool(nonString)).source.tool, nonString);
+  }
+});
+
+test('normalization leaves Markdown plans and scaffold specs byte-identical, identifier text included', () => {
+  for (const name of ['checkout.md', 'checkout.spec.ts', 'notes.txt']) {
+    assert.equal(normalizeArtifact(name, 'Built by replaytest@0.1.0 today\n'), 'Built by replaytest@0.1.0 today\n');
+  }
+  assert.deepEqual(NORMALIZED_FIELD_PATHS, ['source.generatedAt', 'source.tool']);
+  assert.deepEqual(Object.keys(NORMALIZATION_REPORT.replacements), [...NORMALIZED_FIELD_PATHS]);
 });
 
 test('normalization rejects malformed sidecar JSON rather than silently goldening it', () => {

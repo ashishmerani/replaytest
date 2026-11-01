@@ -419,6 +419,7 @@ export async function runHeal(argv: string[], deps: HealRunDeps = {}): Promise<v
     runSpecHashesPath,
     handFinishedSlugs: resolvedDeps.handFinishedSlugs,
     ...(args.stealScanLock === true ? { stealScanLock: true } : {}),
+    progress: resolvedDeps.progress,
   });
 
   // A degraded shared coarse scan must not clobber the persisted

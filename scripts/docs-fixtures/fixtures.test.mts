@@ -1,3 +1,4 @@
+import { toolIdentifier } from '../../src/tool-identifier.js';
 import { makeTempDir } from '../../src/test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
@@ -447,7 +448,27 @@ function emittedJsonFields(): ReadonlyMap<string, readonly string[]> {
   });
   sessions = appendSessionsShapeFilter(sessions, { requested: [], perShape: [] } as never);
   sessions = appendSessionsSemanticsDisclosure(sessions, true, { overridesActive: true, paramNames: ['step'] } as never);
-  sessions = appendSessionsPlanReviewDisclosure(sessions, true, { plans: [{ replanCommand: 'replaytest plan user' }] } as never);
+  sessions = appendSessionsPlanReviewDisclosure(sessions, true, {
+    plans: [{
+      slug: 'example',
+      kind: 'older-url-semantics',
+      note: 'This plan was built under different URL rules.',
+      distinctId: 'user',
+      sessionId: 'session',
+      replanCommand: 'replaytest plan user --session session',
+    }],
+    plansNeedReview: [{
+      slug: 'example',
+      reasons: [
+        { kind: 'older-url-semantics', note: 'This plan was built under different URL rules.' },
+        { kind: 'older-journey-boundaries', note: 'This plan was built by an earlier version of replaytest, which grouped visits differently.' },
+      ],
+      distinctId: 'user',
+      sessionId: 'session',
+      replanCommand: 'replaytest plan user --session session',
+    }],
+    skipped: [],
+  } as never);
   sessions = appendSessionsSupersededPlansDisclosure(sessions, true, {
     plans: [{ slug: 'example', supersededBy: 'replacement', generatedAt: '2026-01-01T00:00:00.000Z', reconcileCommand: 'replaytest reconcile' }],
   } as never);
@@ -467,7 +488,7 @@ function emittedJsonFields(): ReadonlyMap<string, readonly string[]> {
   });
   limitedSessions = appendSessionsShapeFilter(limitedSessions, { requested: [], perShape: [] } as never);
   limitedSessions = appendSessionsSemanticsDisclosure(limitedSessions, true, { overridesActive: true, paramNames: ['step'] } as never);
-  limitedSessions = appendSessionsPlanReviewDisclosure(limitedSessions, true, { plans: [{ replanCommand: 'replaytest plan user' }] } as never);
+  limitedSessions = appendSessionsPlanReviewDisclosure(limitedSessions, true, { plans: [], plansNeedReview: [], skipped: [] } as never);
   limitedSessions = appendSessionsSupersededPlansDisclosure(limitedSessions, true, {
     plans: [{ slug: 'example', supersededBy: 'replacement', generatedAt: '2026-01-01T00:00:00.000Z', reconcileCommand: 'replaytest reconcile' }],
   } as never);
@@ -533,7 +554,7 @@ function emittedJsonFields(): ReadonlyMap<string, readonly string[]> {
         journeyIndex: 0,
         signature: regenerateSearch.signature,
         generatedAt: '2026-01-01T00:00:00.000Z',
-        tool: 'replaytest@0.1.0',
+        tool: toolIdentifier(),
       },
       start: '/orders/1001/pay',
       steps: [],
@@ -1507,15 +1528,20 @@ export interface StatusEnumeration {
  * alone.
  */
 export function statusEnumerations(markdown: string, statuses: readonly string[]): StatusEnumeration[] {
-  const words = documentationProse(markdown).toLowerCase().match(/[a-z][a-z']*/g) ?? [];
+  const normalized = documentationProse(markdown).toLowerCase()
+    .replace(/\bcompleted · finish (?:not )?checked\b/g, 'completed')
+    .replace(/\bstopped mid-flow\b/g, 'abandoned-mid-flow')
+    .replace(/\berror after submit\b/g, 'error-after-submit');
+  const words = normalized.match(/[a-z][a-z'-]*/g) ?? [];
   const statusSet = new Set(statuses);
   const enumerations: StatusEnumeration[] = [];
   let run: Array<{ status: string; at: number }> = [];
 
   const flush = (): void => {
-    if (run.length > 1) {
+    const uniqueStatuses = [...new Set(run.map((entry) => entry.status))];
+    if (uniqueStatuses.length > 1) {
       enumerations.push({
-        statuses: [...new Set(run.map((entry) => entry.status))],
+        statuses: uniqueStatuses,
         text: words.slice(run[0].at, run[run.length - 1].at + 1).join(' '),
       });
     }
@@ -1578,13 +1604,13 @@ test('journey-status enumeration guard rejects a list that drops a shipped class
   const filterClasses = dashboardStatusFilterClasses();
   const guide = fs.readFileSync(path.join(docsSiteDirectory, 'dashboard-guide.md'), 'utf8');
   const dropped = guide.replace(
-    'Those two figures count the two kinds of journey the tool can turn into a plan; every journey still appears in the table.',
-    'The count line lists completed / likely submitted / abandoned outcomes; every journey still appears in the table.',
+    'Status checkboxes (Completed, Navigated, Submitted)',
+    'Status checkboxes (Completed, Submitted)',
   );
   assert.notEqual(dropped, guide, 'the guarded dashboard-guide status list has been reworded; update this drift case with it');
   assert.throws(
     () => assertStatusEnumerations(dropped, 'dropped-status', SHIPPED_JOURNEY_STATUSES, filterClasses),
-    /missing: navigated/,
+    /missing: .*navigated/,
   );
 
   assert.doesNotThrow(

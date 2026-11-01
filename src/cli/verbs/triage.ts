@@ -6,7 +6,7 @@ import { emitArtifact } from '../../artifact-registry.js';
 import { buildUnconfiguredHint, isConfigured } from '../../provider-config.js';
 import { fetchCoarseSessions, fetchNeutralSessionsWithDomEnrichment, fetchNeutralSessionsLight, fetchNeutralSessionsLightAsync, getProviderConfigStatus, type ProviderConfigStatus } from '../../providers/posthog-adapter.js';
 import { CoarseStoreLockFencedError, CoarseStoreLockHeldError } from '../../coarse-store.js';
-import { attachProposal, buildProposedExistsRefusal, buildTriageProposal, buildUnconfiguredTriageRefusal, collectTriageReport, DEFAULT_TRIAGE_REUSE_MAX_AGE_MS, FLOW_SHIFT_WATCH_PROPOSAL_REFUSAL, FLOW_SHIFT_WATCH_REMEDY, formatTriageJson, formatTriageRefusalJson, hasActionableSelectorDrift, parseTriageMaxAge, parseTriageReportCacheEntry, renderSidecarDiff, renderTriageRefusal, renderTriageReport, type FlowShiftWatch, type SelectorFreshnessEvidence, type TriageFetchers, type TriageRefusal, type TriageReport, type TriageReportCacheEntry } from '../../triage.js';
+import { attachProposal, buildProposedExistsRefusal, buildTriageProposal, buildUnconfiguredTriageRefusal, collectTriageReport, DEFAULT_TRIAGE_REUSE_MAX_AGE_MS, FLOW_SHIFT_WATCH_PROPOSAL_REFUSAL, FLOW_SHIFT_WATCH_REMEDY, formatTriageJson, formatTriageRefusalJson, hasActionableSelectorDrift, parseTriageMaxAge, parseTriageReportCacheEntry, renderSidecarDiff, TRIAGE_REPORT_CACHE_VERSION, renderTriageRefusal, renderTriageReport, type FlowShiftWatch, type SelectorFreshnessEvidence, type TriageFetchers, type TriageRefusal, type TriageReport, type TriageReportCacheEntry } from '../../triage.js';
 import { persistTriageEvidence, readFailingLocatorFromHealState } from '../../triage-evidence.js';
 import type { Sidecar } from '../../sidecar.js';
 import { appendAppScopeDisclosure, buildAppScopeRefusal } from '../app-scope-output.js';
@@ -494,13 +494,13 @@ function persistTriageReportCache(
   publicationLedger: StatePublicationLedger,
 ): boolean {
   try {
-    // Version 4 rejects report caches written before the healthy
-    // freshness-floor boundary. The parser then falls through to a live run,
-    // rather than serving an honest-looking report with old semantics.
+    // The cache version (`TRIAGE_REPORT_CACHE_VERSION`) rejects report caches
+    // written under older classification rules. The parser then falls through
+    // to a live run, rather than serving an honest-looking report with old semantics.
     if (cacheExistingAt !== undefined && Date.parse(cacheExistingAt) > Date.parse(prepared.operationStartedAt)) return true;
-    const cacheEntry: { kind: 'triage-report-cache'; version: 4; generatedAt: string; report: TriageReport } = {
+    const cacheEntry: { kind: 'triage-report-cache'; version: typeof TRIAGE_REPORT_CACHE_VERSION; generatedAt: string; report: TriageReport } = {
       kind: 'triage-report-cache',
-      version: 4,
+      version: TRIAGE_REPORT_CACHE_VERSION,
       generatedAt,
       report,
     };
@@ -566,6 +566,7 @@ async function collectPreparedTriageReport(
       ...(failingLocator === undefined ? {} : { failingLocator }),
       ...(reuseEvidence === undefined ? {} : { reuseEvidence }),
       ...(prepared.args.stealScanLock === true ? { stealScanLock: true } : {}),
+      progress: prepared.resolvedDeps.progress,
     });
   } catch (error) {
     if (error instanceof StateLockHeldError) {

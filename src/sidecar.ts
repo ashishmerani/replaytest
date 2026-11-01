@@ -67,9 +67,10 @@
  * types, the pure collapse/title/pathname/exception/synthetic-value helpers
  * named above, `recommendSelector`, `journeySignature`, and the pure
  * `findPiiLikeStrings` detector — it contains NO PostHog vocabulary and does
- * no fs/network I/O. `buildSidecar` reads the wall clock
+ * no fs/network I/O of its own. `buildSidecar` reads the wall clock
  * (`new Date().toISOString()`) for `source.generatedAt`, its only
- * non-deterministic step.
+ * non-deterministic step; `source.tool` comes from `toolIdentifier()`,
+ * which reads the package manifest once, on first use.
  */
 
 import type {
@@ -80,7 +81,7 @@ import type {
   NeutralViewport,
   WitnessedConsole,
 } from './neutral-session.js';
-import { inlineCommitAnchorIndex, journeyPerformsWrites, type Journey } from './journeys.js';
+import { inlineCommitAnchorIndex, journeyPerformsWrites, SEGMENTATION_VERSION, type Journey } from './journeys.js';
 import { DEFAULT_WIZARD_STEP_PARAM_NAMES, extractPathname, type WizardStepParamNames } from './canonical-url.js';
 import {
   attributeExceptions,
@@ -88,6 +89,7 @@ import {
   describeUnattributableExceptionReason,
 } from './journey-evidence.js';
 import { recommendSelectorWithAlternates, type SelectorStrategy } from './selector.js';
+import { toolIdentifier } from './tool-identifier.js';
 import { deriveScenarioTitle } from './scenario-title.js';
 import {
   buildActions,
@@ -207,10 +209,14 @@ export interface SidecarSource {
   sessionId: string;
   /** Recorded entry origin, retained so maintenance can refuse a candidate from another property. */
   origin?: string;
-  journeyIndex: number; // which plannable journey in the session (0-based index into the session's PLANNABLE journeys — `isPlannableJourney`, journeys.ts: every completed journey, plus a navigated journey holding a single inline-commit create). NOTE: a sidecar written before the navigated class became plannable indexed the narrower completed-only list; `source.signature` is the reliable re-resolution key and has been written on every sidecar for some time, so the index is a legacy fallback only.
+  journeyIndex: number; // 0-based index into the session's plannable journeys as the events alone classify them (`eventsPlannableIndex`), so it names the same journey whether or not the recording was read; `source.signature` stays the primary re-resolution key.
   signature?: string; // Canonical provider-neutral journey signature — present on every sidecar built; optional because older on-disk sidecars predate it (readers must tolerate its absence). Shared with selection.ts coverage/dedup logic.
+  /** Planned outcome when the journey stopped at an intermediate flow step. */
+  outcome?: 'abandoned-mid-flow';
   /** Additive migration marker. Absent sidecars predate recognizer-aware URL signatures. */
   signatureSemanticsVersion?: number;
+  /** Additive migration marker. Absent sidecars predate visit and wizard-step segmentation rules. */
+  segmentationVersion?: number;
   /** Additive migration marker. Absent sidecars predate the privacy-boundary disclosure scan. */
   privacyBoundaryVersion?: number;
   /** The effective recognized query names when this sidecar was generated. */
@@ -242,7 +248,7 @@ export interface SidecarSource {
    * resets this obsolete evidence along with the journey it described.
    */
   healthySearches?: SidecarHealthySearch[];
-  tool: string; // e.g. "replaytest@0.1.0"
+  tool: string;
 }
 
 /**
@@ -436,12 +442,11 @@ export interface SidecarContext {
   groupFailureCount?: number;
   /** Command-boundary URL semantics for a newly written live sidecar. */
   signatureSemanticsVersion?: number;
+  /** Command-boundary segmentation semantics for a newly written live sidecar. */
+  segmentationVersion?: number;
   privacyBoundaryVersion?: number;
   wizardStepParamNames?: WizardStepParamNames;
 }
-
-/** Identifies this tool/version in every sidecar's `source.tool`. A literal constant (not read from package.json) — keeps this module free of fs I/O; bump by hand alongside a real version bump. */
-const TOOL_IDENTIFIER = 'replaytest@0.1.0';
 
 /** Current URL-signature interpretation persisted by live `plan` writes. */
 export const SIGNATURE_SEMANTICS_VERSION = 1;
@@ -452,6 +457,34 @@ export const PRIVACY_BOUNDARY_VERSION = 1;
 export interface SignatureSemanticsReview {
   kind: 'older-url-semantics' | 'recognized-param-names-changed';
   note: string;
+}
+
+export interface SegmentationReview {
+  kind: 'older-journey-boundaries';
+  note: string;
+}
+
+export type PlanReviewReason = SignatureSemanticsReview | SegmentationReview;
+
+/** The core sentence for a plan built before the current visit grouping; every surface reuses it. */
+export const PLAN_BOUNDARIES_REVIEW_SENTENCE =
+  'This plan was built by an earlier version of replaytest, which grouped visits differently.';
+
+/** User-facing explanation for plans affected by the visit-boundary upgrade. */
+export const PLAN_BOUNDARIES_REVIEW_NOTE = `ⓘ ${PLAN_BOUNDARIES_REVIEW_SENTENCE}`;
+
+/**
+ * The one short action line every CLI review surface prints. The full clearing
+ * steps live once behind the dashboard card's ⓘ and in the user docs, never
+ * repeated on each surface.
+ */
+export const PLAN_REVIEW_CLEARING_NOTE = 'Re-run plan for each listed session.';
+
+export const SEGMENTATION_MIGRATION_REVIEW_NOTE =
+  'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended.';
+
+export function needsSegmentationReview(source: Pick<SidecarSource, 'segmentationVersion'>): boolean {
+  return source.segmentationVersion === undefined || source.segmentationVersion < SEGMENTATION_VERSION;
 }
 
 function normalizedNameList(names: readonly string[] | undefined): string[] {
@@ -475,7 +508,7 @@ export function signatureSemanticsReview(
   if (source.signatureSemanticsVersion !== SIGNATURE_SEMANTICS_VERSION) {
     return {
       kind: 'older-url-semantics',
-      note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+      note: 'ⓘ This plan was built under different URL rules.',
     };
   }
 
@@ -484,10 +517,26 @@ export function signatureSemanticsReview(
   if (sameNameSet(recorded, current)) return undefined;
   return {
     kind: 'recognized-param-names-changed',
-    note:
-      `ⓘ Generated with recognized wizard parameters [${recorded.join(', ')}]; ` +
-      `current names are [${current.join(', ')}] — review because its signature may have changed.`,
+    note: `ⓘ This plan and the current settings recognize different URL parameters for wizard steps ([${recorded.join(', ')}] and [${current.join(', ')}]).`,
   };
+}
+
+/**
+ * Plan-inventory review reasons. Journey coverage joins intentionally keep
+ * using `signatureSemanticsReview` alone: an exact current match is evidence
+ * that the journey itself may still be covered.
+ */
+export function planReviewReasons(
+  source: Pick<SidecarSource, 'signatureSemanticsVersion' | 'wizardStepParamNames' | 'segmentationVersion'>,
+  currentParamNames: readonly string[],
+): PlanReviewReason[] {
+  const reasons: PlanReviewReason[] = [];
+  const signatureReview = signatureSemanticsReview(source, currentParamNames);
+  if (signatureReview !== undefined) reasons.push(signatureReview);
+  if (needsSegmentationReview(source)) {
+    reasons.push({ kind: 'older-journey-boundaries', note: PLAN_BOUNDARIES_REVIEW_NOTE });
+  }
+  return reasons;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +591,10 @@ export function buildSidecar(journey: Journey, ctx: SidecarContext): Sidecar {
     journeyMaskedFields,
     { performsWrites, isInlineCommit },
   );
+  if (journey.status === 'abandoned-mid-flow') {
+    const finalPage = assertions.find((assertion) => assertion.type === 'final-url')?.value;
+    if (finalPage !== undefined) caveats.push(`This test checks the step change to ${finalPage}, not the whole flow.`);
+  }
 
   const sidecar: Sidecar = {
     version: 1,
@@ -560,13 +613,15 @@ export function buildSidecar(journey: Journey, ctx: SidecarContext): Sidecar {
       ...(origin === undefined ? {} : { origin }),
       journeyIndex: ctx.journeyIndex,
       signature: journeySignature(journey, ctx.wizardStepParamNames),
+      ...(journey.status === 'abandoned-mid-flow' ? { outcome: 'abandoned-mid-flow' as const } : {}),
       ...(ctx.signatureSemanticsVersion === undefined
         ? {}
         : { signatureSemanticsVersion: ctx.signatureSemanticsVersion }),
+      ...(ctx.segmentationVersion === undefined ? {} : { segmentationVersion: ctx.segmentationVersion }),
       ...(ctx.privacyBoundaryVersion === undefined ? {} : { privacyBoundaryVersion: ctx.privacyBoundaryVersion }),
       ...(ctx.wizardStepParamNames === undefined ? {} : { wizardStepParamNames: [...ctx.wizardStepParamNames] }),
       generatedAt: new Date().toISOString(),
-      tool: TOOL_IDENTIFIER,
+      tool: toolIdentifier(),
     },
     start: extractPathname(journey.entryUrl, 'strip-query-and-fragment', ctx.wizardStepParamNames),
     steps,
@@ -1372,7 +1427,12 @@ function buildCaveats(
   // submit journeys, so their caveat list stays byte-identical.
   if (write.performsWrites) caveats.push(writeSafetyCaveat(write.isInlineCommit));
 
-  for (const caveat of buildSynthesisCaveats(steps, assertions, write.isInlineCommit)) caveats.push(caveat);
+  for (const caveat of buildSynthesisCaveats(
+    steps,
+    assertions,
+    write.isInlineCommit,
+    ctx.segmentationVersion !== undefined,
+  )) caveats.push(caveat);
 
   const authCaveat = buildAuthCaveat(ctx.auth);
   if (authCaveat !== undefined) caveats.push(authCaveat);
@@ -1411,7 +1471,7 @@ function buildCaveats(
  */
 function writeSafetyCaveat(isInlineCommit: boolean): string {
   return isInlineCommit
-    ? 'This flow performs writes (it creates a record by committing an inline edit — no form submit was witnessed). ' +
+    ? 'This flow performs writes (it creates a record by committing an inline edit — no form submit was seen). ' +
       'Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production. ' +
       'It is NOT idempotent: every run creates another new record, and this tool has no cleanup step.'
     : 'This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.';
@@ -1436,6 +1496,7 @@ function buildSynthesisCaveats(
   steps: SidecarStep[],
   assertions: SidecarAssertion[],
   isInlineCommit: boolean,
+  currentTriageOutcomeSemantics: boolean,
 ): string[] {
   if (!isInlineCommit) return [];
   const caveats: string[] = [];
@@ -1470,10 +1531,17 @@ function buildSynthesisCaveats(
       'Confirm this is really a create before committing the generated spec.',
   );
 
+  // Keep archive-built artifacts byte-stable. A live sidecar written under the
+  // current journey boundaries carries the segmentation marker, so it gets the
+  // accurate current triage limit; unmarked artifacts (archive builds, and any
+  // plan written before the marker) retain the caveat they were built with.
   caveats.push(
-    'Triage cannot yet assess this plan: the regression arithmetic scores completed/submitted/abandoned outcomes only, so fresh ' +
-      'traffic for this journey reports as insufficient evidence rather than healthy or regressed. Re-check it by hand until that ' +
-      'arithmetic covers the navigated class.',
+    !currentTriageOutcomeSemantics
+      ? 'Triage does not assess this plan: regression checks cover completed, submitted, and abandoned outcomes only. Fresh ' +
+        'traffic for this journey reports as insufficient evidence rather than healthy or regressed. Check it by hand.'
+      : 'Triage does not score this plan: a journey that ends on a new page without a submit is not counted as a regression ' +
+        'success or failure. Fresh traffic for this journey reports as insufficient evidence rather than healthy or regressed. ' +
+        'Check it by hand.',
   );
 
   return caveats;

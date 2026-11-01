@@ -122,7 +122,8 @@ import type {
   DiscoveryRefreshMetadata,
   RankedJourney,
 } from '../selection.js';
-import { signatureSemanticsReview, type Sidecar } from '../sidecar.js';
+import { segmentationCacheKeySuffix, type EvidenceLoadMode } from '../selection.js';
+import { planReviewReasons, signatureSemanticsReview, type PlanReviewReason, type Sidecar } from '../sidecar.js';
 import { normalizeDiagnostic, type NormalizedDiagnostic } from '../diagnostic-bound.js';
 import { detectSupersededPlansFromSidecars } from '../orphan-plans.js';
 import { scanSuiteFiles } from '../suite-scan.js';
@@ -1117,6 +1118,7 @@ export interface SignalAssessability {
 
 interface LocalCoverageInputs {
   planIndex: PlanIndexEntry[];
+  needsReview?: NeedsReviewSummary;
   specSlugs: string[];
   specReadErrors: ReadonlyMap<string, NonNullable<import('../coverage.js').CoverageBadges['readError']>>;
   planUnavailableReason?: string;
@@ -1143,8 +1145,10 @@ interface NeedsReviewSummary {
   count: number;
   plans: Array<{
     slug: string;
-    kind: NonNullable<PlanIndexEntry['needsReview']>['kind'];
+    /** Kept for existing dashboard readers; `reasons` is the complete inventory. */
+    kind: PlanReviewReason['kind'];
     note: string;
+    reasons: PlanReviewReason[];
     replanCommand: string;
   }>;
 }
@@ -1200,6 +1204,26 @@ function readLocalCoverageInputs(
         }),
     }];
   });
+  const reviewPlans = planEntries.flatMap((entry) => {
+    if (entry.kind !== 'readable' || entry.sidecar === undefined) return [];
+    let reasons: PlanReviewReason[];
+    try {
+      reasons = planReviewReasons(entry.sidecar.source, currentParamNames);
+    } catch {
+      // A malformed optional name list cannot prevent the local coverage view
+      // from rendering; the Sessions report retains the detailed skip reason.
+      return [];
+    }
+    if (reasons.length === 0) return [];
+    const { distinctId, sessionId } = entry.sidecar.source;
+    return [{
+      slug: entry.slug,
+      kind: reasons[0]!.kind,
+      note: reasons[0]!.note,
+      reasons,
+      replanCommand: `replaytest plan ${distinctId} --session ${sessionId}`,
+    }];
+  });
   // The lifecycle join needs content hashes; share this pre-indexed read with
   // the coverage projection so one request hashes each generated spec once.
   // Both cold and live joins retain unusable entries as disclosed inventory
@@ -1237,6 +1261,7 @@ function readLocalCoverageInputs(
       : undefined;
   return {
     planIndex,
+    ...(reviewPlans.length === 0 ? {} : { needsReview: { count: reviewPlans.length, plans: reviewPlans } }),
     specSlugs,
     specReadErrors,
     ...(planUnavailableReason === undefined ? {} : { planUnavailableReason }),
@@ -1292,19 +1317,11 @@ function annotateLocalCoverage(
       provenance: families.provenance,
       entries: annotateTopLevelEntriesWithCoverage(families.entries, inputs.planIndex, inputs.specSlugs, inputs.suiteFiles, inputs.lifecycleBySlug, { specReadErrors: inputs.specReadErrors, planUnavailableReason: inputs.planUnavailableReason }),
     };
-  const reviewPlans = inputs.planIndex.flatMap((plan) => plan.needsReview === undefined
-    ? []
-    : [{
-      slug: plan.slug,
-      kind: plan.needsReview.kind,
-      note: plan.needsReview.note,
-      replanCommand: plan.needsReview.replanCommand,
-    }]);
   return {
     sessions: annotateJourneysWithCoverage(journeys, inputs.planIndex, inputs.specSlugs, inputs.suiteFiles, inputs.lifecycleBySlug, { specReadErrors: inputs.specReadErrors, planUnavailableReason: inputs.planUnavailableReason }),
     ...(annotatedFamilies === undefined ? {} : { families: annotatedFamilies }),
     suiteScan: inputs.suiteScan,
-    ...(reviewPlans.length === 0 ? {} : { needsReview: { count: reviewPlans.length, plans: reviewPlans } }),
+    ...(inputs.needsReview === undefined ? {} : { needsReview: inputs.needsReview }),
     ...(coverageInventoryDisclosure(inputs) === undefined ? {} : { inventoryDisclosure: coverageInventoryDisclosure(inputs) }),
   };
 }
@@ -1391,8 +1408,16 @@ function isCompletionScanCoverage(value: unknown): value is CompletionScanCovera
 function isCompletionCounts(value: unknown): value is CompletionCounts {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
-  return ['completed', 'navigated', 'submitted', 'abandoned', 'submitThenNav', 'commitThenNewRoute']
+  const required = ['completed', 'navigated', 'submitted', 'abandoned', 'submitThenNav', 'commitThenNewRoute']
     .every((key) => typeof record[key] === 'number' && Number.isInteger(record[key]) && record[key] >= 0);
+  if (!required) return false;
+  // New census keys are optional so an older saved scan remains readable
+  // until the schema-version path fetches its replacement; when present,
+  // each key still has to be a valid non-negative whole count.
+  return ['completedWitnessed', 'abandonedMidFlow', 'errorAfterSubmit']
+    .every((key) => record[key] === undefined || (
+      typeof record[key] === 'number' && Number.isInteger(record[key]) && record[key] >= 0
+    ));
 }
 
 /** Safe provenance-only extraction from a legacy disk payload; row fields stay untrusted. */
@@ -1500,8 +1525,27 @@ export function parseSessionsCliJson(stdout: string): SessionsCliJson | undefine
  * offline-first response can only be reused for the exact filters that built
  * it. JSON preserves the CLI argument order and exact values by contract.
  */
-function sessionsScanCacheKey(cacheArgs: readonly string[], wizardKeySuffix: string): string {
-  return `${JSON.stringify(cacheArgs)}|wizardStepParams=${wizardKeySuffix}`;
+export function sessionsScanCacheKey(
+  cacheArgs: readonly string[],
+  wizardKeySuffix: string,
+  evidenceMode: EvidenceLoadMode = 'events',
+): string {
+  return `${JSON.stringify(cacheArgs)}|wizardStepParams=${wizardKeySuffix}${segmentationCacheKeySuffix(evidenceMode)}`;
+}
+
+/**
+ * The persisted last-scan envelope key: the scan cache key plus the limit.
+ * The envelope stores the composed payload AFTER the browser-only `limit`
+ * slice, so unlike the in-memory cache key it must also bind the limit — a
+ * `limit=10` envelope must never cold-serve a `limit=all` request.
+ */
+export function sessionsScanFilterKey(
+  cacheArgs: readonly string[],
+  wizardKeySuffix: string,
+  evidenceMode: EvidenceLoadMode,
+  limit: number | undefined,
+): string {
+  return `${sessionsScanCacheKey(cacheArgs, wizardKeySuffix, evidenceMode)}|limit=${String(limit)}`;
 }
 
 /**
@@ -1575,8 +1619,8 @@ export class SessionsScanCache {
    * useful) from an expired key (where an explicit finite TTL still gets its
    * normal re-scan behavior). It deliberately does not judge freshness.
    */
-  hasEntry(args: readonly string[], wizardKeySuffix: string): boolean {
-    return this.entries.has(sessionsScanCacheKey(args, wizardKeySuffix));
+  hasEntry(args: readonly string[], wizardKeySuffix: string, evidenceMode: EvidenceLoadMode = 'events'): boolean {
+    return this.entries.has(sessionsScanCacheKey(args, wizardKeySuffix, evidenceMode));
   }
 
   async acquire(
@@ -1585,10 +1629,11 @@ export class SessionsScanCache {
     forceFresh = false,
     cacheArgs: readonly string[] = args,
     wizardKeySuffix: string,
+    evidenceMode: EvidenceLoadMode = 'events',
   ): Promise<AcquiredSessionsScan> {
     // JSON preserves the argument order and exact values, which are the CLI
     // contract. Browser-only controls such as `limit` never reach this method.
-    const key = sessionsScanCacheKey(cacheArgs, wizardKeySuffix);
+    const key = sessionsScanCacheKey(cacheArgs, wizardKeySuffix, evidenceMode);
     const observedAtMs = this.now();
     const cached = this.entries.get(key);
 
@@ -1751,6 +1796,7 @@ export async function buildSessionsResponse(
   const appScopeConfig = (persistence?.getAppScopeConfig ?? getAppScopeConfig)();
   const requestedApp = query.get('app') || undefined;
   const cacheKeySuffix = `${wizardKeySuffix}${appScopeCacheKeySuffix(appScopeConfig, requestedApp)}`;
+  const evidenceMode: EvidenceLoadMode = 'events';
   const currentParamNames = isWizardStepConfigInvalid(wizardStepConfig) ? [] : wizardStepConfig.paramNames;
   // `check=1` is the primary action's deliberate tail refresh. It must bypass
   // the infinite default cache just like `rescan=1`, but only `rescan=1`
@@ -1758,11 +1804,8 @@ export async function buildSessionsResponse(
   let forceFresh = query.get('rescan') === '1' || query.get('check') === '1';
   let payloadSchemaRefresh: PayloadSchemaRefreshNudge | undefined;
   const cacheArgs = args.filter((arg) => arg !== '--fresh');
-  // The persisted envelope stores the fully composed payload AFTER the
-  // Browser-only `limit` slice, so unlike the in-memory cache key
-  // (which caches the pre-slice scan) its key must also bind the limit — a
-  // `limit=10` envelope must never cold-serve a `limit=all` request.
-  const filterKey = `${sessionsScanCacheKey(cacheArgs, cacheKeySuffix)}|limit=${String(parseSessionsLimit(query.get('limit')))}`;
+  // The persisted envelope binds the limit too; see `sessionsScanFilterKey`.
+  const filterKey = sessionsScanFilterKey(cacheArgs, cacheKeySuffix, evidenceMode, parseSessionsLimit(query.get('limit')));
   // A persisted payload exists for offline-first process starts and for a
   // genuinely unseen cache key. A cold serve never contacts the CLI/provider
   // or rewrites its clock/provenance fields; it only re-runs the shared LOCAL
@@ -1774,7 +1817,7 @@ export async function buildSessionsResponse(
   if (
     !forceFresh &&
     persistence?.identity !== undefined &&
-    (cache === undefined || !cache.hasEntry(cacheArgs, cacheKeySuffix))
+    (cache === undefined || !cache.hasEntry(cacheArgs, cacheKeySuffix, evidenceMode))
   ) {
     const storedEnvelope = persistence.store.readLastScanEnvelope(persistence.identity, filterKey);
     if (storedEnvelope !== undefined) {
@@ -1853,7 +1896,7 @@ export async function buildSessionsResponse(
   }
   const acquired = cache === undefined
     ? await runUncachedSessionsScan(args, runner)
-    : await cache.acquire(args, runner, forceFresh, cacheArgs, cacheKeySuffix);
+    : await cache.acquire(args, runner, forceFresh, cacheArgs, cacheKeySuffix, evidenceMode);
   const { result } = acquired.attempt;
   if (result.exitCode !== 0) {
     return {

@@ -38,44 +38,31 @@ test('Search 3 step2', async ({ page }) => {
     if (msg.type() === 'error') consoleErrors.push(msg.text());
   });
 
-  await page.goto('/flows/wizard-6-step1.html');
-  // recorded action 1: fill "Full name"
-  await page.getByTestId('wizard-6-fld-name').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 2: click "Input"
-  await page.getByTestId('wizard-6-fld-1-2').click();
-  // The recording witnessed a checkbox/radio interaction but not its resulting state
-  // (masking/no captured value at the seam) — .check() assumes the common case;
-  // use .uncheck() if this control should end up unchecked.
-  // recorded action 3: fill "Mail"
-  await page.getByTestId('wizard-6-fld-1-2').check();
-  // recorded action 4: fill "Additional note"
-  await page.getByTestId('wizard-6-fld-2').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 5: fill "Email address"
-  await page.getByTestId('wizard-6-fld-3').fill('test@example.com'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 6: fill "Search query"
+  await page.goto('/flows/search-3-step1.html');
+  // recorded action 1: fill "Search query"
   await page.getByTestId('search-3-fld-query').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 7: fill "Comments"
+  // recorded action 2: fill "Comments"
   await page.getByTestId('search-3-fld-1').fill('example'); // replaytest-marker: placeholder-value — placeholder value; TODO: replace 'example' with a valid value for the "Comments" field
   // The recording witnessed a checkbox/radio interaction but not its resulting state
   // (masking/no captured value at the seam) — .check() assumes the common case;
   // use .uncheck() if this control should end up unchecked.
-  // recorded action 8: fill "Subscribe to updates"
+  // recorded action 3: fill "Subscribe to updates"
   await page.getByTestId('search-3-fld-2').check();
-  // recorded action 9: click "Input"
+  // recorded action 4: click "Input"
   await page.getByTestId('search-3-fld-2').click();
-  // recorded action 10: fill "Phone number"
+  // recorded action 5: fill "Phone number"
   await page.getByTestId('search-3-fld-3').fill('5555550100'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 11: click "Input"
+  // recorded action 6: click "Input"
   await page.getByTestId('search-3-fld-4-2').click();
   // The recording witnessed a checkbox/radio interaction but not its resulting state
   // (masking/no captured value at the seam) — .check() assumes the common case;
   // use .uncheck() if this control should end up unchecked.
-  // recorded action 12: fill "Mail"
+  // recorded action 7: fill "Mail"
   await page.getByTestId('search-3-fld-4-2').check();
-  // recorded action 13: fill "Search query"
+  // recorded action 8: fill "Search query"
   await page.getByTestId('search-3-fld-query').fill('example'); // replaytest-marker: placeholder-value — placeholder value
   // If submit is blocked by a required field the recording didn't capture (e.g. a masked input), add its synthetic fill above.
-  // recorded action 14: click "Search"
+  // recorded action 9: click "Search"
   await page.getByTestId('search-3-submit').click();
 
   await expect(page).toHaveURL('/flows/search-3-step2.html');

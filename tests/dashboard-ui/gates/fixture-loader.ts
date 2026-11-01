@@ -100,7 +100,7 @@ function writeFixtureWorkspace(workspaceDir: string, fixture: DashFixture): void
   // The server's persisted-cache key is deliberately implementation-shaped.
   // Store the captured response under that exact key, rather than routing the
   // browser around the production server.
-  const filterKey = '["sessions","--json"]|wizardStepParams=[]|limit=all';
+  const filterKey = '["sessions","--json"]|wizardStepParams=[]|segmentation=1|evidence=events|limit=all';
   const state = fixture === 'a' || fixture === 'b' ? envelope(fixture) : stateEnvelope(fixture);
   const stored = state as { filterKey: string } | undefined;
   if (stored !== undefined) fs.writeFileSync(path.join(cacheDir, 'dashboard-last-scan.json'), JSON.stringify({ ...stored, filterKey }), 'utf8');

@@ -8,6 +8,7 @@
  * "The match is exact per shape, never a bare prefix").
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
@@ -45,7 +46,7 @@ function sidecar(): Sidecar {
       journeyIndex: 0,
       signature: SIG,
       generatedAt: '2026-07-01T12:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/cart',
     steps: [{ action: 'click', label: 'Pay now', locator: "getByRole('button', { name: 'Pay now' })", isSubmit: true }],

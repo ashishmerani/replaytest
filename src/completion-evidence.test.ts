@@ -6,9 +6,12 @@ import test from 'node:test';
 import {
   COMPLETION_EVIDENCE_LADDER,
   COMPLETION_EVIDENCE_LADDER_FOOTNOTE,
+  COMPLETION_FINALITY_DEFINITION,
   NAVIGATED_MULTI_CREATE_REFUSAL,
   NAVIGATED_PLAN_SYNTHESIS_NOTE,
   NAVIGATED_PREVALENCE_FLOOR_NOTE,
+  UNCHECKED_FINALITY_TOOLTIP,
+  formatOutcomeCoverageLine,
   renderCompletionEvidenceLadderCli,
   renderCompletionEvidenceLadderMarkdown,
   renderStatusDefinitionsSentence,
@@ -17,12 +20,14 @@ import { isTransientProbePath, readSourceFile, transientProbePath, withSourceSna
 
 const DASHBOARD_ASSET = path.resolve('src/dashboard/index.html');
 
-test('completion evidence ladder is one source with all four statuses and irreducible shapes', () => {
-  assert.deepEqual(COMPLETION_EVIDENCE_LADDER.map((entry) => entry.status), ['completed', 'navigated', 'submitted', 'abandoned']);
+test('completion evidence ladder is one source with all six statuses and refusal shapes', () => {
+  assert.deepEqual(COMPLETION_EVIDENCE_LADDER.map((entry) => entry.status), ['completed', 'abandoned-mid-flow', 'error-after-submit', 'navigated', 'submitted', 'abandoned']);
   const rendered = `${renderCompletionEvidenceLadderCli()}\n${renderCompletionEvidenceLadderMarkdown()}`;
-  for (const phrase of ['Search-then-open', 'Typed-then-bailed-elsewhere', 'Created-then-deleted', COMPLETION_EVIDENCE_LADDER_FOOTNOTE]) {
+  for (const phrase of ['Search-then-open', 'Typed-then-bailed-elsewhere', 'Created-then-deleted', 'within 10 seconds', 'page reload', 'promo code', 'successful redirect', 'moment after the last submit was fully recorded', COMPLETION_EVIDENCE_LADDER_FOOTNOTE]) {
     assert.match(rendered, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+  assert.match(COMPLETION_FINALITY_DEFINITION, /no form left open on it/);
+  assert.equal(UNCHECKED_FINALITY_TOOLTIP, 'Unchecked: we saw the user reach a new page, but did not see whether it was the last step.');
   // The generated page still declares its provenance, so a hand-edit is
   // visibly wrong even after the review markers came off.
   assert.match(renderCompletionEvidenceLadderMarkdown(), /AUTO-GENERATED — do not hand-edit\./);
@@ -82,22 +87,15 @@ test('transient probe pin: completion vocabulary output is invariant with poison
   }
 });
 
-test('every rendered ladder surface carries the navigated floor caveat, and it promises nothing', () => {
+test('every rendered ladder surface carries the navigated floor caveat without describing internal build state', () => {
   // The undercount stays, so every surface
   // that EXPLAINS the number must state that it is a minimum.
   const rendered = `${renderCompletionEvidenceLadderCli()}\n${renderCompletionEvidenceLadderMarkdown()}`;
   const escaped = NAVIGATED_PREVALENCE_FLOOR_NOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   assert.equal(rendered.match(new RegExp(escaped, 'g'))?.length, 2, 'CLI help and the docs page both carry it');
   assert.match(NAVIGATED_PREVALENCE_FLOOR_NOTE, /minimum/);
-  assert.match(NAVIGATED_PREVALENCE_FLOOR_NOTE, /not built yet/);
-  // The old wording promised an accurate split and said a low count was no
-  // reason to defer it. The current caveat makes neither claim, so both old
-  // clauses would be false.
-  assert.equal(
-    new RegExp([['Sta', 'ge'].join(''), ' 2'].join('')).test(NAVIGATED_PREVALENCE_FLOOR_NOTE),
-    false,
-    'the caveat must not promise a deliverable the scope split deferred',
-  );
+  assert.match(NAVIGATED_PREVALENCE_FLOOR_NOTE, /so a low Navigated count is never on its own evidence that this class is rare\./);
+  assert.doesNotMatch(NAVIGATED_PREVALENCE_FLOOR_NOTE, /not built yet/i);
 });
 
 test('the dashboard cannot render a DISABLED plan button whose reason says the class is plannable', () => {
@@ -158,8 +156,13 @@ test('drift guard: the dashboard status tooltip MIRRORS the in-code status defin
 
   assert.equal(
     sentence,
-    "Completed: a submit then a distinct landing · Navigated: typed input then a new landing, with no witnessed submit · Submitted: a form was submitted but the outcome wasn't captured · Abandoned: no rule above matched.",
+    "Completed: a submit then a distinct landing, with no unfinished step or refused submit seen · Stopped mid-flow: reached the next step of a flow, then stopped there · Error after submit: an error appeared after submit and its form stayed or reappeared · Navigated: typed input then a new landing, with no submit seen · Submitted: a submit with no new page and no error seen · Abandoned: no rule above matched. Unchecked: we saw the user reach a new page, but did not see whether it was the last step. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit.",
   );
+  // Header-level text only: the long finish-checked definition and the full footnote stay in the
+  // ladder, and no command back-ticks reach the tooltip.
+  assert.equal(sentence.includes(COMPLETION_FINALITY_DEFINITION), false, 'the finish-checked definition stays in the ladder');
+  assert.equal(sentence.includes(COMPLETION_EVIDENCE_LADDER_FOOTNOTE), false, 'the full footnote stays in the ladder');
+  assert.doesNotMatch(sentence, /`/);
   assert.ok(
     asset.includes(sentence),
     'src/dashboard/index.html TOOLTIPS.status must contain renderStatusDefinitionsSentence() verbatim',
@@ -172,6 +175,38 @@ test('drift guard: the dashboard asset carries the injection marker for the floo
   // REFERENCE the binding, never restate the prose.
   assert.ok(asset.includes('NAVIGATED_PREVALENCE_FLOOR_NOTE'), 'the asset consumes the injected binding');
   assert.equal(asset.includes(NAVIGATED_PREVALENCE_FLOOR_NOTE), false, 'the prose itself must never be hand-copied into the asset');
+});
+
+test('recording outcome notes have exact copy and stay absent without coverage', () => {
+  assert.equal(
+    formatOutcomeCoverageLine('not-captured'),
+    'Outcome not captured: We could not see what happened after the submit because there was no recording, it ended early, could not be read, did not line up one-to-one with the events, we could not tell which click sent the form, or what followed was unclear: an error appeared after the form was gone, or a page change within 10 seconds could not be fully read.',
+  );
+  assert.equal(
+    formatOutcomeCoverageLine('not-recognised'),
+    'Outcome not recognized: We saw the whole moment after the submit, and nothing we read as an error or a new page appeared; it may still have succeeded in place.',
+  );
+  assert.equal(formatOutcomeCoverageLine(undefined), undefined);
+});
+
+test('status display surfaces no longer ship the reserved-build placeholder', () => {
+  const files = [
+    'src/cli/terminal-format.ts',
+    'src/cli/help.ts',
+    'src/cli/verbs/sessions.ts',
+    'src/cli/verbs/plan.ts',
+    'src/cli/verbs/repro.ts',
+    'src/dashboard/index.html',
+    'src/completion-evidence.ts',
+    'src/gap-map.ts',
+    'src/suite-health.ts',
+    'docs/site/concepts.md',
+    'docs/site/for-ai-agents.md',
+    'docs/site/cli-reference.md',
+    'docs/site/dashboard-guide.md',
+  ];
+  const shippedCopy = files.map((file) => fs.readFileSync(path.resolve(file), 'utf8')).join('\n');
+  assert.doesNotMatch(shippedCopy, /not supported by this build yet/i);
 });
 
 test('the navigated multi-create refusal has ONE source, used by the CLI', () => {
@@ -193,7 +228,7 @@ test('the navigated class is described as QUALIFIED support, never as a flat ref
   // keystroke is captured at NO provider tier, so "supported" alone would be
   // a lie in one direction and "not supported" a lie in the other.
   assert.match(NAVIGATED_PLAN_SYNTHESIS_NOTE, /SYNTHESIZED/);
-  assert.match(NAVIGATED_PLAN_SYNTHESIS_NOTE, /Assertions stay witnessed-only/);
+  assert.match(NAVIGATED_PLAN_SYNTHESIS_NOTE, /Assertions check only what was seen\./);
   assert.equal(
     /not supported yet|is not replayable/.test(NAVIGATED_PLAN_SYNTHESIS_NOTE),
     false,
@@ -211,4 +246,38 @@ test('the navigated class is described as QUALIFIED support, never as a flat ref
       `${relativePath} still states the retired class-wide refusal`,
     );
   }
+});
+
+/** The ladder and every docs page that explains Error after submit, read as shipped text. */
+function errorAfterSubmitSurfaces(): Array<[string, string]> {
+  return [
+    ['ladder CLI', renderCompletionEvidenceLadderCli()],
+    ['ladder Markdown', renderCompletionEvidenceLadderMarkdown()],
+    ...['docs/site/concepts.md', 'docs/site/for-ai-agents.md', 'docs/site/cli-reference.md', 'docs/site/dashboard-guide.md']
+      .map((relativePath): [string, string] => [relativePath, fs.readFileSync(path.resolve(relativePath), 'utf8')]),
+  ];
+}
+
+test('an error counts only while the submitted form is on the page — no surface says ANY error after the last submit counts', () => {
+  // The form-gone shape (an error seen after the form left the page) leaves a journey Completed,
+  // so "any error after the last submit" is false. The broadest phrase that names the claim.
+  const formOnPageSentence = 'An error seen while the submitted form is still on the page counts, even when the recording ends early.';
+  const entry = COMPLETION_EVIDENCE_LADDER.find((item) => item.status === 'error-after-submit');
+  assert.ok(entry?.deterministicConditions.includes(formOnPageSentence));
+  for (const [surface, text] of errorAfterSubmitSurfaces()) {
+    assert.doesNotMatch(text, /any (such )?error (seen )?after the (last )?submit/i, `${surface} still says any error after the submit counts`);
+    assert.doesNotMatch(text, /including when[^.]*the recording ends early/i, `${surface} still ties the early-ending recording to any error`);
+  }
+  for (const surface of ['docs/site/concepts.md', 'docs/site/for-ai-agents.md', 'docs/site/dashboard-guide.md']) {
+    assert.ok(fs.readFileSync(path.resolve(surface), 'utf8').includes(formOnPageSentence), `${surface} carries the form-on-page sentence`);
+  }
+});
+
+test('ladder copy: no "Finish checked: Finish checked" stutter, the never-seen disclosure, and a true Abandoned condition', () => {
+  const rendered = `${renderCompletionEvidenceLadderCli()}\n${renderCompletionEvidenceLadderMarkdown()}\n${fs.readFileSync(DASHBOARD_ASSET, 'utf8')}`;
+  assert.doesNotMatch(rendered, /Finish checked:\s*('\s*\+\s*)?(\$\{)?\s*(COMPLETION_FINALITY_DEFINITION|Finish checked)/);
+  const neverSeen = 'We never see card fields inside a payment frame or any area the recording blocks, so an error shown there is not counted.';
+  assert.ok(COMPLETION_EVIDENCE_LADDER.find((item) => item.status === 'error-after-submit')?.knownFalsePositiveShapes.includes(neverSeen));
+  assert.match(renderCompletionEvidenceLadderMarkdown(), /payment frame or any area the recording blocks/);
+  assert.deepEqual(COMPLETION_EVIDENCE_LADDER.find((item) => item.status === 'abandoned')?.deterministicConditions, ['No other rule matched.']);
 });

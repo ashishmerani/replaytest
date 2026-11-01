@@ -3,6 +3,7 @@
  * Imported by the verb mirror tests in this directory and the slim core src/cli.test.ts.
  */
 
+import { toolIdentifier } from '../../tool-identifier.js';
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawnSync } from 'node:child_process';
@@ -13,7 +14,7 @@ import type { TestContext } from 'node:test';
 import { makeTempDir } from '../../test-support/temp-dir.test-support.js';
 import { SESSIONS_SUITE_MATCH_NOTE } from '../../cli.js';
 import type { DiscoveryRankingResult, RankedJourney } from '../../selection.js';
-import type { Journey, JourneyStatus } from '../../journeys.js';
+import type { Journey, JourneyFinality, JourneyStatus } from '../../journeys.js';
 import type { NeutralSession, NeutralStep } from '../../neutral-session.js';
 // SEAM GUARD: type-only provider import for fixture shapes. This module
 // sits in the test lint class (matched by exact path), so the provider-seam zone does
@@ -288,7 +289,7 @@ export function writeOldPlanForReview(plansDir: string, slug: string, distinctId
         sessionId,
         journeyIndex: 0,
         generatedAt: '2026-07-14T00:00:00.000Z',
-        tool: 'replaytest@0.1.0',
+        tool: toolIdentifier(),
       },
       start: '/',
       steps: [],
@@ -316,7 +317,7 @@ export function writeSupersessionPlan(
         journeyIndex: 0,
         signature,
         generatedAt,
-        tool: 'replaytest@0.1.0',
+        tool: toolIdentifier(),
         ...sourceOverrides,
       },
       start: '/',
@@ -370,11 +371,13 @@ export const emptyGapsCoverage = () => ({
 });
 
 /** Builds a minimal `Journey` fixture — only `status` matters to `buildSkippedJourneysNote`. */
-export function journeyWithStatus(status: JourneyStatus): Journey {
+export function journeyWithStatus(status: JourneyStatus, finality?: JourneyFinality): Journey {
   return {
     entryUrl: 'http://localhost:8000/index.html',
     finalUrl: 'http://localhost:8000/index.html',
     status,
+    ...(status === 'completed' ? { finality: finality ?? 'unchecked' } : {}),
+    ...(status === 'abandoned-mid-flow' ? { stoppedAtStep: 3, midFlowEvidence: 'typed-on-next-step' as const } : {}),
     startedAt: '2026-07-04T00:00:00.000Z',
     endedAt: '2026-07-04T00:01:00.000Z',
     steps: [],
@@ -495,7 +498,7 @@ export function repairLoopSidecar(overrides: Partial<Sidecar> = {}): Sidecar {
       journeyIndex: 2,
       signature: '/patients/:id > /appointments/:id/reschedule',
       generatedAt: '2026-07-28T15:41:12.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/patients/pat_187/appointments/appt_440',
     steps: [

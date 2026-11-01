@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'stubs');
 const read = (name: string) => fs.readFileSync(path.join(root, name), 'utf8');
 // The current vocabulary, matching `label-gate.ts` and `stubs.spec.ts`.
-const allowedChip = new Set(['Completed', 'Navigated', 'Submitted', 'Abandoned', 'Unknown', 'Mixed', 'No test yet', 'Planned', 'Scaffolded', 'Executed', 'Passing', 'Maybe in your suite', '⚠ Needs a look']);
+const allowedChip = new Set(['Completed · finish not checked', 'Navigated', 'Submitted', 'Abandoned', 'Unknown', 'Mixed', 'No test yet', 'Planned', 'Scaffolded', 'Executed', 'Passing', 'Maybe in your suite', '⚠ Needs a look']);
 
 const gates = {
   label: (html: string) => allowedChip.has((html.match(/dash-chip-[^>]*>([^<]+)/)?.[1] ?? '').trim()),

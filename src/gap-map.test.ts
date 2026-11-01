@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
+import { statusRank } from './families.js';
 import { deriveGapMap, limitGapMapRows } from './gap-map.js';
 import type { GapMapSection } from './gap-map.js';
 import type { RankedJourneyWithCoverage } from './coverage.js';
@@ -107,7 +111,7 @@ test('derives the link-state taxonomy, including non-green plan-review and super
   assert.equal(section.noKnownLink[0]?.sessionCountLabel, '9 user sessions did this');
   assert.equal(section.noKnownLink[0]?.action.label, 'Watch one of these sessions, then generate a test plan from it if it looks right.');
   assert.equal(section.knownLinks[0]?.action.label, 'Open the linked plan and its test to confirm they still match this journey.');
-  assert.equal(section.needsReview[0]?.action.label, 'Review the linked test plan — the journey may have changed since it was generated.');
+  assert.equal(section.needsReview[0]?.action.label, 'Review this plan before re-running it.');
   assert.equal(section.superseded[0]?.action.label, 'This plan was replaced by a newer one — review the newer plan.');
   assert.equal(section.possibleSuiteMatches[0]?.action.label, 'Check the possible matching test in your own suite before adding a new one.');
   assert.equal(Object.hasOwn(gapMap, 'total'), false);
@@ -122,6 +126,25 @@ test('a planned lifecycle row is not linked to a generated spec before scaffold'
   })]), 'form-submit-signal');
   assert.equal(section.noKnownLink[0]?.linkState, 'no-known-link');
   assert.equal(section.noKnownLink[0]?.reason, 'A plan exists, but its generated spec has not been scaffolded yet.');
+});
+
+test('a review-needed plan without a generated test is labelled as a plan in the needs-review lane', () => {
+  const section = sectionFor(derive([exactRow({
+    signature: '/review-plan-only',
+    planned: true,
+    planSlug: 'review-plan-only',
+    lifecycle: 'planned',
+    needsReview: {
+      kind: 'older-url-semantics',
+      note: 'ⓘ This plan was built under different URL rules.',
+      replanCommand: 'replaytest plan customer-review --session session-review',
+    },
+  })]), 'form-submit-signal');
+  const row = section.needsReview[0];
+
+  assert.equal(row?.specFileExists, false, 'the plan has no generated test file');
+  assert.equal(row?.action.label, 'Review this plan before re-running it.');
+  assert.doesNotMatch(row?.action.label ?? '', /has a test|linked test/i);
 });
 
 test('a shape that could not be assessed retains the route-level coverage join', () => {
@@ -154,14 +177,30 @@ test('a no-link navigated row DOES advertise a plan command, with the synthesis 
   assert.match(row?.action.warning ?? '', /creates a real record when it runs/);
 });
 
+test('stopped-mid-flow rows are plannable with a step-change note; error-after-submit rows are disclosed and withheld', () => {
+  const stopped = derive([exactRow({ status: 'abandoned-mid-flow', stoppedAtStep: 3, plannable: true, signature: '/wizard/step/3' })]);
+  const stoppedAction = stopped.sections.flatMap((section) => section.noKnownLink).find((row) => row.signature === '/wizard/step/3')?.action;
+  assert.equal(stoppedAction?.kind, 'review-stopped-mid-flow');
+  assert.match(stoppedAction?.label ?? '', /plan can check that step change, not the whole flow/);
+  assert.match(stoppedAction?.command ?? '', /^replaytest plan\b/);
+
+  const errored = derive([exactRow({ status: 'error-after-submit', signature: '/checkout/error' })]);
+  const errorAction = errored.sections.flatMap((section) => section.noKnownLink).find((row) => row.signature === '/checkout/error')?.action;
+  assert.equal(errorAction?.kind, 'review-error-after-submit');
+  assert.match(errorAction?.label ?? '', /recording showed an error after this submit/);
+  assert.match(errorAction?.label ?? '', /cannot be planned/);
+  assert.doesNotMatch(errorAction?.command ?? '', /^replaytest plan\b/);
+});
+
 test('a mixed row never prints the submit-specific sentence, and states the breakdown instead', () => {
-  // 9 navigated + 1 submitted collapse into one row. `submitted` outranks
-  // `navigated`, so the outlier is the representative — and the submit-specific
-  // sentence ("after the submit, these visits either stayed put…") is FALSE for
-  // 9 of the 10 sessions it would be shown for.
+  // 1 submitted + 9 abandoned collapse into one row. `submitted` outranks
+  // `abandoned` (`statusRank`), so the outlier is the representative — and the
+  // submit-specific sentence ("after the submit, these visits either stayed
+  // put…") is FALSE for 9 of the 10 sessions it would be shown for.
+  assert.ok(statusRank('submitted') > statusRank('abandoned'), 'the fixture shape is one the real ranking produces');
   const mixed = derive([exactRow({
     status: 'submitted',
-    statusMix: { submitted: 1, navigated: 9 },
+    statusMix: { submitted: 1, abandoned: 9 },
     sessionCount: 10,
     signature: '/mixed-create',
     representativeDistinctId: 'customer-mixed',
@@ -170,17 +209,19 @@ test('a mixed row never prints the submit-specific sentence, and states the brea
     .flatMap((section) => section.noKnownLink)
     .find((candidate) => candidate.signature === '/mixed-create');
 
-  assert.equal(row?.action.kind, 'review-and-plan');
+  assert.equal(row?.action.kind, 'review-not-plannable');
+  assert.equal(row?.action.command, 'replaytest gaps --shape form-submit-signal --since-hours 72');
   assert.doesNotMatch(row?.action.label ?? '', /after the submit, these visits either stayed put/);
-  assert.match(row?.action.label ?? '', /Not every session here ended the same way \(1 submitted · 9 navigated\)/);
-  assert.match(row?.action.label ?? '', /the example session is the submitted one/);
+  assert.match(row?.action.label ?? '', /^Submitted and Abandoned journeys cannot be planned\./);
+  assert.match(row?.action.label ?? '', /Not every session here ended the same way \(1 submitted · 9 abandoned\)/);
+  assert.match(row?.action.label ?? '', /the example session is ranked most testable \(completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned\), and that is the session to watch\./);
 
-  // A UNIFORM submitted row keeps its established hedged sentence untouched.
+  // A UNIFORM submitted row uses the existing status refusal reason.
   const uniform = derive([exactRow({ status: 'submitted', signature: '/uniform-submit' })]);
   const uniformRow = uniform.sections
     .flatMap((section) => section.noKnownLink)
     .find((candidate) => candidate.signature === '/uniform-submit');
-  assert.match(uniformRow?.action.label ?? '', /after the submit, these visits either stayed put/);
+  assert.equal(uniformRow?.action.label, 'Submitted and Abandoned journeys cannot be planned.');
   assert.doesNotMatch(uniformRow?.action.label ?? '', /Not every session here/);
 });
 
@@ -220,8 +261,10 @@ test('a navigated row the scan did NOT mark plannable explains the merge instead
   assert.equal(row?.action.kind, 'review-navigated');
   assert.match(row?.action.label ?? '', /merges more than one create into a single journey/);
   assert.doesNotMatch(row?.action.command ?? '', /^replaytest plan\b/, 'never offer a command that will be refused');
-  // It still writes when it runs, so the warning stays.
-  assert.match(row?.action.warning ?? '', /creates a real record when it runs/);
+  // Changed deliberately: the write warning describes what a
+  // generated test does when it runs. This row offers no plan command, so no
+  // test is generated and there is nothing to warn about.
+  assert.equal(row?.action.warning, undefined);
 });
 
 test('keeps unavailable shape evidence out of ranks with its reason', () => {
@@ -347,26 +390,26 @@ test('formats exact, coarse, suite-candidate, and form-submit action contracts',
 
   // Amendment: an exact row whose journey ends at 'submitted' was SEEN
   // DIRECTLY — it must never get the detailed-scan label (which claims direct
-  // evidence is missing). It routes to review-and-plan with the hedged label.
+  // evidence is missing). It routes to a refusal-aware action and the shared
+  // dashboard reason for submitted/abandoned rows.
   const submitted = derive([exactRow({ signature: '/submitted', status: 'submitted' })], { shapes: ['form-submit-signal'] });
   const submittedAction = sectionFor(submitted, 'form-submit-signal').noKnownLink[0]?.action;
-  assert.equal(submittedAction?.kind, 'review-and-plan');
-  assert.equal(
-    submittedAction?.label,
-    'We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.',
-  );
-  assert.equal(submittedAction?.command, 'replaytest plan customer-1 --session session-1');
+  assert.equal(submittedAction?.kind, 'review-not-plannable');
+  assert.equal(submittedAction?.label, 'Submitted and Abandoned journeys cannot be planned.');
+  assert.equal(submittedAction?.command, 'replaytest gaps --shape form-submit-signal --since-hours 72');
+  assert.equal(submittedAction?.warning, undefined, 'a refused row generates no test, so it carries no write warning');
 
   // Review finding: a directly-seen row whose visit was ABANDONED (common
   // for rage clicks) must also never get the detailed-scan label — it was
-  // seen directly. It gets the plain watch-and-judge sentence.
+  // seen directly. It gets the existing status refusal reason.
   const abandoned = derive(
     [exactRow({ signature: '/billing', status: 'abandoned', rageClicks: { count: 3, affectedSessionCount: 1, members: [] } })],
     { shapes: ['rage-clicks'] },
   );
   const abandonedAction = sectionFor(abandoned, 'rage-clicks').noKnownLink[0]?.action;
-  assert.equal(abandonedAction?.kind, 'review-and-plan');
-  assert.equal(abandonedAction?.label, 'Watch one of these sessions, then generate a test plan from it if it looks right.');
+  assert.equal(abandonedAction?.kind, 'review-not-plannable');
+  assert.equal(abandonedAction?.label, 'Submitted and Abandoned journeys cannot be planned.');
+  assert.equal(abandonedAction?.command, 'replaytest gaps --shape rage-clicks --since-hours 72');
 
   const candidateAction = sectionFor(candidate, 'form-submit-signal').possibleSuiteMatches[0]?.action;
   assert.equal(candidateAction?.reference, 'tests/legacy-flow.spec.ts');
@@ -376,6 +419,136 @@ test('formats exact, coarse, suite-candidate, and form-submit action contracts',
   const unavailableRow = sectionFor(unavailable, 'form-submit-signal').notAssessed[0];
   assert.equal(unavailableRow?.reason, "We couldn't check whether this journey has a test.");
   assert.equal(unavailableRow?.action.label, 'Fix the missing evidence first (see the note on this row).');
+});
+
+for (const status of ['submitted', 'abandoned', 'unrecognized-status'] as const) {
+  test(`an exact ${status} row does not offer a plan command`, () => {
+    const shape = status === 'submitted' ? 'form-submit-signal' : 'rage-clicks';
+    const row = exactRow({
+      signature: `/${status}`,
+      status: status as RankedJourneyWithCoverage['status'],
+      ...(status === 'submitted' ? {} : { rageClicks: { count: 3, affectedSessionCount: 1, members: [] } }),
+    });
+    const section = sectionFor(derive([row], { shapes: [shape] }), shape);
+    const action = section.noKnownLink[0]?.action;
+
+    assert.equal(section.noKnownLink.length, 1, 'the exact no-known-link row is present');
+    assert.equal(action?.kind, 'review-not-plannable');
+    assert.doesNotMatch(action?.command ?? '', /^replaytest plan\b/);
+    assert.doesNotMatch(action?.label ?? '', /generate a test plan|generate a plan from it/i);
+    if (status === 'unrecognized-status') {
+      assert.equal(action?.label, 'This journey cannot be planned.');
+    }
+  });
+}
+
+test('a completed exact row keeps its plan command', () => {
+  const section = sectionFor(derive([exactRow({ status: 'completed' })], { shapes: ['form-submit-signal'] }), 'form-submit-signal');
+  assert.match(section.noKnownLink[0]?.action.command ?? '', /^replaytest plan\b/);
+});
+
+test('a coarse row keeps its plan command for an exact follow-up', () => {
+  const section = sectionFor(derive([coarseRow()], { shapes: ['form-submit-signal'] }), 'form-submit-signal');
+  assert.match(section.noKnownLink[0]?.action.command ?? '', /^replaytest plan\b/);
+});
+
+test('a linked plan keeps its kind and label when the example session is refused; only the example-session command is withheld', () => {
+  const section = sectionFor(derive([
+    exactRow({
+      signature: '/review-refused',
+      status: 'submitted',
+      planned: true,
+      planSlug: 'review-refused',
+      lifecycle: 'planned',
+      needsReview: {
+        kind: 'older-url-semantics',
+        note: 'Review URL semantics.',
+        // The plan's OWN source session, which `plan` accepted once — not the example session.
+        replanCommand: 'replaytest plan plan-source-user --session plan-source-session',
+      },
+    } as RankedJourneyWithCoverage & { lifecycle: 'planned' }),
+    exactRow({
+      signature: '/review-refused-no-replan',
+      status: 'submitted',
+      representativeSessionId: 'session-refused',
+      planned: true,
+      planSlug: 'review-refused-no-replan',
+      lifecycle: 'planned',
+      // Defensive: a needs-review row with no re-plan command falls back, and
+      // the fallback must not hand over a plan command for a refused session.
+      needsReview: {
+        kind: 'older-url-semantics',
+        note: 'Review URL semantics.',
+        replanCommand: undefined as unknown as string,
+      },
+    } as RankedJourneyWithCoverage & { lifecycle: 'planned' }),
+    exactRow({
+      signature: '/linked-refused',
+      status: 'submitted',
+      planned: true,
+      planSlug: 'linked-plan',
+      lifecycle: 'scaffolded',
+    } as RankedJourneyWithCoverage & { lifecycle: 'scaffolded' }),
+  ]), 'form-submit-signal');
+
+  const withReplan = section.needsReview.find((row) => row.signature === '/review-refused')?.action;
+  assert.equal(withReplan?.kind, 'replan-link', 'kind replan-link keeps the Open plan button');
+  assert.equal(withReplan?.label, 'Review this plan before re-running it.');
+  assert.equal(withReplan?.command, 'replaytest plan plan-source-user --session plan-source-session');
+  assert.match(withReplan?.warning ?? '', /submit form data when it runs/, 'the re-plan command generates a test, so the warning stays');
+
+  const noReplan = section.needsReview.find((row) => row.signature === '/review-refused-no-replan')?.action;
+  assert.equal(noReplan?.kind, 'replan-link');
+  assert.equal(noReplan?.label, 'Review this plan before re-running it.');
+  assert.equal(noReplan?.command, 'replaytest gaps --shape form-submit-signal --since-hours 72');
+  assert.equal(noReplan?.warning, undefined);
+
+  assert.equal(section.knownLinks[0]?.action.kind, 'review-linked-plan');
+  assert.equal(section.knownLinks[0]?.action.command, 'replaytest gaps --shape form-submit-signal --since-hours 72');
+  assert.equal(section.knownLinks[0]?.action.warning, undefined);
+});
+
+test('a stopped-mid-flow row is plannable by status alone, with or without the ranking flag (matches isPlannableJourney)', () => {
+  for (const flag of [{ plannable: true as const }, {}]) {
+    const section = sectionFor(derive([
+      exactRow({ status: 'abandoned-mid-flow', stoppedAtStep: 2, signature: '/wizard/step/2', ...flag }),
+    ], { shapes: ['form-submit-signal'] }), 'form-submit-signal');
+    const action = section.noKnownLink.find((row) => row.signature === '/wizard/step/2')?.action;
+    assert.equal(action?.kind, 'review-stopped-mid-flow', `flag ${JSON.stringify(flag)}`);
+    assert.equal(action?.command, 'replaytest plan customer-1 --session session-1', `flag ${JSON.stringify(flag)}`);
+    assert.doesNotMatch(action?.label ?? '', /cannot be planned/);
+    assert.match(action?.warning ?? '', /submit form data when it runs/, 'a plannable row keeps its write warning');
+  }
+});
+
+test('a refused error-after-submit row carries no write warning; its sentence has one source', () => {
+  const section = sectionFor(derive([
+    exactRow({ status: 'error-after-submit', signature: '/checkout/error' }),
+    exactRow({
+      signature: '/checkout/error-review',
+      status: 'error-after-submit',
+      planned: true,
+      planSlug: 'error-review',
+      lifecycle: 'planned',
+      needsReview: { kind: 'older-url-semantics', note: 'Review URL semantics.', replanCommand: 'replaytest plan src-user --session src-session' },
+    } as RankedJourneyWithCoverage & { lifecycle: 'planned' }),
+  ], { shapes: ['form-submit-signal'] }), 'form-submit-signal');
+  const action = section.noKnownLink.find((row) => row.signature === '/checkout/error')?.action;
+  assert.equal(action?.kind, 'review-error-after-submit');
+  assert.equal(action?.label, 'The recording showed an error after this submit, so this journey cannot be planned. Watch one session to see what happened.');
+  assert.equal(action?.warning, undefined);
+  assert.equal(section.needsReview[0]?.action.kind, 'replan-link');
+});
+
+test('the Gap map reuses the dashboard status refusal word for word', () => {
+  // The anchored copy lives in dashboard/index.html; the Gap map label must
+  // track it, so a reword of the anchored string cannot drift silently.
+  const html = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard', 'index.html'), 'utf8');
+  const match = /const OTHER_UNPLANNABLE_TITLE = '([^']+)';/.exec(html);
+  assert.ok(match, 'the dashboard status refusal constant must remain present');
+  const section = sectionFor(derive([exactRow({ status: 'submitted', signature: '/submit-stays' })], { shapes: ['form-submit-signal'] }), 'form-submit-signal');
+  const label = section.noKnownLink.find((row) => row.signature === '/submit-stays')?.action.label;
+  assert.equal(label, match[1]);
 });
 
 test('records a degraded coarse data window without silently narrowing its claim', () => {
@@ -446,3 +619,28 @@ function collectStrings(value: unknown): string[] {
   if (typeof value !== 'object' || value === null) return [];
   return Object.values(value).flatMap(collectStrings);
 }
+
+test('a write warning appears only on actions that offer a plan command (shipped demo data and the hand-built fixture)', () => {
+  const srcDir = path.dirname(fileURLToPath(import.meta.url));
+  const files = [
+    path.join(srcDir, 'dashboard', 'demo-store.json'),
+    path.join(srcDir, '..', 'tests', 'dashboard-ui', 'fixtures', 'gap-map', 'catalog.json'),
+  ];
+  let checked = 0;
+  const visit = (node: unknown, file: string): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, file);
+      return;
+    }
+    if (node === null || typeof node !== 'object') return;
+    const record = node as Record<string, unknown>;
+    if (typeof record.kind === 'string' && 'warning' in record) {
+      checked += 1;
+      const command = typeof record.command === 'string' ? record.command : '';
+      assert.ok(command.startsWith('replaytest plan '), `${path.basename(file)}: action kind ${record.kind} carries a write warning but offers "${command}"`);
+    }
+    for (const value of Object.values(record)) visit(value, file);
+  };
+  for (const file of files) visit(JSON.parse(fs.readFileSync(file, 'utf8')) as unknown, file);
+  assert.ok(checked > 0, 'expected at least one warned action to check');
+});

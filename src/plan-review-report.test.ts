@@ -1,3 +1,4 @@
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -21,7 +22,7 @@ function sidecar(overrides: Record<string, unknown> = {}): object {
     sessionId: 'session-42',
     journeyIndex: 0,
     generatedAt: '2026-07-14T00:00:00.000Z',
-    tool: 'replaytest@0.1.0',
+    tool: toolIdentifier(),
     ...((overrides.source as Record<string, unknown> | undefined) ?? {}),
   };
   const { source: _source, ...rest } = overrides;
@@ -54,7 +55,17 @@ test('collectPlanReviewReport: an older sidecar is flagged with its exact re-pla
     plans: [{
       slug: 'checkout',
       kind: 'older-url-semantics',
-      note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+      note: 'ⓘ This plan was built under different URL rules.',
+      distinctId: 'customer-42',
+      sessionId: 'session-42',
+      replanCommand: 'replaytest plan customer-42 --session session-42',
+    }],
+    plansNeedReview: [{
+      slug: 'checkout',
+      reasons: [
+        { kind: 'older-url-semantics', note: 'ⓘ This plan was built under different URL rules.' },
+        { kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' },
+      ],
       distinctId: 'customer-42',
       sessionId: 'session-42',
       replanCommand: 'replaytest plan customer-42 --session session-42',
@@ -67,13 +78,14 @@ test('collectPlanReviewReport: a changed recognized parameter list is flagged', 
   const plansDir = mkPlansDir(t);
   writePlan(plansDir, 'phase-wizard', sidecar({ source: {
     signatureSemanticsVersion: 1,
+    segmentationVersion: 1,
     wizardStepParamNames: ['step'],
   } }));
 
   const report = collectPlanReviewReport(plansDir, ['step', 'phase']);
 
   assert.equal(report.plans[0]?.kind, 'recognized-param-names-changed');
-  assert.match(report.plans[0]?.note ?? '', /current names are \[step, phase\]/);
+  assert.match(report.plans[0]?.note ?? '', /different URL parameters.*\[step, phase\]/);
   assert.equal(report.plans[0]?.replanCommand, buildReplanCommand('customer-42', 'session-42'));
 });
 
@@ -82,15 +94,31 @@ test('collectPlanReviewReport: a current sidecar and a missing plans directory n
   const emptyPlansDir = mkPlansDir(t);
   writePlan(plansDir, 'current', sidecar({ source: {
     signatureSemanticsVersion: 1,
+    segmentationVersion: 1,
     wizardStepParamNames: ['step'],
   } }));
 
-  assert.deepEqual(collectPlanReviewReport(plansDir, ['step']), { plans: [], skipped: [] });
-  assert.deepEqual(collectPlanReviewReport(emptyPlansDir, ['step']), { plans: [], skipped: [] });
+  assert.deepEqual(collectPlanReviewReport(plansDir, ['step']), { plans: [], plansNeedReview: [], skipped: [] });
+  assert.deepEqual(collectPlanReviewReport(emptyPlansDir, ['step']), { plans: [], plansNeedReview: [], skipped: [] });
   assert.deepEqual(
     collectPlanReviewReport(path.join(plansDir, 'does-not-exist'), ['step']),
-    { plans: [], skipped: [] },
+    { plans: [], plansNeedReview: [], skipped: [] },
   );
+});
+
+test('collectPlanReviewReport: a current signature with old visit boundaries gets one segmentation-only inventory entry', (t: TestContext) => {
+  const plansDir = mkPlansDir(t);
+  writePlan(plansDir, 'legacy-visits', sidecar({ source: {
+    signatureSemanticsVersion: 1,
+    segmentationVersion: undefined,
+    wizardStepParamNames: ['step'],
+  } }));
+
+  const report = collectPlanReviewReport(plansDir, ['step']);
+
+  assert.deepEqual(report.plans, [], 'the legacy signature list remains signature-only');
+  assert.equal(report.plansNeedReview.length, 1, 'the plan is counted once');
+  assert.deepEqual(report.plansNeedReview[0]?.reasons.map(({ kind }) => kind), ['older-journey-boundaries']);
 });
 
 test('collectPlanReviewReport: malformed sidecars are skipped honestly, without hiding valid flags', (t: TestContext) => {
@@ -114,5 +142,5 @@ test('collectPlanReviewReport: quarantined .superseded.plan.json sidecars are ex
     'utf8',
   );
 
-  assert.deepEqual(collectPlanReviewReport(plansDir, ['step']), { plans: [], skipped: [] });
+  assert.deepEqual(collectPlanReviewReport(plansDir, ['step']), { plans: [], plansNeedReview: [], skipped: [] });
 });

@@ -21,6 +21,7 @@ import {
   formatDiscoveryJson,
   formatForcedExactScanCostLine,
   formatScanModeLine,
+  formatStatusMix,
   journeySignature,
   rankCanonicalJourneys,
   rankCanonicalJourneyFamilies,
@@ -29,12 +30,13 @@ import {
   rankDiscoveryJourneys,
   isExactScanCapMetadata,
   completionCountsForSessions,
+  countJourneyStatus,
   refreshTopNExact,
   resolveExactScanMaxSessions,
   resolveRefreshTop,
 } from './selection.js';
 import { EXACT_SCAN_MAX_SESSIONS } from './selection-scan-defaults.js';
-import type { DiscoveryRankingResult, RankedJourney } from './selection.js';
+import type { CompletionCounts, DiscoveryRankingResult, RankedJourney } from './selection.js';
 import type { Journey } from './journeys.js';
 import type { NeutralSession, NeutralStep, NeutralStepKind } from './neutral-session.js';
 import { BroadScanPageLimitError } from './providers/posthog-adapter.js';
@@ -683,7 +685,7 @@ test('rankCanonicalJourneys: the representative prefers a submitted instance ove
   // Same nav signature (/dashboard > /invoices/:id/pay), differing only in
   // submit presence: one witnessed a submit (submitted), one never did
   // (abandoned). The submitted instance must win the representative slot
-  // (completed > submitted > abandoned), even though it is scanned SECOND.
+  // (submitted outranks abandoned among these two statuses), even though it is scanned SECOND.
   const abandonedNoSubmit = [
     step('navigation', ENTRY_URL),
     step('click', ENTRY_URL),
@@ -2096,14 +2098,51 @@ test('completionCountsForSessions counts each status and each landing witness se
   const abandoned = session([
     step('navigation', ENTRY_URL), step('click', ENTRY_URL),
   ], 'abandoned');
-  assert.deepEqual(completionCountsForSessions([completed, navigated, submitted, abandoned]), {
+  assert.deepEqual(completionCountsForSessions([completed, navigated, submitted, abandoned], 'events'), {
     completed: 1,
     navigated: 1,
     submitted: 1,
     abandoned: 1,
     submitThenNav: 1,
     commitThenNewRoute: 1,
+    abandonedMidFlow: 0,
   });
+  // The recording-only counts are left out of an events-only load, never written as 0.
+  assert.equal('completedWitnessed' in completionCountsForSessions([completed], 'events'), false);
+  assert.equal('errorAfterSubmit' in completionCountsForSessions([completed], 'events'), false);
+  const recorded = completionCountsForSessions([completed], 'recording');
+  assert.deepEqual([recorded.completedWitnessed, recorded.errorAfterSubmit], [0, 0]);
+});
+
+test('countJourneyStatus counts every status, preserves submitThenNav, and gates completedWitnessed by load mode', () => {
+  const zero = (): CompletionCounts => ({
+    completed: 0, navigated: 0, submitted: 0, abandoned: 0, submitThenNav: 0, commitThenNewRoute: 0,
+    abandonedMidFlow: 0, errorAfterSubmit: 0,
+  });
+  const journeyWithStatus = (status: Journey['status'], finality?: Journey['finality']): Journey => ({
+    entryUrl: `${BASE}/start`,
+    finalUrl: `${BASE}/done`,
+    status,
+    ...(finality === undefined ? {} : { finality }),
+    startedAt: '2026-07-04T00:00:00.000Z',
+    endedAt: '2026-07-04T00:00:01.000Z',
+    steps: [],
+  });
+  const counts = zero();
+  for (const status of ['completed', 'navigated', 'submitted', 'abandoned', 'abandoned-mid-flow', 'error-after-submit'] as const) {
+    countJourneyStatus(counts, journeyWithStatus(status), 'events');
+  }
+  assert.deepEqual(counts, {
+    completed: 1, navigated: 1, submitted: 1, abandoned: 1, submitThenNav: 1, commitThenNewRoute: 1,
+    abandonedMidFlow: 1, errorAfterSubmit: 1,
+  });
+
+  const eventsOnly = zero();
+  countJourneyStatus(eventsOnly, journeyWithStatus('completed', 'witnessed'), 'events');
+  assert.equal('completedWitnessed' in eventsOnly, false);
+  const recordingRead = zero();
+  countJourneyStatus(recordingRead, journeyWithStatus('completed', 'witnessed'), 'recording');
+  assert.equal(recordingRead.completedWitnessed, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -2132,23 +2171,21 @@ function submittedOutlierSteps(): NeutralStep[] {
 }
 
 test('a collapsed row whose instances span statuses carries the real mix, not just the representative', () => {
-  // The masking shape: nine sessions typed-and-landed (navigated), one fired a
-  // submit that stayed put (submitted). `submitted` outranks `navigated`, so
-  // the outlier becomes the representative — and without `statusMix` nothing
-  // anywhere records that 9 of the 10 were navigated.
+  // Nine sessions typed-and-landed (navigated); one fired a submit that stayed
+  // put (submitted). The plannable navigated member now headlines first, while
+  // statusMix still records the one submitted outlier.
   const sessions = [
     ...Array.from({ length: 9 }, (_, index) => session(navigatedCreateSteps(), `nav-${index}`)),
     session(submittedOutlierSteps(), 'submitted-outlier'),
   ];
   const [row] = rankCanonicalJourneys(sessions);
 
-  // The representative preference is UNCHANGED.
-  assert.equal(row?.status, 'submitted');
-  assert.equal(row?.representativeSessionId, 'submitted-outlier');
+  assert.equal(row?.status, 'navigated');
+  assert.equal(row?.representativeSessionId, 'nav-0');
   assert.equal(row?.sessionCount, 10);
 
   // …but the row now says what its members actually did.
-  assert.deepEqual(row?.statusMix, { submitted: 1, navigated: 9 });
+  assert.deepEqual(row?.statusMix, { navigated: 9, submitted: 1 });
 });
 
 test('a uniform row carries no statusMix at all, so single-status output stays byte-identical', () => {
@@ -2156,6 +2193,45 @@ test('a uniform row carries no statusMix at all, so single-status output stays b
   const [row] = rankCanonicalJourneys(sessions);
   assert.equal(row?.status, 'navigated');
   assert.equal(Object.hasOwn(row ?? {}, 'statusMix'), false);
+});
+
+test('formatStatusMix pins status order and the display words for the two new statuses', () => {
+  assert.equal(
+    formatStatusMix({
+      completed: 1,
+      'abandoned-mid-flow': 1,
+      navigated: 3,
+      submitted: 1,
+      'error-after-submit': 1,
+      abandoned: 2,
+    }),
+    '1 completed · 1 stopped mid-flow · 3 navigated · 1 submitted · 1 error after submit · 2 abandoned',
+  );
+});
+
+test('exact and refreshed rows use shared plannability and preserve finality and mid-flow evidence', () => {
+  const source = fs.readFileSync(new URL('./selection.ts', import.meta.url), 'utf8');
+  assert.equal(
+    [...source.matchAll(/group\.representative\.journey\.status !== 'completed'\s*&&\s*isPlannableJourney\(group\.representative\.journey\)/g)].length,
+    1,
+    'the exact representative row must call the shared plannability predicate',
+  );
+  assert.equal(
+    [...source.matchAll(/journeyItem\.status !== 'completed'\s*&&\s*isPlannableJourney\(journeyItem\)/g)].length,
+    1,
+    'the refreshed representative row must call the shared plannability predicate',
+  );
+  const evidenceFields = [
+    ['finality', /group\.representative\.journey\.finality === undefined \? \{\} : \{ finality: group\.representative\.journey\.finality \}/],
+    ['stoppedAtStep', /group\.representative\.journey\.stoppedAtStep === undefined \? \{\} : \{ stoppedAtStep: group\.representative\.journey\.stoppedAtStep \}/],
+    ['midFlowEvidence', /group\.representative\.journey\.midFlowEvidence === undefined \? \{\} : \{ midFlowEvidence: group\.representative\.journey\.midFlowEvidence \}/],
+    ['finality', /journeyItem\.finality === undefined \? \{\} : \{ finality: journeyItem\.finality \}/],
+    ['stoppedAtStep', /journeyItem\.stoppedAtStep === undefined \? \{\} : \{ stoppedAtStep: journeyItem\.stoppedAtStep \}/],
+    ['midFlowEvidence', /journeyItem\.midFlowEvidence === undefined \? \{\} : \{ midFlowEvidence: journeyItem\.midFlowEvidence \}/],
+  ] as const;
+  for (const [field, pattern] of evidenceFields) {
+    assert.equal([...source.matchAll(new RegExp(pattern.source, 'g'))].length, 1, `each exact/refreshed row preserves ${field}`);
+  }
 });
 
 test('exact discovery reports the coverage its completion counts were read from', () => {

@@ -225,13 +225,26 @@ test.describe('dashboard popovers', () => {
         // A popover is capped so it can never become a page of its own; long detail goes under
         // `More` instead. The shipped cap is on HEIGHT
         // (260px, with a 300px toolbar exception), not width, so that is what is pinned;
-        // pinning a width the page never promised would be a gate about nothing.
+        // pinning a width the page never promised would be a gate about nothing. The Status column
+        // summary is the one popover that grows to its text, so its last sentence and its "See how
+        // we decide" link never sit below an inner scroll; it is held to the window instead.
         const height = await popover.evaluate((node) => Math.round(node.getBoundingClientRect().height));
-        const cap = await popover.getAttribute('data-testid') === 'dash-popover-toolbar' ? 300 : 260;
+        const popoverTestId = await popover.getAttribute('data-testid');
+        const cap = popoverTestId === 'dash-popover-toolbar' ? 300 : popoverTestId === 'dash-popover-status-summary' ? profile.height - 16 : 260;
         if (height > cap) offenders.push(`${label} → #${popoverId}: ${height}px tall, past the current ${cap}px cap`);
+        // A short popover passes the height check under ANY cap, so the cap itself is pinned too:
+        // a rule that lifts it (say `max-height: none` on one popover class) is caught here even
+        // while that popover's text is still short. The Status summary's own cap is the window.
+        // The cap is a `.dash-popover` rule; the toolbar's More menu panel is the one disclosure
+        // here that is not a `.dash-popover` and has never had a cap, so it is named, not skipped.
+        const { isDashPopover, computedMaxHeight } = await popover.evaluate((node) => ({ isDashPopover: node.classList.contains('dash-popover'), computedMaxHeight: getComputedStyle(node).maxHeight }));
+        const expectedMaxHeight = `${Math.min(cap, profile.height - 16)}px`;
+        if (!isDashPopover) {
+          if (popoverId !== 'sessions-more-panel') offenders.push(`${label} → #${popoverId}: not a dashboard popover, so no height cap is checked for it`);
+        } else if (computedMaxHeight !== expectedMaxHeight) offenders.push(`${label} → #${popoverId}: computed max-height ${computedMaxHeight}, expected the ${expectedMaxHeight} cap`);
         await page.keyboard.press('Escape');
       }
-      expect(offenders, `PAGE (design requirement): an opened popover must be clamped inside the window at ${profile.width}×${profile.height} — ${offenders.length} of ${total} controls open past an edge or never opened at all:\n  ${offenders.join('\n  ')}\n  measured and inside: ${measured.join(' · ') || '(none)'}`).toEqual([]);
+      expect(offenders, `PAGE (design requirement): an opened popover must be clamped inside the window at ${profile.width}×${profile.height} — ${offenders.length} of ${total} controls open past an edge, lose their height cap, or never opened at all:\n  ${offenders.join('\n  ')}\n  measured and inside: ${measured.join(' · ') || '(none)'}`).toEqual([]);
     });
   }
 });

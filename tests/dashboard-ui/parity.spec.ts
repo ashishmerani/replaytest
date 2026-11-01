@@ -663,7 +663,7 @@ async function verifyDeterministicCanaries(page: Page, baseUrl: string): Promise
   // can draw a plan action: a navigated, unplannable journey whose flagged sessions are marked
   // reviewed. Pin that drawer paragraph's wording, which the button also carries as `title` and
   // points at with `aria-describedby`:
-  // "This journey creates several records in a row. We can't plan it yet — the test would be
+  // "This journey creates several records in a row, so it cannot be planned: the test would be
   //  named after the wrong one."
 
   // The per-family expander (`button.family-variants`) is retired: the row action is a

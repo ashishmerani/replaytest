@@ -1,46 +1,66 @@
 {
   "version": 1,
-  "title": "Search 1 step2",
+  "title": "Search 7 step3",
   "source": {
-    "distinctId": "019f4a5a-489e-7a5d-b224-d6f5962fdafc",
-    "sessionId": "019f4a5a-48a6-79aa-80d5-280b15dee17a",
+    "distinctId": "019f4aca-18e5-7419-a54e-bf5c50e3623c",
+    "sessionId": "019f4aca-18ec-738a-8c11-91352d421ef4",
     "origin": "http://localhost:8000",
-    "journeyIndex": 1,
-    "signature": "/ > /invoice.html > /invoice-pay.html > /flows/feedback-1-step1.html > /flows/feedback-1-step2.html > /flows/feedback-1-step3.html > /flows/promo-2-step1.html > /flows/promo-2-step2.html > /flows/promo-2-step3.html > /flows/search-1-step1.html > /flows/search-1-step2.html",
+    "journeyIndex": 0,
+    "signature": "/flows/search-7-step1.html > /flows/search-7-step2.html > /flows/search-7-step3.html",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
-  "start": "/",
+  "start": "/flows/search-7-step1.html",
   "steps": [
     {
-      "action": "click",
-      "label": "Pay an invoice",
-      "locator": "getByRole('link', { name: 'Pay an invoice' })",
-      "url": "/",
+      "action": "fill",
+      "label": "Search query",
+      "locator": "getByRole('textbox', { name: 'Search query' })",
+      "placeholder": true,
+      "url": "/flows/search-7-step1.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Search query')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-query')"
+        }
+      ],
+      "inputType": "text",
+      "elementTag": "input",
       "selectorConfidence": "confident"
     },
     {
-      "action": "click",
-      "label": "Pay this invoice",
-      "locator": "getByTestId('pay-invoice')",
-      "url": "/invoice.html",
+      "action": "fill",
+      "label": "Additional note",
+      "locator": "getByRole('textbox', { name: 'Additional note' })",
+      "placeholder": true,
+      "url": "/flows/search-7-step1.html",
       "selectorAlternates": [
         {
-          "strategy": "role",
-          "locator": "getByRole('link', { name: 'Pay this invoice' })"
+          "strategy": "label",
+          "locator": "getByLabel('Additional note')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#fld-1')"
         }
       ],
+      "inputType": "text",
+      "elementTag": "input",
       "selectorConfidence": "confident"
     },
     {
       "action": "fill",
       "label": "Category",
       "locator": "getByLabel('Category')",
-      "url": "/flows/search-1-step1.html",
+      "url": "/flows/search-7-step1.html",
       "selectorAlternates": [
         {
           "strategy": "id",
-          "locator": "locator('#fld-1')"
+          "locator": "locator('#fld-3')"
         }
       ],
       "elementTag": "select",
@@ -48,29 +68,30 @@
     },
     {
       "action": "fill",
-      "label": "Search query",
-      "locator": "getByRole('textbox', { name: 'Search query' })",
+      "label": "Email address",
+      "locator": "getByRole('textbox', { name: 'Email address' })",
       "placeholder": true,
-      "url": "/flows/search-1-step1.html",
+      "url": "/flows/search-7-step1.html",
       "selectorAlternates": [
         {
           "strategy": "label",
-          "locator": "getByLabel('Search query')"
+          "locator": "getByLabel('Email address')"
         },
         {
           "strategy": "id",
-          "locator": "locator('#fld-query')"
+          "locator": "locator('#fld-2')"
         }
       ],
+      "inputType": "email",
       "elementTag": "input",
       "selectorConfidence": "confident"
     },
     {
       "action": "fill",
       "label": "Quantity",
-      "locator": "getByRole('textbox', { name: 'Quantity' })",
+      "locator": "getByRole('spinbutton', { name: 'Quantity' })",
       "placeholder": true,
-      "url": "/flows/search-1-step1.html",
+      "url": "/flows/search-7-step1.html",
       "selectorAlternates": [
         {
           "strategy": "label",
@@ -78,9 +99,10 @@
         },
         {
           "strategy": "id",
-          "locator": "locator('#fld-2')"
+          "locator": "locator('#fld-4')"
         }
       ],
+      "inputType": "number",
       "elementTag": "input",
       "selectorConfidence": "confident"
     },
@@ -89,7 +111,7 @@
       "label": "Search query",
       "locator": "getByRole('textbox', { name: 'Search query' })",
       "placeholder": true,
-      "url": "/flows/search-1-step1.html",
+      "url": "/flows/search-7-step1.html",
       "selectorAlternates": [
         {
           "strategy": "label",
@@ -100,6 +122,7 @@
           "locator": "locator('#fld-query')"
         }
       ],
+      "inputType": "text",
       "elementTag": "input",
       "selectorConfidence": "confident"
     },
@@ -107,7 +130,7 @@
       "action": "click",
       "label": "Search",
       "locator": "getByRole('button', { name: 'Search' })",
-      "url": "/flows/search-1-step1.html",
+      "url": "/flows/search-7-step1.html",
       "selectorAlternates": [
         {
           "strategy": "label",
@@ -116,18 +139,30 @@
       ],
       "isSubmit": true,
       "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Result A",
+      "locator": "getByRole('link', { name: 'Result A' })",
+      "url": "/flows/search-7-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Result A')"
+        }
+      ],
+      "selectorConfidence": "confident"
     }
   ],
   "assertions": [
     {
       "type": "final-url",
-      "value": "/flows/search-1-step2.html",
+      "value": "/flows/search-7-step3.html",
       "enabled": true
     },
     {
       "type": "page-shows-text",
-      "value": "Search 1 — Results",
-      "source": "title",
+      "value": "Search 7 complete — corpus query 476",
       "enabled": true
     },
     {
@@ -140,25 +175,9 @@
     "width": 1280,
     "height": 720
   },
-  "surfaced": [
-    {
-      "kind": "exception",
-      "detail": "1 exception during this journey (TypeError)"
-    }
-  ],
-  "missingNavigationHops": [
-    "/flows/feedback-1-step1.html",
-    "/flows/feedback-1-step2.html",
-    "/flows/feedback-1-step3.html",
-    "/flows/promo-2-step1.html",
-    "/flows/promo-2-step2.html",
-    "/flows/promo-2-step3.html",
-    "/flows/search-1-step1.html"
-  ],
   "caveats": [
     "Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.",
     "This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.",
-    "The asserted page text comes from one session — verify it is not user-specific before relying on it.",
-    "7 page transitions had no witnessed trigger interaction (/flows/feedback-1-step1.html, /flows/feedback-1-step2.html, /flows/feedback-1-step3.html, /flows/promo-2-step1.html, /flows/promo-2-step2.html, /flows/promo-2-step3.html, /flows/search-1-step1.html) — the recording saw the navigation but not the click/input that caused it (autocapture can drop a click when the page unloads quickly). This flow cannot reproduce that hop on its own — add the real navigation step (the control's click, or a direct goto) before relying on it."
+    "The asserted page text comes from one session — verify it is not user-specific before relying on it."
   ]
 }

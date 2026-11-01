@@ -21,6 +21,10 @@ Usage:
       Print the installed replaytest package version.
   replaytest sessions [<sessionId> --from-archive <dir>] [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N] [--steal-scan-lock] [--watch [--interval 15m|1h] [--max-ticks N]]
       List ranked canonical journeys from recent sessions (default last 720h (30 days); override with --since-hours N).
+      --completed selects Completed rows only (not Stopped mid-flow rows).
+      --navigated selects Navigated rows only.
+      --submitted selects Submitted rows only.
+      Stopped mid-flow rows appear only when no status filter is set. The Sessions scan cannot show Error after submit.
       --with-exceptions filters to journeys whose session's events witnessed a JS
       exception (exact scan only — coarse mode prints an honest one-liner and exits 0
       with no rows rather than pretending).
@@ -28,6 +32,7 @@ Usage:
       output labels Seen directly, Strong hint, or Couldn't check; unavailable evidence is reported, never treated as no match.
       Wizard URL overrides: add {"wizardStepParams":["step","phase"]} to
       .replaytest/config.json. Names are case-insensitive; only ordinal values 1–99 match.
+      Configured wizard step parameters group plans and signatures; continuation into the next step reads only the `step` parameter.
       App scope: declare {"apps":{"shop":["https://shop.example"]},"app":"shop"} in
       .replaytest/config.json, or use --app <name> to select a declared app for this scan.
       --families: Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path. Path-based grouping for path-changing flows.
@@ -54,10 +59,12 @@ Usage:
   replaytest plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]
       Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)
       to .replaytest/plans/ for each plannable journey. Refuses to overwrite a
-      sidecar owned by a different or unknown journey unless --force is passed.
-      Plannable = every completed journey, plus a navigated one holding a single
+      sidecar when its session, journey position, or recorded flow shape differs, or when it cannot be read, unless --force is passed.
+      Plannable = every Completed journey or Stopped mid-flow journey (the plan checks the step change it saw),
+      plus a Navigated one holding a single
       inline-commit create (its spec presses the committing keystroke as a step
       marked SYNTHESIZED, because no recording captures it).
+      Submitted, Abandoned, and Error after submit journeys are not plannable.
       Refuses a journey that spans origins or that witnessed no origin at all,
       so a plan never asserts one property's URLs against another's — and
       holds back every other plannable journey in the same session too, since
@@ -199,20 +206,28 @@ Usage:
       Show this message.
 
 Completion evidence ladder
-- Completed: A form submit followed by a navigation to a distinct witnessed URL.
-  Conditions: A submit step is followed later by a navigation. The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized.
-  Known false-positive shapes: A submit can still be an application-side failure; this records the witnessed route change, not backend validation.
-- Navigated: Typed input followed by a landing on a new route; no form submit was witnessed.
+- Completed: A form submit followed by a navigation to a distinct URL seen in the session's events.
+  Conditions: A submit step is followed later by a navigation. The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized. Nothing seen says the landing was a further unfinished step or that the last submit was refused.
+  Known false-positive shapes: A submit can still be an application-side failure; this records the route change seen, not backend validation.
+- Stopped mid-flow: A submit reached the next step of the same flow, then the user stopped there.
+  Conditions: The last submit reached the next step of the same flow, shown by typing there or by a new empty form in the recording. The journey can be planned as a check of that step change, not of the whole flow.
+  Known false-positive shapes: A later step may exist even though the session stopped here; the plan checks only the step change that was seen.
+- Error after submit: An error appeared after a submit while its form stayed on the page or appeared again after a reload.
+  Conditions: The recording shows an error within 10 seconds after the last submit while the submitted form is still present. A page reload that shows the same submitted form again with an error counts too, even when the events alone showed a new page. An error seen while the submitted form is still on the page counts, even when the recording ends early.
+  Known false-positive shapes: An error-styled element can flash during a successful redirect. A refused side action such as a promo code can show an error even though the user then went on to finish. We never see card fields inside a payment frame or any area the recording blocks, so an error shown there is not counted.
+- Navigated: Typed input followed by a landing on a new route; no submit seen.
   Conditions: No submit step exists; at least one input step exists. The last landing is new by exact URL and canonical path, and input occurred away from that landing. Trailing interactions are trimmed to retain the landing witness.
   Known false-positive shapes: Search-then-open: typed a query and opened an existing result. Typed-then-bailed-elsewhere: changed a field, then navigated away for another reason. Created-then-deleted: later delete activity is trimmed after the landing.
-- Submitted: A form submit, without a distinct post-submit landing.
-  Conditions: At least one submit step exists. The completed submit-then-navigation rule did not hold.
+- Submitted: A form submit with no new page and no error seen after it.
+  Conditions: A submit happened with no new page and no error seen after it.
   Known false-positive shapes: The submit may have succeeded in place or its landing may have been missing from the recording.
 - Abandoned: No form submit was seen, and we didn't see typing followed by arriving on a new page.
-  Conditions: No completed, navigated, or submitted rule matched.
+  Conditions: No other rule matched.
   Known false-positive shapes: A missing captured event can make an otherwise successful flow appear abandoned.
+- Finish checked means the recording showed the final page settle with no form left open on it (neither from the same flow nor any other new form), the submitted form was not shown again, no error appeared after the last submit, and the moment after the last submit was fully recorded.
+- Note: Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; `plan` and `frames` read the recording.
 - Note: The quick scan reads summary numbers only — it never opens the full recording, so it can't spot Navigated journeys. Quick-scan counts may show fewer Navigated (and more Abandoned) than a full scan finds.
-- Note: Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.
+- Note: Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once, so a low Navigated count is never on its own evidence that this class is rare.
 
 First touch: `replaytest init` → `replaytest sessions` → `replaytest plan <distinctId>` → `replaytest scaffold <slug>` → run the generated test. Use `replaytest doctor` only when something is wrong; use `replaytest preflight <slug>` before a real run. Neither is a first-touch step. For a red test, read AGENT-MAINTENANCE-GUIDE.md (shipped with replaytest).
 ```
@@ -294,6 +309,10 @@ In `--json` output, each journey carries `lifecycle` (`planned`, `scaffolded`, `
 
 `sessions [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N]` — lists the journeys in your recent traffic, ranked by how often each one happens (the last 720h / 30 days by default). To limit a scan to one app, declare named apps and their URL prefixes in `.replaytest/config.json`, for example `{"apps":{"shop":["https://shop.example"]},"app":"shop"}`. `--app <name>` picks a different declared app for one run.
 
+The status filters are literal: `--completed` selects Completed rows only, `--navigated` selects Navigated rows only, and `--submitted` selects Submitted rows only. Stopped mid-flow rows appear only when no status filter is set. The Sessions scan reads events only, so it cannot show Error after submit. Every row it labels Completed is finish not checked. A row shown as Completed here can read Error after submit when `plan` reads its recording.
+
+Journey statuses include *Completed · finish checked*, *Completed · finish not checked*, *Stopped mid-flow*, *Error after submit*, *Navigated*, *Submitted*, and *Abandoned*. A Stopped mid-flow row includes the step number when known. A checked finish requires the recorded final page to settle with no form left open from this flow or any other new form, no reshowing of the submitted form, no error after the last submit, and the full moment after that submit to be recorded. An error after submit is still shown when it is followed by another page. An error seen while the submitted form is still on the page counts, even when the recording ends early; a brief error-styled flash during a successful redirect or a refused side action followed by finishing can be a false positive. The Sessions scan reads events only, so its count line prints no Error after submit count and no finish-checked count; that means the recording was not read, not that no errors happened. Its Stopped mid-flow count is a minimum for the same reason (an empty next-step form needs the recording): it reads "at least N" and is left out at 0.
+
 A scoped result also reports how many sessions had no matching page URL, and how many sessions belonged to other apps and were left out. Prefixes do not match subdomains, so declare `https://staging.shop.example` separately from `https://shop.example`. With no scope set, a scan that spans several origins names them and suggests declaring an app. If all traffic comes from one origin, it says nothing.
 
 When the rows on screen come from more than one site, the table adds a `sites` column just before the `signature` column (the page paths of the journey), also in `--families`. It shows each row's sites without the scheme, cut off at 24 characters, so a cut-off cell can make two long site names look the same. The full list is always in `--json` under `witnessedOrigins`. A row is a total across sessions, so if its sessions crossed sites, it lists both sites instead of being split up or assigned to one. A row whose sessions saw no page URL is left blank rather than guessed. If every row comes from one site, the output is unchanged: no column and no extra JSON field.
@@ -302,7 +321,7 @@ A scoped scan can still show the column when one retained session's journey itse
 
 `--navigated` works only with an exact scan. It keeps journeys where someone typed input and then landed on a new page, with no form submit seen. The quick (coarse) scan reads summary numbers only, so it cannot spot these journeys. `--with-exceptions` keeps journeys whose session recorded a JavaScript error (exact scan only; in quick-scan mode it says so rather than pretending).
 
-`--shape` can be repeated, and every shape you give must match (`form-submit-signal`, `deep-wizard`, `rage-clicks`). Each result is labelled "seen directly," "strong hint," or "couldn't check"; evidence that is unavailable is never treated as "no match."
+`--shape` can be repeated, and every shape you give must match (`form-submit-signal`, `deep-wizard`, `rage-clicks`). Each result is labeled "seen directly," "strong hint," or "couldn't check"; evidence that is unavailable is never treated as "no match."
 
 `--families` merges journeys that are parts of one longer recorded route into one ranked row, to make the list easier to read. Plans and generated tests still use the exact path. `--gaps-only` uses the same rule as the dashboard: it hides only rows that are exact and whose lifecycle is Passing; coarse rows stay visible.
 
@@ -321,6 +340,10 @@ The printed table shows at most 200 data rows by default; `--all` shows every ro
 Usage:
   replaytest sessions [<sessionId> --from-archive <dir>] [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N] [--steal-scan-lock] [--watch [--interval 15m|1h] [--max-ticks N]]
       List ranked canonical journeys from recent sessions (default last 720h (30 days); override with --since-hours N).
+      --completed selects Completed rows only (not Stopped mid-flow rows).
+      --navigated selects Navigated rows only.
+      --submitted selects Submitted rows only.
+      Stopped mid-flow rows appear only when no status filter is set. The Sessions scan cannot show Error after submit.
       --with-exceptions filters to journeys whose session's events witnessed a JS
       exception (exact scan only — coarse mode prints an honest one-liner and exits 0
       with no rows rather than pretending).
@@ -328,6 +351,7 @@ Usage:
       output labels Seen directly, Strong hint, or Couldn't check; unavailable evidence is reported, never treated as no match.
       Wizard URL overrides: add {"wizardStepParams":["step","phase"]} to
       .replaytest/config.json. Names are case-insensitive; only ordinal values 1–99 match.
+      Configured wizard step parameters group plans and signatures; continuation into the next step reads only the `step` parameter.
       App scope: declare {"apps":{"shop":["https://shop.example"]},"app":"shop"} in
       .replaytest/config.json, or use --app <name> to select a declared app for this scan.
       --families: Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path. Path-based grouping for path-changing flows.
@@ -343,7 +367,9 @@ Usage:
 
 ## `plan`
 
-`plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-privacy-disclosure]` — fetches a session and writes a plan you can review for each journey it can plan: every completed journey, plus a journey where the user typed into a field once and that took them to a new page (for example, creating a record inline). Each plan is `<slug>.md` plus its data file `<slug>.plan.json`, in `.replaytest/plans/`. It refuses to overwrite a plan it doesn't recognize unless you pass `--force`. By default it also samples up to 8 matching sessions, so the checks rest on evidence from several users rather than one (`--sample 0` turns this off; `--sample N`, up to 20, changes the number). Archive mode: `plan <sessionId> --from-archive <dir>` builds a plan entirely from a local session archive, with no call to PostHog.
+`plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-privacy-disclosure]` — fetches a session and writes a plan you can review for each journey it can plan. Completed journeys can be planned. Stopped mid-flow journeys can also be planned; the plan checks the step change it saw, not the whole flow. A journey where the user typed into a field once and that took them to a new page (for example, creating a record inline) can also be planned. Submitted journeys are skipped. Error after submit journeys are skipped because an error was seen after their submit. Abandoned journeys are skipped. When an error was followed by another page, the skip says so; try another recorded session of the same journey. A submitted journey's note may also say `Outcome not captured` when the moment could not be seen, or `Outcome not recognized` when the full moment was seen without a recognized error or new page. Each plan is `<slug>.md` plus its data file `<slug>.plan.json`, in `.replaytest/plans/`. By default it also samples up to 8 matching sessions, so the checks rest on evidence from several users rather than one (`--sample 0` turns this off; `--sample N`, up to 20, changes the number). Archive mode: `plan <sessionId> --from-archive <dir>` builds a plan entirely from a local session archive, with no call to PostHog.
+
+An unreadable or unknown existing plan file is not replaced without `--force`. If an existing plan records a different session, journey position, or recorded flow shape, replaytest refuses to replace it. A different flow shape may be a different journey or the same journey under changed step rules; pass `--force` after reviewing the plan before overwriting it.
 
 To name a masked field, replaytest needs a saved copy of the page structure (a DOM snapshot) taken on the exact page where the field was used. If the recording moved on too fast, or the app changed page without a full reload (a single-page app route change), so that page was never snapshotted again, the plan uses generic wording instead. This depends on the recording, not on whether you fetched the session live or with `--from-archive`.
 
@@ -355,10 +381,12 @@ Usage:
   replaytest plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]
       Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)
       to .replaytest/plans/ for each plannable journey. Refuses to overwrite a
-      sidecar owned by a different or unknown journey unless --force is passed.
-      Plannable = every completed journey, plus a navigated one holding a single
+      sidecar when its session, journey position, or recorded flow shape differs, or when it cannot be read, unless --force is passed.
+      Plannable = every Completed journey or Stopped mid-flow journey (the plan checks the step change it saw),
+      plus a Navigated one holding a single
       inline-commit create (its spec presses the committing keystroke as a step
       marked SYNTHESIZED, because no recording captures it).
+      Submitted, Abandoned, and Error after submit journeys are not plannable.
       Refuses a journey that spans origins or that witnessed no origin at all,
       so a plan never asserts one property's URLs against another's — and
       holds back every other plannable journey in the same session too, since
@@ -372,7 +400,7 @@ Usage:
 
 Some commands check what they are about to write for values that look like personal data (an email address, a long card or phone number, a PostHog project token). `plan` checks route segments before it turns them into a slug. `auth-setup` and `fix-selector` check the values they are about to write: for `auth-setup`, the login steps that go into `playwright/auth.setup.ts`; for `fix-selector`, the old and new selector. `retire` checks whether its archive folder is covered by your Git ignore rules.
 
-If a write is blocked because of its content, the error code is `privacy-disclosure-required`. Review the redacted findings, then repeat with `--allow-privacy-disclosure` for that one run only. If the retirement destination is not covered by Git ignore rules, `retire` refuses with `privacy-workspace-not-ignored` to protect local privacy state. Keep the archive folder local; pass the same flag only if you accept writing it outside Git's ignore rules.
+If a write is blocked because of its content, the error code is `privacy-disclosure-required`. Review the redacted findings, then repeat with `--allow-privacy-disclosure` for that one run only. When `.replaytest/retired/` is not covered by Git ignore rules, retirement refuses with `privacy-workspace-not-ignored` to protect local privacy state. Keep the archive folder local. Pass `--allow-privacy-disclosure` for that one run only if you accept writing it outside Git's ignore rules.
 
 The "best-effort warning" means a Git repository exists and says the destination is not covered by its ignore rules. `privacy-workspace-probe-skipped` means Git could not tell, so no safety claim is made.
 

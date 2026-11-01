@@ -296,7 +296,34 @@ export function normalizeArchivePathEcho(raw: string, archiveDir: string): strin
   return raw.split(archiveDir).join('archive');
 }
 
-/** Normalizes generatedAt through the canonical eval helper before byte comparison. */
+/**
+ * The golden compare masks `source.tool`, so this is the check that the
+ * installed CLI stamps its own version: every generated sidecar must carry
+ * exactly `replaytest@<installed package.json version>`.
+ */
+export function installedToolStampFailures(rawInstalledPackageJson: string, generated: ArtifactMap): string[] {
+  const manifest = JSON.parse(rawInstalledPackageJson) as { version?: unknown };
+  if (typeof manifest.version !== 'string' || manifest.version.length === 0) return ['installed package.json has no version'];
+  const expected = `replaytest@${manifest.version}`;
+  const failures: string[] = [];
+  let sidecars = 0;
+  for (const [name, raw] of generated) {
+    if (!name.endsWith('.plan.json')) continue;
+    sidecars += 1;
+    let tool: unknown;
+    try {
+      tool = (JSON.parse(raw) as { source?: { tool?: unknown } }).source?.tool;
+    } catch {
+      failures.push(`${name}: not valid JSON`);
+      continue;
+    }
+    if (tool !== expected) failures.push(`${name}: source.tool ${JSON.stringify(tool)} is not ${expected}`);
+  }
+  if (sidecars === 0) failures.push('no generated plan sidecar to check');
+  return failures;
+}
+
+/** Normalizes sidecar provenance through the canonical eval helper before byte comparison. */
 export function compareGoldenArtifacts(goldens: ArtifactMap, generated: ArtifactMap): ArtifactComparison {
   const normalizedGoldens = normalizeArtifactMap(goldens);
   const normalizedGenerated = normalizeArtifactMap(generated);

@@ -19,6 +19,7 @@ import {
   emptyMarker,
   mapsEqual,
   manifestConfirmedEvalSessions,
+  NORMALIZATION_REPORT,
   parseEvalSessionIds,
   readArchiveFile,
   readArtifactDirectory,
@@ -368,7 +369,7 @@ function runStamp(): string {
 
 function degradationMessages(messages: string[]): string[] {
   return messages.filter((message) =>
-    /No completed journeys found|No archived session found|events file is missing|Offline planning requires|failed (?:sha256|size) verification|plan command exited/.test(
+    /No journey in this session can be planned|No completed journeys found|No archived session found|events file is missing|Offline planning requires|failed (?:sha256|size) verification|plan command exited/.test(
       message,
     ),
   );
@@ -512,7 +513,7 @@ async function freeze(args: Args, archiveDir: string, sessionIds: string[], stam
     sessionIds,
     entries: primary.map((entry) => ({ ...entry, artifacts: [...entry.artifacts.keys()] })),
     determinism: { passed: true, differingSessions: [] },
-    normalization: { fields: ['source.generatedAt'], replacement: '__EVAL_NORMALIZED_GENERATED_AT__' },
+    normalization: NORMALIZATION_REPORT,
     summary: {
       total: primary.length,
       plans: primary.filter((entry) => entry.status === 'PASS').length,

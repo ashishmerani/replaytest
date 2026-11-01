@@ -16,6 +16,7 @@ import {
   consumerManifestSeed,
   consumerTarballSpecifier,
   installCommand,
+  installedToolStampFailures,
   newestStatePath,
   normalizeArchivePathEcho,
   packedTarballPaths,
@@ -82,6 +83,7 @@ test('actual tarball parser strips npm package prefix and shares the Gate-1 cont
     'package/dist/dashboard/index.html',
     'package/dist/dashboard/demo-store.json',
     'package/dist/providers/posthog-adapter.js',
+    'package/dist/tool-identifier.js',
     'package/dist/.build-meta.json',
     ...Array.from({ length: 21 }, (_, index) => `package/dist/filler-${index}.js`),
   ];
@@ -89,6 +91,7 @@ test('actual tarball parser strips npm package prefix and shares the Gate-1 cont
   const buildSourcePaths = [
     'src/cli.ts',
     'src/providers/posthog-adapter.ts',
+    'src/tool-identifier.ts',
     ...Array.from({ length: 21 }, (_, index) => `src/filler-${index}.ts`),
   ];
   assert.deepEqual(packedTarballPaths(tarball), paths.map((entry) => entry.slice('package/'.length)));
@@ -148,19 +151,38 @@ test('installed package reader pins the registry metadata after tarball installa
   );
 });
 
-test('golden comparison reuses generatedAt normalization and caps diffs', () => {
+test('golden comparison reuses provenance normalization and caps diffs', () => {
   const expected = new Map([
-    ['journey.plan.json', JSON.stringify({ source: { generatedAt: '__EVAL_NORMALIZED_GENERATED_AT__' }, value: 'stable' })],
+    ['journey.plan.json', JSON.stringify({ source: { generatedAt: '__EVAL_NORMALIZED_GENERATED_AT__', tool: 'replaytest@__EVAL_NORMALIZED_TOOL_VERSION__' }, value: 'stable' })],
     ['journey.md', '# Stable\n'],
   ]);
   const generated = new Map([
-    ['journey.plan.json', JSON.stringify({ source: { generatedAt: '2026-07-15T01:02:03.000Z' }, value: 'stable' })],
+    ['journey.plan.json', JSON.stringify({ source: { generatedAt: '2026-07-15T01:02:03.000Z', tool: 'replaytest@0.2.0' }, value: 'stable' })],
     ['journey.md', '# Changed\n'],
   ]);
   const comparison = compareGoldenArtifacts(expected, generated);
   assert.equal(comparison.verdict, 'DIFF');
   assert.deepEqual(comparison.changed, ['journey.md']);
   assert.ok(comparison.diffExcerpt.length > 0);
+});
+
+test('installed tool stamp must equal replaytest@ plus the installed package version, unmasked', () => {
+  const installedManifest = JSON.stringify({ name: 'replaytest', version: '0.9.9' });
+  const plan = (tool) => JSON.stringify({ source: { generatedAt: '2026-07-15T01:02:03.000Z', tool } });
+  const stamped = new Map([
+    ['s1/a.plan.json', plan('replaytest@0.9.9')],
+    ['s1/a.md', '# not a sidecar\n'],
+    ['s2/b.plan.json', plan('replaytest@0.9.9')],
+  ]);
+  assert.deepEqual(installedToolStampFailures(installedManifest, stamped), []);
+  for (const wrong of ['replaytest@0.1.0', 'replaytest@0.9.9x', 'replaytest@undefined', 'replaytest@__EVAL_NORMALIZED_TOOL_VERSION__']) {
+    const failures = installedToolStampFailures(installedManifest, new Map([...stamped, ['s2/b.plan.json', plan(wrong)]]));
+    assert.equal(failures.length, 1, wrong);
+    assert.match(failures[0], /^s2\/b\.plan\.json: source\.tool /);
+  }
+  assert.match(installedToolStampFailures(installedManifest, new Map([['s1/a.plan.json', '{']]))[0], /not valid JSON/);
+  assert.deepEqual(installedToolStampFailures(installedManifest, new Map([['s1/a.md', '#\n']])), ['no generated plan sidecar to check']);
+  assert.deepEqual(installedToolStampFailures(JSON.stringify({ name: 'replaytest' }), stamped), ['installed package.json has no version']);
 });
 
 function makeTar(paths) {

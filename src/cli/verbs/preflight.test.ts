@@ -1,3 +1,4 @@
+import { toolIdentifier } from '../../tool-identifier.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildMissingPreflightSidecarError, buildVerbHelpText, buildUsageError, runPreflight } from '../../cli.js';
@@ -72,7 +73,7 @@ test('runPreflight: reads only the local sidecar, maps an action URL to TARGET_A
       sessionId: 'session-1',
       journeyIndex: 0,
       generatedAt: '2026-07-22T00:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/',
     steps: [{ action: 'click', label: 'Save', locator: "getByTestId('save')", url: 'https://recorded.example/settings' }],
@@ -139,7 +140,7 @@ test('runPreflight: reports login-redirect in terminal and JSON when the first d
   const sidecar = JSON.stringify({
     version: 1,
     title: 'Account',
-    source: { distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, generatedAt: '2026-08-22T00:00:00.000Z', tool: 'replaytest@0.1.0' },
+    source: { distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, generatedAt: '2026-08-22T00:00:00.000Z', tool: toolIdentifier() },
     start: '/dashboard',
     auth: { witnessed: true, loginPath: '/login', shape: 'after-login' },
     steps: [{ action: 'click', label: 'Dashboard', locator: "getByTestId('dashboard')", url: '/dashboard' }],
@@ -187,7 +188,7 @@ test('runPreflight: password-input corroboration raises login-redirect without a
     const sidecar = JSON.stringify({
       version: 1,
       title: 'Account without witness',
-      source: { distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, generatedAt: '2026-08-22T00:00:00.000Z', tool: 'replaytest@0.1.0' },
+      source: { distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, generatedAt: '2026-08-22T00:00:00.000Z', tool: toolIdentifier() },
       start: '/dashboard',
       steps: [{ action: 'click', label: 'Dashboard', locator: "getByTestId('dashboard')", url: '/dashboard' }],
       assertions: [],
@@ -243,7 +244,7 @@ test('runPreflight: no-check and dead-selector reports exit non-zero, while part
   const sidecar = (secondUrl: string | undefined): string => JSON.stringify({
     version: 1,
     title: 'Checkout',
-    source: { distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, generatedAt: '2026-08-15T00:00:00.000Z', tool: 'replaytest@0.1.0' },
+    source: { distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, generatedAt: '2026-08-15T00:00:00.000Z', tool: toolIdentifier() },
     start: '/',
     steps: [
       { action: 'click', label: 'First', locator: "getByTestId('first')", url: '/first' },
@@ -318,7 +319,7 @@ test('runPreflight: forwards a preceding sidecar submit so a direct-load zero-ma
       sessionId: 'session-1',
       journeyIndex: 0,
       generatedAt: '2026-07-22T00:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/',
     steps: [
@@ -400,7 +401,7 @@ function driftPlan(title: string): Sidecar {
       sessionId: 'session-1',
       journeyIndex: 0,
       generatedAt: '2026-08-16T00:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/',
     steps: [{ action: 'click', label: 'Save', locator: "getByTestId('save')", url: '/settings' }],

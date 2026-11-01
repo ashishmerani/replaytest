@@ -17,8 +17,9 @@ import {
   buildRouteIndex,
   buildRouteTimeline,
   decodeFullReplayStream,
+  enrichNeutralSessionWithReplayEvidence,
   enrichTargetsFromDom,
-  parseFullSnapshotTrees,
+  fullSnapshotTreesFromDecode,
   sumWitnessedConsole,
   toNeutralSession,
   type CapMetadata,
@@ -193,13 +194,19 @@ function fetchArchiveNeutralSessions(
   if (!opts.withDom) return withConsole;
 
   const jsonl = readBlobJsonl(root, bundle.manifest);
-  if (jsonl.length === 0) return withConsole;
+  if (jsonl.length === 0) {
+    return withConsole.map((session) => enrichNeutralSessionWithReplayEvidence(session, undefined, false).session);
+  }
+  // One parse: the decoded stream feeds both the selector route index and the evidence pass.
+  const decoded = decodeFullReplayStream(jsonl);
+  const snapshotTrees = fullSnapshotTreesFromDecode(decoded);
 
   const enriched: NeutralSession[] = [];
   for (const session of withConsole) {
     const timeline = buildRouteTimeline(session.steps);
-    const routeMap = buildRouteIndex(parseFullSnapshotTrees(jsonl), timeline);
-    enriched.push(...enrichTargetsFromDom([session], routeMap));
+    const routeMap = buildRouteIndex(snapshotTrees, timeline);
+    const selectorEnriched = enrichTargetsFromDom([session], routeMap);
+    enriched.push(enrichNeutralSessionWithReplayEvidence(selectorEnriched[0] ?? session, decoded, true).session);
   }
   return enriched;
 }

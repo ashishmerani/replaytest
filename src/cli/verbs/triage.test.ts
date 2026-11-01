@@ -1,3 +1,4 @@
+import { toolIdentifier } from '../../tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from '../../test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -349,7 +350,7 @@ test('triage door: the regenerate-recovery sentence names the remainder when the
       journeyIndex: 0,
       signature: '/cart > /confirmation',
       generatedAt: '2026-07-01T12:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
       emptySearches: [
         {
           searchedAt: '2026-08-10T12:00:00.000Z',

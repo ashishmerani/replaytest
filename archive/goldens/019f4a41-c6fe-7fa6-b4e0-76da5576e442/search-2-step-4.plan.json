@@ -1,23 +1,23 @@
 {
   "version": 1,
-  "title": "Search 7 step2",
+  "title": "4",
   "source": {
-    "distinctId": "019f4aca-18e5-7419-a54e-bf5c50e3623c",
-    "sessionId": "019f4aca-18ec-738a-8c11-91352d421ef4",
-    "origin": "http://localhost:8000",
+    "distinctId": "019f4a41-c6f6-7883-bfbe-28404dcb60bf",
+    "sessionId": "019f4a41-c6fe-7fa6-b4e0-76da5576e442",
+    "origin": "http://localhost:3001",
     "journeyIndex": 0,
-    "signature": "/flows/search-7-step1.html > /flows/search-7-step2.html",
+    "signature": "/flows/search-2 > /flows/search-2/step/:id > /flows/search-2/step/:id > /flows/search-2/step/:id",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
-  "start": "/flows/search-7-step1.html",
+  "start": "/flows/search-2",
   "steps": [
     {
       "action": "fill",
       "label": "Search query",
       "locator": "getByRole('textbox', { name: 'Search query' })",
       "placeholder": true,
-      "url": "/flows/search-7-step1.html",
+      "url": "/flows/search-2",
       "selectorAlternates": [
         {
           "strategy": "label",
@@ -25,7 +25,7 @@
         },
         {
           "strategy": "id",
-          "locator": "locator('#fld-query')"
+          "locator": "locator('#search-2-s1-f0')"
         }
       ],
       "inputType": "text",
@@ -34,72 +34,18 @@
     },
     {
       "action": "fill",
-      "label": "Additional note",
-      "locator": "getByRole('textbox', { name: 'Additional note' })",
+      "label": "Quantity 2",
+      "locator": "getByRole('spinbutton', { name: 'Quantity 2' })",
       "placeholder": true,
-      "url": "/flows/search-7-step1.html",
+      "url": "/flows/search-2",
       "selectorAlternates": [
         {
           "strategy": "label",
-          "locator": "getByLabel('Additional note')"
+          "locator": "getByLabel('Quantity 2')"
         },
         {
           "strategy": "id",
-          "locator": "locator('#fld-1')"
-        }
-      ],
-      "inputType": "text",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Category",
-      "locator": "getByLabel('Category')",
-      "url": "/flows/search-7-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "id",
-          "locator": "locator('#fld-3')"
-        }
-      ],
-      "elementTag": "select",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Email address",
-      "locator": "getByRole('textbox', { name: 'Email address' })",
-      "placeholder": true,
-      "url": "/flows/search-7-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Email address')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#fld-2')"
-        }
-      ],
-      "inputType": "email",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Quantity",
-      "locator": "getByRole('spinbutton', { name: 'Quantity' })",
-      "placeholder": true,
-      "url": "/flows/search-7-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Quantity')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#fld-4')"
+          "locator": "locator('#search-2-s1-f1')"
         }
       ],
       "inputType": "number",
@@ -108,10 +54,61 @@
     },
     {
       "action": "fill",
+      "label": "Additional notes 3",
+      "locator": "getByLabel('Additional notes 3')",
+      "placeholder": true,
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f2')"
+        }
+      ],
+      "elementTag": "textarea",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
+      "label": "Enable option 4",
+      "locator": "getByRole('checkbox', { name: 'Enable option 4' })",
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 4')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f3')"
+        }
+      ],
+      "inputType": "checkbox",
+      "elementTag": "input",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Input",
+      "locator": "getByRole('checkbox', { name: 'Enable option 4' })",
+      "url": "/flows/search-2",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Enable option 4')"
+        },
+        {
+          "strategy": "id",
+          "locator": "locator('#search-2-s1-f3')"
+        }
+      ],
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "fill",
       "label": "Search query",
       "locator": "getByRole('textbox', { name: 'Search query' })",
       "placeholder": true,
-      "url": "/flows/search-7-step1.html",
+      "url": "/flows/search-2",
       "selectorAlternates": [
         {
           "strategy": "label",
@@ -119,7 +116,7 @@
         },
         {
           "strategy": "id",
-          "locator": "locator('#fld-query')"
+          "locator": "locator('#search-2-s1-f0')"
         }
       ],
       "inputType": "text",
@@ -130,26 +127,36 @@
       "action": "click",
       "label": "Search",
       "locator": "getByRole('button', { name: 'Search' })",
-      "url": "/flows/search-7-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Search')"
-        }
-      ],
+      "url": "/flows/search-2",
       "isSubmit": true,
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Wireless Keyboard",
+      "locator": "getByRole('button', { name: 'Wireless Keyboard' })",
+      "url": "/flows/search-2/step/2",
+      "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Confirm selection",
+      "locator": "getByRole('button', { name: 'Confirm selection' })",
+      "url": "/flows/search-2/step/3",
       "selectorConfidence": "confident"
     }
   ],
   "assertions": [
     {
       "type": "final-url",
-      "value": "/flows/search-7-step2.html",
+      "value": "/flows/search-2/step/4",
+      "pattern": "^(?:[^/]+:\\/\\/[^/]+)?\\/flows\\/search-2\\/step\\/[^\\/]+$",
       "enabled": true
     },
     {
       "type": "page-shows-text",
-      "value": "Search 7 — Results",
+      "value": "Acme Ops Console",
+      "source": "title",
       "enabled": true
     },
     {

@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "title": "Search 1 step2",
+  "title": "Search 1 step3",
   "source": {
-    "distinctId": "019f4a3c-f138-72cc-8b92-2b37c685e4f5",
-    "sessionId": "019f4a3c-f140-7500-9600-602a54648bd6",
+    "distinctId": "019f4a5a-489e-7a5d-b224-d6f5962fdafc",
+    "sessionId": "019f4a5a-48a6-79aa-80d5-280b15dee17a",
     "origin": "http://localhost:8000",
-    "journeyIndex": 4,
-    "signature": "/flows/search-1-step1.html > /flows/search-1-step2.html",
+    "journeyIndex": 1,
+    "signature": "/flows/search-1-step1.html > /flows/search-1-step2.html > /flows/search-1-step3.html",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
   "start": "/flows/search-1-step1.html",
   "steps": [
@@ -96,17 +96,30 @@
       ],
       "isSubmit": true,
       "selectorConfidence": "confident"
+    },
+    {
+      "action": "click",
+      "label": "Result A",
+      "locator": "getByRole('link', { name: 'Result A' })",
+      "url": "/flows/search-1-step2.html",
+      "selectorAlternates": [
+        {
+          "strategy": "label",
+          "locator": "getByLabel('Result A')"
+        }
+      ],
+      "selectorConfidence": "confident"
     }
   ],
   "assertions": [
     {
       "type": "final-url",
-      "value": "/flows/search-1-step2.html",
+      "value": "/flows/search-1-step3.html",
       "enabled": true
     },
     {
       "type": "page-shows-text",
-      "value": "Search 1 — Results",
+      "value": "Search 1 — Complete",
       "source": "title",
       "enabled": true
     },

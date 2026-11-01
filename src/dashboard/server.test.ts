@@ -1,3 +1,4 @@
+import { toolIdentifier } from '../tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from '../test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -49,10 +50,19 @@ import {
 import {
   annotateJourneysWithCoverage,
   annotateTopLevelEntriesWithCoverage,
+  deriveDashboardGapMap,
   type DashboardFamilyCoverageSummary,
   type PlanIndexEntry,
 } from './view-model.js';
 import type { RankedJourney } from '../selection.js';
+import {
+  COMPLETION_EVIDENCE_LADDER,
+  COMPLETION_EVIDENCE_LADDER_FOOTNOTE,
+  COMPLETION_FINALITY_DEFINITION,
+  NAVIGATED_PREVALENCE_FLOOR_NOTE,
+  QUICK_SCAN_COMPLETION_FOOTNOTE,
+  UNCHECKED_FINALITY_TOOLTIP,
+} from '../completion-evidence.js';
 import type { TopLevelEntry } from '../families.js';
 import type { CapMetadata } from '../providers/posthog-adapter.js';
 import { deriveSampledTrafficObservations } from '../sampled-register.js';
@@ -1132,8 +1142,13 @@ test('Sessions-page keeps distinct commands on the card and retires the plans-re
   );
   assert.doesNotMatch(noticeSource, /dashReviewCommandsControl/);
   assert.doesNotMatch(noticeSource, /plans-review|dash-notice-info|dash-popover-notice|dash-notice-dismiss/);
-  assert.match(cardsSource, /\[N\] plans were built before your journey-matching rules changed\. Re-run them\./);
-  assert.match(cardsSource, /The plan is still there, but its coverage may now read wrong\. Re-run it to record the current journey-matching rules\./);
+  assert.match(cardsSource, /PLAN_REVIEW_COPY\.shortAction\} \$\{PLAN_REVIEW_COPY\.clearingSteps/, 'the card ⓘ carries the one shared clearing text');
+  assert.match(cardsSource, /PLAN_REVIEW_COPY\.testsUnchanged/, 'the card ⓘ keeps the tests-still-run and No test yet disclosure');
+  assert.doesNotMatch(cardsSource, /your journey-matching rules|coverage may now read wrong/);
+  // Only the short clearing instruction appears in the dashboard; the full steps stay in the guides.
+  assert.equal(asset.split('The dashboard guide lists what to do if plan refuses or the session can no longer be fetched.').length - 1, 1);
+  assert.doesNotMatch(asset, /If plan refuses because the journey changed, add --force/);
+  assert.doesNotMatch(asset, /A rewritten plan can mark its test Out of date/, 'the inaccurate Out of date clearing claim is gone');
 });
 
 test('Sessions-page notice classifier omits plan reviews but preserves read, approximate, scope, and stale notices', () => {
@@ -1176,8 +1191,10 @@ test('Sessions-page notice classifier omits plan reviews but preserves read, app
 test('Sessions-page governed card copy renders fixture A and the live response shape with zero DRAFT markers', () => {
   const asset = renderedDashboardIndex();
   const cardsSource = asset.match(/function dashRenderCards\(result, entries\) \{[\s\S]*?\n\}/)?.[0];
-  const formatterSource = ['formatSessionCount', 'dashCountNoun', 'dashFormatApproximatePaths', 'dashNeedsYouCardFact']
-    .map((name) => asset.match(new RegExp(`function ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}`, 'u'))?.[0])
+  const planReviewCopySource = asset.match(/const PLAN_REVIEW_COPY = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0];
+  assert.ok(planReviewCopySource, 'the shared plan-review copy constant is present');
+  const formatterSource = [planReviewCopySource, ...['formatSessionCount', 'dashCountNoun', 'dashFormatApproximatePaths', 'dashNeedsYouCardFact', 'planReviewNoteText', 'planReviewReasonNotes']
+    .map((name) => asset.match(new RegExp(`function ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n\\}`, 'u'))?.[0])]
     .join('\n');
   assert.ok(cardsSource && formatterSource.length > 0, 'the production card renderer and its count formatters are present');
   assert.doesNotMatch(asset, /dashDraftCopy|DRAFT:/, 'the shipped dashboard uses direct copy literals');
@@ -1224,6 +1241,29 @@ test('Sessions-page governed card copy renders fixture A and the live response s
 
   const renderedText = JSON.stringify(cards);
   assert.equal((renderedText.match(/DRAFT:/g) ?? []).length, 0, 'the built asset card render emits zero governance markers for fixture A and the live response shape');
+
+  // Both reasons reach the card ⓘ, each once, without the CLI's leading ⓘ glyph
+  // (the text already sits inside an ⓘ popover).
+  cards.length = 0;
+  sandbox.render?.({
+    needsReview: {
+      count: 2,
+      plans: [
+        { replanCommand: 'replaytest plan two-a --session two-session-a', reasons: [{ kind: 'older-url-semantics', note: 'ⓘ This plan was built under different URL rules.' }, { kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' }] },
+        { replanCommand: 'replaytest plan two-b --session two-session-b', reasons: [{ kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' }] },
+      ],
+    },
+  }, []);
+  const reviewCard = cards.find((card) => (card as { state?: string; info?: unknown }).state === 'data' && JSON.stringify(card).includes('plans need review')) as { info: { children: Array<{ textContent: string }> } } | undefined;
+  assert.ok(reviewCard, 'the plans-review card renders in its data state');
+  const infoParagraphs = reviewCard.info.children.map((child) => child.textContent);
+  assert.deepEqual(infoParagraphs.slice(1, 3), ['This plan was built under different URL rules.', 'This plan was built by an earlier version of replaytest, which grouped visits differently.'], 'each distinct reason appears once, in first-seen order');
+  assert.ok(infoParagraphs.every((text) => !text.startsWith('ⓘ')), 'no paragraph inside the ⓘ popover opens with another ⓘ');
+  assert.equal(infoParagraphs[3], 'Tests still run unchanged. Some journeys these plans covered may say “No test yet” until the plans are re-run.');
+  assert.equal(infoParagraphs[4], 'Re-run plan for each listed session. Re-running plan rewrites the plan, so edits made to it are replaced. The dashboard guide lists what to do if plan refuses or the session can no longer be fetched.');
+  assert.equal(vm.runInNewContext('PLAN_REVIEW_COPY.testsUnchanged(1)', sandbox), 'Tests still run unchanged. Some journeys this plan covered may say “No test yet” until the plan is re-run.');
+  assert.equal(vm.runInNewContext('PLAN_REVIEW_COPY.testsUnchanged(2)', sandbox), infoParagraphs[3]);
+  assert.equal(vm.runInNewContext('PLAN_REVIEW_COPY.clearingSteps', sandbox), 'Re-running plan rewrites the plan, so edits made to it are replaced. The dashboard guide lists what to do if plan refuses or the session can no longer be fetched.');
 
   assert.doesNotMatch(asset, /dashDraftCopy\s*\(/, 'copy is no longer transformed at render time');
 });
@@ -1296,7 +1336,7 @@ test('Sessions-page pins fluid width, responsive toolbar rows, header type, and 
   assert.match(asset, /h\('th', \{\}, "Actions"\)/);
   assert.match(asset, /\.dash-table th:nth-child\(7\), \.dash-table td:nth-child\(7\) \{[^}]*padding-right: 12px;[^}]*text-align: right;/);
   assert.match(asset, /h\('col', \{ class: 'dash-col-rank' \}\)[\s\S]*h\('col', \{ class: 'dash-col-journey' \}\)[\s\S]*h\('col', \{ class: 'dash-col-actions' \}\)/);
-  assert.match(asset, /\.dash-col-rank \{ width: 46px; \}[\s\S]*\.dash-col-journey \{ width: 38%; \}[\s\S]*\.dash-col-sessions \{ width: 78px; \}[\s\S]*\.dash-col-status \{ width: 118px; \}[\s\S]*\.dash-col-coverage \{ width: 170px; \}[\s\S]*\.dash-col-needs \{ width: 145px; \}[\s\S]*\.dash-col-actions \{ width: 96px; \}/);
+  assert.match(asset, /\.dash-col-rank \{ width: 46px; \}[\s\S]*\.dash-col-journey \{ width: 38%; \}[\s\S]*\.dash-col-sessions \{ width: 78px; \}[\s\S]*\.dash-col-status \{ width: 224px; \}[\s\S]*\.dash-col-coverage \{ width: 170px; \}[\s\S]*\.dash-col-needs \{ width: 145px; \}[\s\S]*\.dash-col-actions \{ width: 96px; \}/);
   assert.match(asset, /\.dash-journey-trigger \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
   assert.match(asset, /\.dash-page \.dash-notice \{[^}]*min-height: 40px;/);
   assert.match(asset, /<div class="dash-toolbar-secondary">[\s\S]*data-testid="dash-status"[\s\S]*data-testid="dash-sort"[\s\S]*id="sessions-toolbar-info"/);
@@ -1529,6 +1569,75 @@ test('Sessions-page rows render a direct Details button and no retired menu DOM'
   assert.match(asset, /function dashCoverageDetail[\s\S]*?Open plan[\s\S]*?Open test/);
 });
 
+test('drawer hides the Re-run plan command only for a row whose status plan refuses, and keeps the reason line', () => {
+  const asset = renderedDashboardIndex();
+  const pick = (pattern: RegExp, label: string): string => {
+    const source = asset.match(pattern)?.[0];
+    assert.ok(source, `${label} is present in the served dashboard`);
+    return source;
+  };
+  const sources = [
+    pick(/function dashCoverageDetail\(entry, \{ includeAbsence = true \} = \{\}\) \{[\s\S]*?\n\}/, 'dashCoverageDetail'),
+    pick(/function statusPlanBlockReason\(row\) \{[\s\S]*?\n\}/, 'statusPlanBlockReason'),
+    pick(/function dashPlanTarget\(entry\) \{[\s\S]*?\n\}/, 'dashPlanTarget'),
+    pick(/function dashPlanCommandAllowed\(entry\) \{[\s\S]*?\n\}/, 'dashPlanCommandAllowed'),
+    pick(/function dashInlineCommand\(label, command, testId, buttonCopy = "Copy"\) \{[\s\S]*?\n\}/, 'dashInlineCommand'),
+    pick(/const NAVIGATED_UNPLANNABLE_TITLE =\n.*\n/, 'NAVIGATED_UNPLANNABLE_TITLE'),
+    pick(/const ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE = .*\n/, 'ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE'),
+    pick(/const OTHER_UNPLANNABLE_TITLE = .*\n/, 'OTHER_UNPLANNABLE_TITLE'),
+  ];
+  const coverageDetail = new Function('h', 'dashCopyText', `${sources.join('\n')}\nreturn dashCoverageDetail;`)(
+    dashboardRendererH,
+    () => {},
+  ) as (entry: object, options: { includeAbsence: boolean }) => DashboardRendererNode;
+  const needsReview = { replanCommand: 'replaytest plan user-1 --session session-1' };
+  const render = (row: Record<string, unknown>): string =>
+    dashboardRendererMarkup(coverageDetail({ row: { ...row, needsReview }, members: [], isFamily: false }, { includeAbsence: false }));
+  const reasonLine = 'This plan was built under different URL rules.';
+  const rerunCommand = 'dash-drawer-copy-rerun-plan';
+
+  for (const refused of [
+    { provenance: 'exact', status: 'error-after-submit' },
+    { provenance: 'exact', status: 'submitted' },
+    { provenance: 'exact', status: 'navigated', plannable: false },
+  ]) {
+    const markup = render(refused);
+    assert.ok(markup.includes(reasonLine), `${refused.status}: the reason line stays visible`);
+    assert.ok(!markup.includes(rerunCommand) && !markup.includes('Re-run plan:'), `${refused.status}: the re-run command is hidden`);
+  }
+  for (const plannable of [
+    { provenance: 'exact', status: 'completed' },
+    { provenance: 'exact', status: 'navigated', plannable: true },
+    { provenance: 'exact', status: 'abandoned-mid-flow' },
+    { provenance: 'coarse' },
+  ]) {
+    const markup = render(plannable);
+    assert.ok(markup.includes(reasonLine), `${String(plannable.status ?? 'quick scan')}: the reason line is shown`);
+    assert.ok(markup.includes(rerunCommand) && markup.includes('Re-run plan:'), `${String(plannable.status ?? 'quick scan')}: the re-run command is shown`);
+  }
+
+  // One predicate: the line calls dashPlanCommandAllowed and carries no copy of its condition.
+  const coverageSource = sources[0] ?? '';
+  assert.match(coverageSource, /if \(dashPlanCommandAllowed\(entry\)\) \{\n\s*content\.appendChild\(dashInlineCommand\("Re-run plan:"/);
+  assert.doesNotMatch(coverageSource, /row\.provenance === 'coarse'/);
+  // Same behaviour as the condition it replaced, for every row kind that reaches the line.
+  const copiedCondition = (row: Record<string, unknown>): boolean => {
+    const reason = new Function(`${sources.slice(5).join('\n')}\n${sources[1]}\nreturn statusPlanBlockReason;`)() as (row: object) => string | undefined;
+    return row.provenance === 'coarse' || reason(row) === undefined;
+  };
+  for (const provenance of ['coarse', 'exact', undefined]) {
+    for (const status of ['completed', 'navigated', 'abandoned-mid-flow', 'error-after-submit', 'submitted', 'abandoned', 'unknown', undefined]) {
+      for (const plannable of [true, false, undefined]) {
+        const row = { provenance, status, plannable };
+        const shown = render(row).includes(rerunCommand);
+        assert.equal(shown, copiedCondition(row), `${String(provenance)}/${String(status)}/${String(plannable)}: same as the replaced condition`);
+      }
+    }
+  }
+  // A family entry returns before the line, as before, so the predicate's target there is always the row itself.
+  assert.match(coverageSource, /if \(entry\.isFamily\) \{[\s\S]*?\n    return content;\n  \}\n  const row = entry\.row;[\s\S]*if \(row\.needsReview\)/);
+});
+
 test('Sessions-page drawer pins 760px chrome, four accessible tabs, panel-only scrolling, and focus return', () => {
   const asset = renderedDashboardIndex();
   const drawerSource = asset.match(/function dashOpenDrawer\(entry, result, origin, focusSection\) \{[\s\S]*?\n\}/)?.[0];
@@ -1616,9 +1725,14 @@ test('Sessions-page copy rules keep one toolbar explanation and expose every dis
 
   const reasonSource = asset.match(/function dashPlanReason\(entry\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   assert.match(reasonSource, /Run an exact scan for this journey first \(replaytest sessions --exact\)\./);
-  assert.match(reasonSource, /NAVIGATED_UNPLANNABLE_TITLE/);
-  assert.match(reasonSource, /This journey can't be planned yet — only completed journeys, and navigated ones that create a single record, can be\./);
-  assert.match(asset, /This journey creates several records in a row\. We can't plan it yet — the test would be named after the wrong one\./);
+  // The drawer and the row buttons share one status predicate, which names every disabled reason.
+  assert.match(reasonSource, /return statusPlanBlockReason\(target\);/);
+  const blockSource = asset.match(/function statusPlanBlockReason\(row\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  for (const title of ['NAVIGATED_UNPLANNABLE_TITLE', 'ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE', 'OTHER_UNPLANNABLE_TITLE']) {
+    assert.match(blockSource, new RegExp(title));
+  }
+  assert.match(asset, /The recording showed an error after this submit, so this journey cannot be planned\./);
+  assert.match(asset, /This journey creates several records in a row, so it cannot be planned: the test would be named after the wrong one\./);
 
   const actionSource = asset.match(/function dashDrawerActionBar\(entry, result, activateTab\) \{[\s\S]*?\n\}\n\nfunction dashOpenDrawer/)?.[0].replace(/\n\nfunction dashOpenDrawer$/, '') ?? '';
   assert.ok(actionSource, 'the complete drawer action renderer is present');
@@ -1639,7 +1753,9 @@ test('Sessions-page copy rules keep one toolbar explanation and expose every dis
      const dashPrimaryActionKind = () => 'generate-plan';
      const dashFlaggedSessions = () => 0;
      const dashPlanReason = () => 'Run an exact scan for this journey first (replaytest sessions --exact).';
+     const statusPlanBlockReason = () => undefined; // the status does not block planning
      const dashPlanCommand = () => 'replaytest plan d --session s';
+     const dashPlanCommandAllowed = () => true;
      const dashDrawerCopy = () => '';
      ${actionSource}
      return dashDrawerActionBar;`,
@@ -1715,7 +1831,13 @@ test('Sessions-page status summary links to the unchanged full ladder in one cli
   const summarySource = asset.match(/function dashCompletionSummary\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   const ladderSource = asset.match(/function dashCompletionLadder\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   const openSource = asset.match(/function dashOpenCompletionLadder\(origin\) \{[\s\S]*?\n\}/)?.[0] ?? '';
-  assert.match(summarySource, /How far the user's journey got — not whether you have a test for it\.[\s\S]*Completed:[\s\S]*Navigated:/, 'the popover renders the concise status summary');
+  assert.ok(summarySource.includes('COMPLETION_EVIDENCE_LADDER.map'), 'the popover summary derives each status definition from the ladder');
+  // Header-level text only: the Unchecked sentence and the one events-only footnote sentence; the
+  // finish-checked definition and the full footnote stay in the ladder one press away.
+  assert.ok(summarySource.includes('UNCHECKED_FINALITY_TOOLTIP'), 'the popover summary carries the Unchecked sentence');
+  assert.ok(summarySource.includes('EVENTS_ONLY_LIST_SENTENCE'), 'the popover summary carries the one events-only footnote sentence');
+  assert.equal(summarySource.includes('COMPLETION_FINALITY_DEFINITION'), false, 'the finish-checked definition stays in the ladder');
+  assert.equal(summarySource.includes('COMPLETION_EVIDENCE_LADDER_FOOTNOTE'), false, 'the full footnote stays in the ladder');
   assert.match(summarySource, /See how we decide[\s\S]*addEventListener\('click'[\s\S]*dashOpenCompletionLadder\(returnFocus\)/, 'the link opens the wide decision surface directly');
   for (const heading of ['What we call it', 'What we saw', 'Deterministic conditions', 'Known false-positive shapes']) assert.ok(ladderSource.includes(heading), `${heading} remains in the full table`);
   assert.match(openSource, /dashCompletionLadder\(\)[\s\S]*data-testid', 'dash-popover-status'/, 'the routed test id moves with the full ladder');
@@ -1723,17 +1845,25 @@ test('Sessions-page status summary links to the unchanged full ladder in one cli
     'h',
     'COMPLETION_EVIDENCE_LADDER',
     'COMPLETION_EVIDENCE_LADDER_FOOTNOTE',
+    'COMPLETION_FINALITY_DEFINITION',
+    'UNCHECKED_FINALITY_TOOLTIP',
+    'QUICK_SCAN_COMPLETION_FOOTNOTE',
     'NAVIGATED_PREVALENCE_FLOOR_NOTE',
-    `${ladderSource}\nreturn dashCompletionLadder;`,
+    `${asset.match(/function dashPlainCopy\(text\) \{[\s\S]*?\n\}/)?.[0] ?? ''}\n${ladderSource}\nreturn dashCompletionLadder;`,
   )(
     dashboardRendererH,
-    [{
-      whatWeCallIt: 'Completed',
-      whatWeSaw: 'A witnessed completion.',
+    ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'].map((status) => ({
+      status,
+      whatWeCallIt: status,
+      whatWeSaw: `Saw ${status}.`,
+      shortDefinition: `Definition of ${status}.`,
       deterministicConditions: ['A deterministic condition.'],
       knownFalsePositiveShapes: ['A known false-positive shape.'],
-    }],
+    })),
     'Ladder footnote.',
+    'Finish checked: The final page settled with no form open and the last-submit moment was fully recorded.',
+    'Unchecked: we saw the user reach a new page, but did not see whether it was the last step.',
+    'Quick scan reads summary numbers only.',
     'Navigated floor note.',
   ) as () => DashboardRendererNode;
   let renderedModal: DashboardRendererNode | undefined;
@@ -1760,6 +1890,153 @@ test('Sessions-page status summary links to the unchanged full ladder in one cli
     'the aria-labelledby target exists exactly once',
   );
   assert.match(asset, /\.dash-popover \{[^}]*max-height: min\(260px, calc\(100vh - 16px\)\);/, 'every dashboard popover is capped at 260px');
+  // The one exception: the Status header summary grows to its text (inside the window), so its
+  // last sentence and "See how we decide" are never below an inner scroll.
+  const popoverHeightRules = [...asset.matchAll(/\.dash-popover\[data-testid="([^"]+)"\] \{[^}]*max-height:[^}]*\}/g)].map((match) => match[1]);
+  assert.deepEqual(popoverHeightRules, ['dash-popover-toolbar', 'dash-popover-status-summary'], 'exactly two popovers override the height cap');
+  assert.match(asset, /\.dash-popover\[data-testid="dash-popover-status-summary"\] \{ max-height: calc\(100vh - 16px\); \}/);
+
+  // The Status column header's popover is the one place the unchecked-finish sentence and the
+  // events-only sentence reach a reader of the sessions list; it must carry them, in the same order
+  // as the ladder's compact definitions sentence.
+  const summaryEntries = ['completed', 'navigated'].map((status) => ({ whatWeCallIt: status, shortDefinition: `Definition of ${status}.` }));
+  const completionSummary = new Function(
+    'h',
+    'COMPLETION_EVIDENCE_LADDER',
+    'COMPLETION_FINALITY_DEFINITION',
+    'UNCHECKED_FINALITY_TOOLTIP',
+    'COMPLETION_EVIDENCE_LADDER_FOOTNOTE',
+    'EVENTS_ONLY_LIST_SENTENCE',
+    'dashCloseOpenPopovers',
+    'dashOpenCompletionLadder',
+    `${summarySource}\nreturn dashCompletionSummary;`,
+  )(
+    dashboardRendererH,
+    summaryEntries,
+    'Finish definition sentence.',
+    'Unchecked: we saw the user reach a new page, but did not see whether it was the last step.',
+    'Full footnote with `plan` back-ticks.',
+    'The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit.',
+    () => {},
+    () => {},
+  ) as () => DashboardRendererNode;
+  const summaryText = completionSummary().textContent;
+  assert.ok(
+    summaryText.includes('Definition of navigated.. Unchecked: we saw the user reach a new page, but did not see whether it was the last step. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit.'),
+    'the Status header summary carries the definitions, the unchecked sentence and the one events-only footnote sentence, in that order',
+  );
+  assert.equal(summaryText.includes('Finish definition sentence.'), false, 'the finish definition stays in the ladder');
+  assert.equal(summaryText.includes('`'), false, 'no back-ticks reach the Status header summary');
+});
+
+test('the drawer offers "Copy plan command" only when the shared status predicate lets the journey be planned', () => {
+  const asset = renderedDashboardIndex();
+  const source = (pattern: RegExp, what: string): string => {
+    const found = asset.match(pattern)?.[0];
+    assert.ok(found, `${what} is on the page`);
+    return found;
+  };
+  const pageSources = [
+    source(/const NAVIGATED_UNPLANNABLE_TITLE =[\s\S]*?;\n/, 'the navigated title'),
+    source(/const ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE =[\s\S]*?;\n/, 'the error title'),
+    source(/const OTHER_UNPLANNABLE_TITLE =[\s\S]*?;\n/, 'the Submitted and Abandoned title'),
+    source(/function statusPlanBlockReason\(row\) \{[\s\S]*?\n\}/, 'the shared status predicate'),
+    source(/function dashPlanTarget\(entry\) \{[\s\S]*?\n\}/, 'dashPlanTarget'),
+    source(/function dashPlanCommandAllowed\(entry\) \{[\s\S]*?\n\}/, 'the plan-command visibility predicate'),
+    source(/function dashPlanReason\(entry\) \{[\s\S]*?\n\}/, 'dashPlanReason'),
+    source(/function dashPlanCommand\(entry\) \{[\s\S]*?\n\}/, 'dashPlanCommand'),
+    source(/function dashPrimaryActionKind\(target, flaggedSessions, reviewed\) \{[\s\S]*?\n\}/, 'dashPrimaryActionKind'),
+    source(/function dashDrawerActionBar\(entry, result, activateTab\) \{[\s\S]*?\n\}/, 'the drawer action bar'),
+  ];
+  const actionBar = new Function(
+    'h', 'isSignalReviewed', 'dashFlaggedSessions', 'dashDrawerCopy', 'generatePlan', 'scaffoldPlan', 'loadSessions', 'qs', 'goToTest', 'dashCopyText', 'buildReplayUrl', 'providerConfig', 'replayAvailabilityBySessionId',
+    `${pageSources.join('\n')}\nreturn dashDrawerActionBar;`,
+  )(
+    dashboardRendererH, () => false, () => 0, (key: string) => key, () => {}, () => {}, () => {}, () => undefined, () => {}, () => {}, () => undefined, undefined, new Map(),
+  ) as (entry: object, result: object, activateTab: () => void) => DashboardRendererNode;
+  const bar = (row: Record<string, unknown>) => {
+    const node = actionBar({ isFamily: false, row: { signature: '/x', representativeDistinctId: 'user-1', representativeSessionId: 'sess-1', ...row } }, {}, () => {});
+    const testIds = dashboardRendererDescendants(node).map((child) => child.getAttribute('data-testid')).filter((id): id is string => Boolean(id));
+    const reason = dashboardRendererDescendants(node).find((child) => child.getAttribute('data-testid') === 'dash-plan-disabled-reason')?.textContent;
+    return { copy: testIds.includes('dash-drawer-copy-command'), reason };
+  };
+  // A plan that needs review (the "Re-run plan" drawer) on a journey the current classifier reads
+  // as a status `plan` refuses: no plan command. The same drawer on a plannable status keeps it.
+  const needsReview = { kind: 'older-url-semantics', note: 'review', replanCommand: 'replaytest plan user-1 --session sess-1' };
+  // The Re-run plan button follows the Generate plan pattern: disabled, with the shared block reason
+  // as its title and the disabled-reason line, where the status `plan` refuses; enabled otherwise.
+  const rerun = (row: Record<string, unknown>) => {
+    const nodes = dashboardRendererDescendants(
+      actionBar({ isFamily: false, row: { signature: '/x', representativeDistinctId: 'user-1', representativeSessionId: 'sess-1', ...row } }, {}, () => {}),
+    );
+    const button = nodes.find((child) => child.getAttribute('data-testid') === 'dash-drawer-rerun-plan');
+    return {
+      kind: button?.getAttribute('data-action-kind'),
+      // The renderer writes a true boolean attribute as an empty string and omits a false one.
+      disabled: button?.getAttribute('disabled') === '',
+      title: button?.getAttribute('title') ?? undefined,
+      reasonLine: nodes.find((child) => child.getAttribute('data-testid') === 'dash-plan-disabled-reason')?.textContent,
+    };
+  };
+  const refused: Array<[string, Record<string, unknown>, string]> = [
+    ['submitted', {}, 'Submitted and Abandoned journeys cannot be planned.'],
+    ['abandoned', {}, 'Submitted and Abandoned journeys cannot be planned.'],
+    ['error-after-submit', {}, 'The recording showed an error after this submit, so this journey cannot be planned.'],
+  ];
+  for (const [status, extra, reason] of refused) {
+    const row = { provenance: 'exact', status, needsReview, ...extra };
+    assert.deepEqual(rerun(row), { kind: 'rerun-plan', disabled: true, title: reason, reasonLine: reason }, `${status} with a plan to review: Re-run plan disabled with the reason`);
+    assert.equal(bar(row).copy, false, `${status} with a plan to review: no plan command`);
+  }
+  for (const row of [{ provenance: 'exact', status: 'completed', needsReview }, { provenance: 'exact', status: 'abandoned-mid-flow', needsReview }]) {
+    assert.deepEqual(rerun(row), { kind: 'rerun-plan', disabled: false, title: undefined, reasonLine: undefined }, `${row.status}: Re-run plan enabled`);
+    assert.equal(bar(row).copy, true, `${row.status} with a plan to review keeps the command`);
+  }
+  for (const status of ['submitted', 'abandoned']) {
+    const drawer = bar({ provenance: 'exact', status });
+    assert.equal(drawer.reason, 'Submitted and Abandoned journeys cannot be planned.', `${status}: the disabled reason is shown`);
+    assert.equal(drawer.copy, false, `${status}: no plan command beside "cannot be planned"`);
+  }
+  assert.equal(bar({ provenance: 'exact', status: 'error-after-submit' }).copy, false, 'Error after submit: no plan command');
+  assert.equal(bar({ provenance: 'exact', status: 'abandoned-mid-flow' }).copy, true, 'Stopped mid-flow keeps its plan command');
+  assert.deepEqual(bar({ provenance: 'exact', status: 'completed' }), { copy: true, reason: undefined }, 'a plannable row keeps the plan command');
+  assert.deepEqual(bar({ provenance: 'exact', status: 'abandoned-mid-flow' }), { copy: true, reason: undefined }, 'Stopped mid-flow keeps its plan command without an extra flag');
+  // A coarse (quick-scan) row in the shape the producer emits carries no status: its reason is the
+  // scan, and the command stays on offer, as before. The no-coverage Coverage line points at it.
+  const coarse = bar({ provenance: 'coarse' });
+  assert.equal(coarse.copy, true, 'a coarse row with no status keeps the plan command');
+  assert.match(coarse.reason ?? '', /Run an exact scan/);
+});
+
+test('both dashboard ladders show the footnote without back-ticks: "plan and frames read the recording"', () => {
+  const asset = renderedDashboardIndex();
+  const plainCopy = asset.match(/function dashPlainCopy\(text\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  const modalSource = asset.match(/function dashCompletionLadder\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  const pageSource = asset.match(/function renderCompletionEvidenceLadder\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.ok(plainCopy && modalSource && pageSource, 'the two ladder renderers and the plain-copy helper are on the page');
+  // The terminal and Markdown copy keeps the back-ticks; only the page drops them.
+  assert.match(COMPLETION_EVIDENCE_LADDER_FOOTNOTE, /`plan` and `frames` read the recording/);
+  const constants = [
+    COMPLETION_EVIDENCE_LADDER,
+    COMPLETION_EVIDENCE_LADDER_FOOTNOTE,
+    COMPLETION_FINALITY_DEFINITION,
+    UNCHECKED_FINALITY_TOOLTIP,
+    QUICK_SCAN_COMPLETION_FOOTNOTE,
+    NAVIGATED_PREVALENCE_FLOOR_NOTE,
+  ];
+  const names = ['COMPLETION_EVIDENCE_LADDER', 'COMPLETION_EVIDENCE_LADDER_FOOTNOTE', 'COMPLETION_FINALITY_DEFINITION', 'UNCHECKED_FINALITY_TOOLTIP', 'QUICK_SCAN_COMPLETION_FOOTNOTE', 'NAVIGATED_PREVALENCE_FLOOR_NOTE'];
+  const modal = (new Function('h', ...names, `${plainCopy}\n${modalSource}\nreturn dashCompletionLadder;`)(dashboardRendererH, ...constants) as () => DashboardRendererNode)();
+  const wrap = dashboardRendererH('div', {});
+  (new Function('h', 'qs', 'clear', ...names, `${plainCopy}\n${pageSource}\nreturn renderCompletionEvidenceLadder;`)(
+    dashboardRendererH,
+    () => wrap,
+    () => {},
+    ...constants,
+  ) as () => void)();
+  for (const [surface, text] of [['the ladder dialog', modal.textContent], ['the page ladder', wrap.textContent]] as const) {
+    assert.ok(text.includes('plan and frames read the recording'), `${surface} carries the footnote in plain words`);
+    assert.equal(text.includes('`'), false, `${surface} shows no back-tick`);
+  }
 });
 
 test('Sessions-page groups byte-identical evidence while keeping every session action', () => {
@@ -1784,6 +2061,17 @@ test('Sessions-page omits empty drawer sections and keeps the two absence facts 
   const evidenceSource = asset.match(/function dashEvidenceSection\(entry, result\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   const depthSource = asset.match(/function dashDepthSection\(entry\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   const overviewSource = asset.match(/function dashOverviewPanel\(entry, result\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  // The real plan-command predicate, so the per-session plan button follows the shipped rule.
+  const planAllowedSources = [
+    /const NAVIGATED_UNPLANNABLE_TITLE =[\s\S]*?;\n/,
+    /const ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE =[\s\S]*?;\n/,
+    /const OTHER_UNPLANNABLE_TITLE =[\s\S]*?;\n/,
+    /function statusPlanBlockReason\(row\) \{[\s\S]*?\n\}/,
+    /function dashPlanTarget\(entry\) \{[\s\S]*?\n\}/,
+    /function dashPlanCommandAllowed\(entry\) \{[\s\S]*?\n\}/,
+  ].map((pattern) => asset.match(pattern)?.[0] ?? '');
+  assert.ok(planAllowedSources.every(Boolean), 'the plan-command predicate and its dependencies are on the page');
+  const dashPlanCommandAllowed = new Function(`${planAllowedSources.join('\n')}\nreturn dashPlanCommandAllowed;`)() as (entry: object) => boolean;
   const renderEvidence = new Function(
     'h',
     'dashDrawerCopy',
@@ -1795,6 +2083,7 @@ test('Sessions-page omits empty drawer sections and keeps the two absence facts 
     'dashPlanTarget',
     'dashMarkReviewedButton',
     'dashDrawerSection',
+    'dashPlanCommandAllowed',
     `${evidenceSource}\nreturn dashEvidenceSection;`,
   )(
     dashboardRendererH,
@@ -1807,6 +2096,7 @@ test('Sessions-page omits empty drawer sections and keeps the two absence facts 
     (entry: { members: object[] }) => entry.members[0],
     () => dashboardRendererH('button', {}, 'Mark reviewed'),
     (title: string, content: DashboardRendererNode) => dashboardRendererH('section', {}, dashboardRendererH('h3', {}, title), content),
+    dashPlanCommandAllowed,
   ) as (entry: { members: object[] }, result: object) => DashboardRendererNode;
   const fixtureB = JSON.parse(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../tests/dashboard-ui/fixtures/gates/b/dashboard-last-scan.json'), 'utf8')) as {
     payload: { sessions: Array<Record<string, unknown>> };
@@ -1828,6 +2118,12 @@ test('Sessions-page omits empty drawer sections and keeps the two absence facts 
   assert.ok(fixtureBWithSignals, 'fixture b carries a signal-bearing journey');
   const signalPanel = dashboardRendererH('section', {}, renderEvidence({ members: [fixtureBWithSignals] }, fixtureB.payload));
   assert.match(signalPanel.textContent, /What we sawWitnessed signal\..*Watch replayPlan this sessionWhat we checked here\.Mark reviewed/, 'a journey with signals keeps its evidence, actions, assessability, and review control');
+  // A path `plan` refuses keeps its evidence and replay link but offers no "Plan this session".
+  const refusedPanel = dashboardRendererH('section', {}, renderEvidence({ members: [{ ...fixtureBWithSignals, provenance: 'exact', status: 'submitted' }] }, fixtureB.payload));
+  assert.match(refusedPanel.textContent, /What we sawWitnessed signal\..*Watch replayWhat we checked here\.Mark reviewed/, 'a refused path keeps its evidence, replay link, and review control');
+  assert.equal(refusedPanel.textContent.includes('Plan this session'), false, 'a refused path offers no plan button');
+  const coarsePanel = dashboardRendererH('section', {}, renderEvidence({ members: [{ ...fixtureBWithSignals, provenance: 'coarse', status: 'submitted' }] }, fixtureB.payload));
+  assert.equal(coarsePanel.textContent.includes('Plan this session'), true, 'a coarse row keeps the plan button');
   assert.match(depthSource, /if \(!row\.depth\) return undefined;/, 'unmeasured progress renders no depth card');
   assert.match(overviewSource, /coverageDetail\.childNodes\.length > 0[\s\S]*pathsAndEvidence/, 'the Paths and run evidence accordion exists only with content');
   assert.match(overviewSource, /dashDrawerCopy\('depthNotMeasured'\)[\s\S]*dashDrawerCopy\('consoleNotAssessed'\)[\s\S]*class: 'dash-drawer-meta dash-drawer-absence'/, 'both absence facts remain at the Overview bottom');
@@ -1838,7 +2134,10 @@ test('Sessions-page drawer meta, command disclosure, micro-labels, and polish st
   const asset = renderedDashboardIndex();
   const metaSource = asset.match(/function dashDrawerMeta\(entry\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(metaSource, 'the production drawer-meta formatter is present');
-  assert.match(metaSource, /h\('span', \{\}, `Rank \$\{entry\.rank\}`\)[\s\S]*h\('span', \{\}, dashCountNoun\(entry\.row\.sessionCount, 'session', 'sessions'\)\)/);
+  assert.match(metaSource, /h\('span', \{ class: 'dash-drawer-summary-fact' \}, `Rank \$\{entry\.rank\}`\)[\s\S]*h\('span', \{ class: 'dash-drawer-summary-fact' \}, dashCountNoun\(entry\.row\.sessionCount, 'session', 'sessions'\)\)/);
+  // The status words can carry their own " · ", so the status is its own outlined unit.
+  assert.match(metaSource, /h\('span', \{ class: 'dash-drawer-summary-fact dash-drawer-summary-status' \}, dashStatusText\(entry\)\)/);
+  assert.match(asset, /\.dash-drawer-summary-status \{[^}]*border: 1px solid var\(--border\);[^}]*border-radius: 999px;/);
   const actionSource = asset.match(/function dashDrawerActionBar\(entry, result, activateTab\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   const drawerSource = asset.match(/function dashOpenDrawer\(entry, result, origin, focusSection\) \{[\s\S]*?\n\}/)?.[0] ?? '';
   assert.match(actionSource, /title: command, 'aria-description': command/, 'Copy carries the command without a raw code row');
@@ -2127,7 +2426,7 @@ function planDetailEntry(dataRequirements?: PlanDetailDataRequirement[]): Record
         sessionId: 'session-1',
         journeyIndex: 0,
         generatedAt: '2026-07-21T12:00:00.000Z',
-        tool: 'replaytest@0.1.0',
+        tool: toolIdentifier(),
       },
       start: '/invoices/inv-1003',
       steps: [],
@@ -2498,8 +2797,12 @@ function buildGapMapSessionsViewDeclarationRendererFromPage(sessionsView: string
   return { declaration, renderGapMapSessionsViewDeclaration };
 }
 
-function buildGapMapTableRendererFromPage(): {
+function buildGapMapTableRendererFromPage(clipboard?: { navigator: unknown; window: unknown }): {
   document: DashboardRendererDocument;
+  /** The page's own route merge — the first call the live `renderGapMapTable` makes. */
+  gapMapMergedRows: (gapMap: unknown) => Array<Record<string, any>>;
+  /** The page's own Next step cell — what the live `renderGapMapTable` puts in each row. */
+  gapMapPrimaryAction: (row: unknown) => DashboardRendererNode;
   closeActiveGapMapPopover: () => void;
   paginateTableRows: (rows: unknown[], pagination: { page: number; pageSize: number }) => {
     rows: unknown[];
@@ -2537,7 +2840,11 @@ function buildGapMapTableRendererFromPage(): {
     'goToSuiteHealth',
     'copyGapMapCommand',
     'document',
-    `${source}\nreturn { document, closeActiveGapMapPopover: () => closeActiveGapMapPopover(), paginateTableRows, tablePaginationWindow, sortTableRows, toggleTableSort, sortableColumnHeader, renderTablePagination, renderGapMapTable: renderGapMapLegacyTable };`,
+    // The page's own copy handler (inside the slice) reads these two globals;
+    // a test that clicks Copy passes stubs, every other test keeps the real globals.
+    'navigator',
+    'window',
+    `${source}\nreturn { document, gapMapMergedRows, gapMapPrimaryAction, closeActiveGapMapPopover: () => closeActiveGapMapPopover(), paginateTableRows, tablePaginationWindow, sortTableRows, toggleTableSort, sortableColumnHeader, renderTablePagination, renderGapMapTable: renderGapMapLegacyTable };`,
   )(
     dashboardRendererH,
     (node: DashboardRendererNode) => {
@@ -2551,8 +2858,12 @@ function buildGapMapTableRendererFromPage(): {
     () => undefined,
     () => undefined,
     document,
+    clipboard === undefined ? globalThis.navigator : clipboard.navigator,
+    clipboard === undefined ? (globalThis as { window?: unknown }).window : clipboard.window,
   ) as {
     document: DashboardRendererDocument;
+    gapMapMergedRows: (gapMap: unknown) => Array<Record<string, any>>;
+    gapMapPrimaryAction: (row: unknown) => DashboardRendererNode;
     closeActiveGapMapPopover: () => void;
     paginateTableRows: (rows: unknown[], pagination: { page: number; pageSize: number }) => {
       rows: unknown[];
@@ -3053,15 +3364,23 @@ test('parseSessionsCliJson: accepts exact discovery JSON with meta:null and jour
   });
 });
 
-test('parseSessionsCliJson: carries exact completion prevalence and rejects a malformed count', () => {
+test('parseSessionsCliJson: accepts old and new census keys, and rejects malformed optional counts', () => {
+  const oldCounts = { completed: 2, navigated: 1, submitted: 0, abandoned: 3, submitThenNav: 2, commitThenNewRoute: 1 };
+  const old = JSON.stringify({ provenance: 'exact', meta: null, journeys: [], completionCounts: oldCounts });
+  assert.deepEqual(parseSessionsCliJson(old)?.completionCounts, oldCounts, 'legacy census counts stay valid without the new keys');
   const valid = JSON.stringify({
     provenance: 'exact', meta: null, journeys: [],
-    completionCounts: { completed: 2, navigated: 1, submitted: 0, abandoned: 3, submitThenNav: 2, commitThenNewRoute: 1 },
+    completionCounts: { ...oldCounts, completedWitnessed: 1, abandonedMidFlow: 2, errorAfterSubmit: 3 },
   });
   assert.deepEqual(parseSessionsCliJson(valid)?.completionCounts, {
-    completed: 2, navigated: 1, submitted: 0, abandoned: 3, submitThenNav: 2, commitThenNewRoute: 1,
+    ...oldCounts, completedWitnessed: 1, abandonedMidFlow: 2, errorAfterSubmit: 3,
   });
   assert.equal(parseSessionsCliJson(JSON.stringify({ provenance: 'exact', meta: null, journeys: [], completionCounts: { completed: 1 } })), undefined);
+  for (const malformed of ['bad', -1, 1.5]) {
+    for (const key of ['completedWitnessed', 'abandonedMidFlow', 'errorAfterSubmit']) {
+      assert.equal(parseSessionsCliJson(JSON.stringify({ provenance: 'exact', meta: null, journeys: [], completionCounts: { ...oldCounts, [key]: malformed } })), undefined, `${key}=${String(malformed)} is rejected`);
+    }
+  }
 });
 
 test('parseSessionsCliJson: preserves additive depth while missing depth remains absent', () => {
@@ -3665,8 +3984,9 @@ function writeF5Plan(
         journeyIndex: 0,
         signature,
         generatedAt: '2026-07-14T16:52:17.283Z',
-        tool: 'replaytest@0.1.0',
+        tool: toolIdentifier(),
         signatureSemanticsVersion: 1,
+        segmentationVersion: 1,
         wizardStepParamNames: ['step'],
         ...sourceOverrides,
       },
@@ -3685,7 +4005,7 @@ function writeF5Spec(paths: ReturnType<typeof dashboardF5Paths>, relativeName: s
 }
 
 function dashboardLastScanFilterKey(): string {
-  return '["sessions","--json"]|wizardStepParams=["step"]|limit=undefined';
+  return '["sessions","--json"]|wizardStepParams=["step"]|segmentation=1|evidence=events|limit=undefined';
 }
 
 function wizardStepConfig(paramNames: string[]) {
@@ -4125,6 +4445,7 @@ test('dashboard needs-review: a flagged matching plan marks coverage and returns
   const paths = dashboardF5Paths(dashboardF5Workspace(t));
   writeF5Plan(paths, 'invoice-confirmation', exactJourney().signature, {
     signatureSemanticsVersion: undefined,
+    segmentationVersion: undefined,
     wizardStepParamNames: undefined,
   });
   const persistence = { store, identity, localCoveragePaths: paths, getWizardStepConfig: () => wizardStepConfig(['step']) };
@@ -4137,7 +4458,7 @@ test('dashboard needs-review: a flagged matching plan marks coverage and returns
 
   assert.deepEqual(response.sessions?.[0].needsReview, {
     kind: 'older-url-semantics',
-    note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+    note: 'ⓘ This plan was built under different URL rules.',
     replanCommand: 'replaytest plan user-1 --session session-1',
   });
   assert.deepEqual(response.needsReview, {
@@ -4145,12 +4466,48 @@ test('dashboard needs-review: a flagged matching plan marks coverage and returns
     plans: [{
       slug: 'invoice-confirmation',
       kind: 'older-url-semantics',
-      note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+      note: 'ⓘ This plan was built under different URL rules.',
+      reasons: [
+        { kind: 'older-url-semantics', note: 'ⓘ This plan was built under different URL rules.' },
+        { kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' },
+      ],
       replanCommand: 'replaytest plan user-1 --session session-1',
     }],
   });
   const stored = store.readLastScan(identity, dashboardLastScanFilterKey()) as Record<string, unknown>;
   assert.equal(Object.hasOwn(stored, 'needsReview'), false, 'the nudge summary is recomputed, never persisted');
+});
+
+test('dashboard needs-review: a 0.1.0 plan counts once while its exact matched journey keeps no review badge', async (t) => {
+  const identity = dashboardTestIdentity();
+  const store = dashboardTestStore(t);
+  const workspaceRoot = dashboardF5Workspace(t);
+  const paths = dashboardF5Paths(workspaceRoot);
+  fs.mkdirSync(paths.plansDir, { recursive: true });
+  const trackedFixture = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.replaytest/plans/invoices-inv-1003.plan.json');
+  fs.copyFileSync(trackedFixture, path.join(paths.plansDir, 'invoices-inv-1003.plan.json'));
+  const plan = JSON.parse(fs.readFileSync(path.join(paths.plansDir, 'invoices-inv-1003.plan.json'), 'utf8')) as {
+    source: { signature: string; distinctId: string; sessionId: string };
+  };
+  const journey = exactJourney({
+    signature: plan.source.signature,
+    representativeDistinctId: plan.source.distinctId,
+    representativeSessionId: plan.source.sessionId,
+  });
+  const persistence = { store, identity, localCoveragePaths: paths, getWizardStepConfig: () => wizardStepConfig(['step']) };
+
+  const response = await buildSessionsResponse(
+    new URLSearchParams(),
+    async () => sessionsCliResult({ journeys: [journey] }),
+    new SessionsScanCache(100, () => 1_000),
+    persistence,
+  );
+
+  assert.deepEqual(response.needsReview?.plans.map(({ slug, reasons }) => ({ slug, kinds: reasons.map(({ kind }) => kind) })), [
+    { slug: 'invoices-inv-1003', kinds: ['older-journey-boundaries'] },
+  ]);
+  assert.equal(response.needsReview?.count, 1, 'the dashboard counts the plan once');
+  assert.equal(response.sessions?.[0]?.needsReview, undefined, 'the exact matched row stays unbadged');
 });
 
 test('dashboard needs-review: a transient .proposed sidecar is excluded, matching the sessions/suite-status walks', async (t) => {
@@ -4641,7 +4998,7 @@ test('dashboard disk cache: the invalid wizard config sentinel is stable and dis
     persistence,
   );
   assert.notEqual(
-    store.readLastScan(identity, '["sessions","--json"]|wizardStepParams=invalid|limit=undefined'),
+    store.readLastScan(identity, '["sessions","--json"]|wizardStepParams=invalid|segmentation=1|evidence=events|limit=undefined'),
     undefined,
     'the sentinel has a deterministic persisted-cache identity',
   );
@@ -4986,11 +5343,12 @@ test('dashboard completion surfaces include the navigated filter, prevalence chi
   assert.match(source, /id="filter-navigated"/);
   assert.match(source, /id="completion-prevalence-chip"/);
   assert.match(source, /replaytest-dashboard-completion-evidence-ladder/);
-  assert.match(source, /This journey creates several records in a row\. We can't plan it yet/);
+  assert.match(source, /This journey creates several records in a row, so it cannot be planned/);
   // The filter's own ⓘ states the class is plannable; the per-row
   // disabled-reason names the ONE shape that is not (a merged multi-create).
   // Both must be present, or the surface says only half of the truth.
-  assert.match(source, /A journey that creates one record can be planned; one that creates several in a row cannot yet\./);
+  assert.match(source, /A journey that creates one record can be planned; a journey that creates several in a row is skipped\./);
+  assert.match(source, /target === undefined && family\.navigatedTarget !== undefined\s*\?\s*'The spec for a navigated path presses the committing keystroke as a marked synthesis, because no recording captures it\.'/);
   assert.match(source, /const NAVIGATED_UNPLANNABLE_TITLE =/);
   const served = renderedDashboardIndex();
   assert.match(served, /const COMPLETION_EVIDENCE_LADDER =/);
@@ -5561,7 +5919,7 @@ test('dashboard Gap map table: unifies every coverage lane with visible confiden
     gapMapSection('form-submit-signal', {
       noKnownLink: [gapMapRow({ rank: 1, signature: '/form', sessionCount: 90 })],
       knownLinks: [gapMapRow({ signature: '/linked', sessionCount: 80, fidelity: 'coarse-likely', planSlug: 'linked', action: { kind: 'review-linked-plan', label: 'Open the linked plan and its test to confirm they still match this journey.', command: 'replaytest plan linked' } })],
-      needsReview: [gapMapRow({ signature: '/review', sessionCount: 70, action: { kind: 'replan-link', label: 'Review the linked test plan — the journey may have changed since it was generated.', command: 'replaytest plan review' } })],
+      needsReview: [gapMapRow({ signature: '/review', sessionCount: 70, action: { kind: 'replan-link', label: 'Review this plan before re-running it.', command: 'replaytest plan review' } })],
     }),
     gapMapSection('deep-wizard', {
       superseded: [gapMapRow({ signature: '/old', sessionCount: 60, action: { kind: 'reconcile-link', label: 'This plan was replaced by a newer one — review the newer plan.', command: 'replaytest gaps --shape deep-wizard' } })],
@@ -5575,7 +5933,7 @@ test('dashboard Gap map table: unifies every coverage lane with visible confiden
   assert.equal(dashboardRendererNodesByClass(table, 'gap-map-row').length, 6);
   assert.deepEqual(
     dashboardRendererNodesByClass(table, 'gap-map-coverage-badge').map((node) => node.textContent).sort(),
-    ['Has a test', 'Maybe covered', 'Needs review', 'No test yet', 'Out of date', "Couldn't check"].sort(),
+    ['Has a test', 'Maybe covered', 'Plan needs review', 'No test yet', 'Out of date', "Couldn't check"].sort(),
   );
   assert.deepEqual(
     dashboardRendererNodesByClass(table, 'badge').filter((node) => node.className.includes('gap-map-confidence-')).map((node) => node.textContent).sort(),
@@ -5593,7 +5951,7 @@ test('dashboard Gap map table: composable filters keep the displayed and filtere
       noKnownLink: [gapMapRow({ rank: 1, signature: '/form-a', sessionCount: 30 })],
       knownLinks: [gapMapRow({ signature: '/form-b', sessionCount: 20, fidelity: 'coarse-likely', planSlug: 'form-b', action: { kind: 'review-linked-plan', label: 'Open the linked plan and its test to confirm they still match this journey.', command: 'replaytest plan form-b' } })],
     }),
-    gapMapSection('rage-clicks', { needsReview: [gapMapRow({ signature: '/rage', sessionCount: 10, action: { kind: 'replan-link', label: 'Review the linked test plan — the journey may have changed since it was generated.', command: 'replaytest plan rage' } })] }),
+    gapMapSection('rage-clicks', { needsReview: [gapMapRow({ signature: '/rage', sessionCount: 10, action: { kind: 'replan-link', label: 'Review this plan before re-running it.', command: 'replaytest plan rage' } })] }),
   ]));
 
   assert.match(table.textContent, /1–3 of 3/);
@@ -5636,19 +5994,98 @@ test('dashboard Gap map table: action kinds provide the required primary actions
   const { renderGapMapTable } = buildGapMapTableRendererFromPage();
   const table = renderGapMapTable(gapMapFixture([
     gapMapSection('form-submit-signal', {
-      noKnownLink: [gapMapRow({ rank: 1, signature: '/watch' })],
+      noKnownLink: [
+        gapMapRow({ rank: 1, signature: '/watch' }),
+        gapMapRow({ rank: 2, signature: '/refused', action: { kind: 'review-not-plannable', label: 'This journey cannot be planned.', command: 'replaytest gaps --shape form-submit-signal' } }),
+      ],
       knownLinks: [gapMapRow({ signature: '/linked', planSlug: 'linked', action: { kind: 'review-linked-plan', label: 'Open the linked plan and its test to confirm they still match this journey.', command: 'replaytest plan linked' } })],
-      needsReview: [gapMapRow({ signature: '/review', planSlug: 'review', action: { kind: 'replan-link', label: 'Review the linked test plan — the journey may have changed since it was generated.', command: 'replaytest plan review' } })],
+      needsReview: [gapMapRow({ signature: '/review', planSlug: 'review', action: { kind: 'replan-link', label: 'Review this plan before re-running it.', command: 'replaytest plan review' } })],
     }),
     gapMapSection('rage-clicks', { possibleSuiteMatches: [gapMapRow({ signature: '/suite', action: { kind: 'inspect-suite-candidate', label: 'Check the possible matching test in your own suite before adding a new one.', command: 'replaytest gaps --shape rage-clicks' } })] }),
   ]));
   const primaryActionCells = dashboardRendererNodesByClass(table, 'gap-map-next-step');
   assert.ok(primaryActionCells.some((cell) => cell.textContent.includes('Watch replay ↗') && cell.textContent.includes('Copy command')));
+  // Control only: this hand-built row runs through the legacy renderer, which
+  // has no caller in the page. The live cell is covered by the test below.
+  const refusedRow = dashboardRendererNodesByClass(table, 'gap-map-row').find((row) => row.textContent.includes('/refused'));
+  assert.ok(refusedRow);
+  const refusedActionCell = dashboardRendererNodesByClass(refusedRow, 'gap-map-next-step')[0];
+  assert.ok(refusedActionCell);
+  assert.match(refusedActionCell.textContent, /Copy command/);
+  assert.doesNotMatch(refusedActionCell.textContent, /Watch replay ↗/);
   assert.ok(primaryActionCells.filter((cell) => cell.textContent.includes('Open plan') && cell.textContent.includes('Copy command')).length >= 2);
   assert.ok(primaryActionCells.some((cell) => cell.textContent.includes('Open Suite Health') && cell.textContent.includes('Copy command')));
   const watchReplay = dashboardRendererNodesByClass(table, 'gap-map-action-link')[0];
   assert.equal(watchReplay.attributes.get('href'), 'https://eu.posthog.com/project/42/replay/session-42');
   assert.equal(watchReplay.attributes.get('target'), '_blank');
+});
+
+test('dashboard Gap map live Next step cell: a journey plan refuses gets Copy of the gaps command, never a plan command; an allowed one keeps Watch replay', () => {
+  // Real derivation (gap-map.ts via the dashboard view-model) → JSON → the
+  // page's own gapMapMergedRows + gapMapPrimaryAction, the two calls the live
+  // renderGapMapTable makes for its Next step cell.
+  const copied: string[] = [];
+  const { gapMapMergedRows, gapMapPrimaryAction } = buildGapMapTableRendererFromPage({
+    navigator: { clipboard: { writeText: async (command: string) => { copied.push(command); } } },
+    window: { setTimeout: () => 0 },
+  });
+  const exact = (overrides: Record<string, unknown>) => ({
+    rank: 1,
+    sessionCount: 1,
+    provenance: 'exact',
+    examplePaths: ['/x'],
+    planned: false,
+    ...overrides,
+  });
+  const gapMap: unknown = JSON.parse(JSON.stringify(deriveDashboardGapMap({
+    journeys: [
+      exact({ signature: '/refused-submit', status: 'submitted', sessionCount: 5, representativeDistinctId: 'user-refused', representativeSessionId: 'session-refused' }),
+      exact({ signature: '/allowed-complete', status: 'completed', sessionCount: 4, representativeDistinctId: 'user-allowed', representativeSessionId: 'session-allowed' }),
+      exact({
+        signature: '/review-refused',
+        status: 'submitted',
+        sessionCount: 3,
+        representativeDistinctId: 'user-review',
+        representativeSessionId: 'session-review',
+        planned: true,
+        planSlug: 'review-refused',
+        lifecycle: 'planned',
+        needsReview: { kind: 'older-url-semantics', note: 'Review URL semantics.', replanCommand: 'replaytest plan plan-source-user --session plan-source-session' },
+      }),
+    ] as unknown as Parameters<typeof deriveDashboardGapMap>[0]['journeys'],
+    specSlugs: [],
+    suiteInventory: { state: 'complete', filesScanned: 4 },
+    dataWindow: {
+      // The file's existing fixture time (see the scan-response fixture above), so no new long number.
+      provenance: 'exact',
+      scanUntil: '2026-07-07T18:00:00.000Z',
+      sealedThrough: null,
+      tailScannedAt: '2026-07-07T18:00:00.000Z',
+    },
+    actionContext: { sinceHours: 72 },
+  })));
+  const entries = gapMapMergedRows(gapMap);
+  const cellFor = (signature: string) => {
+    const entry = entries.find((candidate) => candidate.signature === signature);
+    assert.ok(entry, `merged route row ${signature}`);
+    return gapMapPrimaryAction(entry);
+  };
+
+  const refused = cellFor('/refused-submit');
+  assert.equal(refused.tagName, 'button');
+  assert.equal(refused.textContent, 'Copy');
+  assert.equal(dashboardRendererNodesByClass(refused, 'gap-map-action-link').length, 0);
+  refused.click();
+  assert.deepEqual(copied, ['replaytest gaps --shape form-submit-signal --since-hours 72'], 'the refused row copies the gaps command');
+
+  const allowed = cellFor('/allowed-complete');
+  assert.equal(allowed.tagName, 'a');
+  assert.equal(allowed.textContent, 'Watch replay ↗');
+  assert.equal(allowed.attributes.get('href'), 'https://eu.posthog.com/project/42/replay/session-allowed');
+
+  // A needs-review row keeps Open plan even when its example session is refused.
+  const review = cellFor('/review-refused');
+  assert.equal(review.textContent, 'Open plan');
 });
 
 test('dashboard Gap map table: paginates after filtering, resets filters to page one, and reaches later filtered rows', () => {
@@ -5757,8 +6194,11 @@ test('dashboard index: needs-review coverage markers and the evidence-keyed dism
   assert.match(html, /\.needs-review-banner\[hidden\] \{ display: none; \}/);
   assert.match(html, /\.needs-review-marker\[hidden\] \{ display: none; \}/);
   assert.match(html, /function coverageBadgeCell\(active, trueLabel, falseLabel, onActivate, approximate, needsReview, supersededPlan\)/);
-  assert.match(html, /⚠ needs review/);
-  assert.match(html, /Re-run it with: \$\{needsReview\.replanCommand\}/);
+  // The Sessions row badge keeps its warning style: it is signature-only and outside this change.
+  assert.match(html, /h\('span', \{ class: 'badge badge-warning' \}, '⚠ needs review'\)/);
+  assert.match(html, /planReviewNoteText\(needsReview\.note\), PLAN_REVIEW_COPY\.rowAction\.replace\('\[command\]', \(\) => needsReview\.replanCommand\), PLAN_REVIEW_COPY\.clearingSteps/);
+  // The banner shows the short action and keeps the full steps behind its ⓘ.
+  assert.match(html, /`\$\{countText\}\. \$\{PLAN_REVIEW_COPY\.shortAction\} `\),\s*infoIcon\(\s*PLAN_REVIEW_COPY\.clearingSteps,/);
   assert.match(html, /function renderNeedsReviewNudge\(summary\)/);
   assert.match(html, /Show re-run commands/);
   // Dismissal is keyed on the evidence the nudge names rather than on the page load, so
@@ -5922,8 +6362,8 @@ test('dashboard index: Journey families is the default with friendly copy, acces
   assert.match(html, /Session shares are withheld when plan coverage changed after this scan/);
   assert.match(html, /session shares use unions, not sums/);
   assert.match(html, /Plan this journey/);
-  assert.match(html, /Plans the most-frequent completed path in this journey family/);
-  assert.match(html, /No completed walk of this flow has been recorded yet\./);
+  assert.match(html, /Plans the most-frequent recorded path in this journey family that can be planned/);
+  assert.match(html, /No Completed or Stopped mid-flow path in this flow is ready to plan\./);
   assert.match(html, /disabled: target === undefined/);
   assert.match(html, /shared core of \$\{entry\.fitsFamilies\} families/);
   assert.match(html, /This path appears inside \$\{entry\.fitsFamilies\} different longer flows, so it stays on its own rather than being guessed into one\./);
@@ -5981,11 +6421,12 @@ test('dashboard index: triage uses one composite badge, a signature-reviewed Nee
 
   assert.match(html, /⚠ Needs a look/);
   assert.match(html, /function signalBadgeCell\(row, signals, assessability, signature, signalDetail\)/);
-  assert.match(html, /function signalMembersDetailRow\(signals\)/);
+  assert.match(html, /function signalMembersDetailRow\(signals, paths\)/);
   assert.match(html, /replayLink\(\{ representativeSessionId: member\.sessionId \}\)/);
-  const signalMemberActions = html.match(/function signalMemberActions\(member\) \{([\s\S]*?)\n\}\n\nfunction signalMemberSummary/);
+  const signalMemberActions = html.match(/function signalMemberActions\(member, paths\) \{([\s\S]*?)\n\}\n\nfunction signalMemberSummary/);
   assert.ok(signalMemberActions, 'flagged-member actions must remain a focused, inspectable renderer');
   assert.match(signalMemberActions[1], /generatePlan\(member\.distinctId, member\.sessionId, plan\)/);
+  assert.match(signalMemberActions[1], /dashPlanCommandAllowed\(\{ isFamily: false, row: path, members: \[path\] \}\)/, 'the button follows the shared plan-command rule for its own path');
   assert.doesNotMatch(signalMemberActions[1], /disabled:|isOwnRepresentative|canPlan|retained user id/);
   assert.match(html, /\[N\] rage click\[plural\] somewhere in this session, not tied to this journey\. Watch the replay first\./);
   assert.match(html, /\[N\] \[errorWord\]: \[types\] during this journey\. We do not store the message\./);
@@ -5997,8 +6438,59 @@ test('dashboard index: triage uses one composite badge, a signature-reviewed Nee
   assert.match(html, /right\.signals\.affectedSessionCount - left\.signals\.affectedSessionCount/);
   assert.match(html, /SIGNAL_REVIEW_STORAGE_KEY_PREFIX = 'replaytest\.dashboard\.signal-reviewed\.signature\.'/);
   assert.match(html, /signalReviewStorageKey\(signature\)/);
-  assert.match(html, /Marked reviewed on this machine\. The mark clears if the way we recognise this journey changes\./);
+  assert.match(html, /Marked reviewed on this machine\. The mark clears if the way we recognize this journey changes\./);
   assert.match(html, /↻ superseded/);
+});
+
+test('flagged-member rows offer "Plan this session" only where the session\'s own path lets plan run', () => {
+  const html = renderedDashboardIndex();
+  const pick = (pattern: RegExp, label: string): string => {
+    const found = html.match(pattern)?.[0];
+    assert.ok(found, `${label} is on the page`);
+    return found;
+  };
+  const sources = [
+    pick(/const NAVIGATED_UNPLANNABLE_TITLE =[\s\S]*?;\n/, 'the navigated title'),
+    pick(/const ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE =[\s\S]*?;\n/, 'the error title'),
+    pick(/const OTHER_UNPLANNABLE_TITLE =[\s\S]*?;\n/, 'the Submitted and Abandoned title'),
+    pick(/function statusPlanBlockReason\(row\) \{[\s\S]*?\n\}/, 'statusPlanBlockReason'),
+    pick(/function dashPlanTarget\(entry\) \{[\s\S]*?\n\}/, 'dashPlanTarget'),
+    pick(/function dashPlanCommandAllowed\(entry\) \{[\s\S]*?\n\}/, 'dashPlanCommandAllowed'),
+    pick(/function signalMemberActions\(member, paths\) \{[\s\S]*?\n\}/, 'signalMemberActions'),
+    pick(/function signalMembersDetailRow\(signals, paths\) \{[\s\S]*?\n\}/, 'signalMembersDetailRow'),
+  ];
+  const detailRow = new Function('h', 'replayLink', 'generatePlan', 'signalMemberSummary', `${sources.join('\n')}\nreturn signalMembersDetailRow;`)(
+    dashboardRendererH,
+    () => dashboardRendererH('a', {}, 'Watch replay'),
+    () => {},
+    () => 'Witnessed signal.',
+  ) as (signals: object, paths: object[]) => DashboardRendererNode;
+  const signalsFor = (...sessionIds: string[]) => ({ affectedSessionCount: sessionIds.length, members: sessionIds.map((sessionId) => ({ sessionId, distinctId: 'user-1' })) });
+  const pathRow = (sessionId: string, row: Record<string, unknown>) => ({ signature: `/${sessionId}`, bugSignals: signalsFor(sessionId), ...row });
+  const memberText = (node: DashboardRendererNode, sessionId: string): string =>
+    dashboardRendererDescendants(node).find((child) => child.className === 'signal-member' && child.textContent.startsWith(sessionId))?.textContent ?? '';
+
+  for (const [label, row, offered] of [
+    ['a completed exact path', { provenance: 'exact', status: 'completed' }, true],
+    ['a submitted exact path', { provenance: 'exact', status: 'submitted' }, false],
+    ['an error-after-submit exact path', { provenance: 'exact', status: 'error-after-submit' }, false],
+    ['a navigated exact path that is not plannable', { provenance: 'exact', status: 'navigated', plannable: false }, false],
+    ['a coarse row', { provenance: 'coarse', status: 'submitted' }, true],
+  ] as const) {
+    const path = pathRow('s1', row);
+    const text = memberText(detailRow(path.bugSignals, [path]), 's1');
+    assert.match(text, /Watch replay/, `${label}: the replay link stays`);
+    assert.equal(text.includes('Plan this session'), offered, `${label}: plan button ${offered ? 'offered' : 'hidden'}`);
+  }
+
+  // A family's merged signals: each session follows the path(s) it was flagged on; a session tied
+  // to no path keeps the button, since its status is unknown and `plan` explains any refusal.
+  const completed = pathRow('s1', { provenance: 'exact', status: 'completed' });
+  const submitted = pathRow('s3', { provenance: 'exact', status: 'submitted' });
+  const family = detailRow(signalsFor('s1', 's3', 's9'), [completed, submitted]);
+  assert.equal(memberText(family, 's1').includes('Plan this session'), true, 'family: the completed path session keeps the button');
+  assert.equal(memberText(family, 's3').includes('Plan this session'), false, 'family: the submitted path session has none');
+  assert.equal(memberText(family, 's9').includes('Plan this session'), true, 'family: a session tied to no path keeps the button');
 });
 
 test('dashboard index: keeps single-header tables viewport-sticky and wires every paged table through the shared pager', () => {

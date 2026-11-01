@@ -47,12 +47,13 @@ export const BANNED_EXEC_TOKENS: readonly string[] = ['npx', 'npm exec', 'npm x'
  * of, and this line has several. `echo npm publish …` keeps every required flag
  * and publishes nothing, forever, with nothing in the run looking wrong.
  * The tag comes from the preflight output checked against the packed manifest.
- * The summary explains which version an unversioned install will receive. `--registry`, `--otp`,
- * `--dry-run`, a reordering, or any flag invented after today are all closed by
- * the same comparison. If this line ever legitimately changes, change it here in
+ * The summary explains which version an unversioned install will receive. `--registry`, `--otp`, and
+ * `--dry-run` are absent from the live command; a reordering or any flag invented
+ * after today is closed by the same comparison. If this line ever legitimately changes, change it here in
  * the same commit — that is the intended cost.
  */
 export const PUBLISH_COMMAND = 'npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag "$EXPECTED_DIST_TAG"';
+export const DRY_RUN_PUBLISH_COMMAND = `${PUBLISH_COMMAND} --dry-run`;
 
 /**
  * The guard steps' decision lines, pinned as EXACT text rather than by the
@@ -169,14 +170,14 @@ export const RELEASE_JOB_ENV_KEYS: Readonly<Record<string, Readonly<Record<strin
     EXPECTED_BUNDLE_SHA256: '${{ needs.publish.outputs.bundle_sha256 }}',
   },
 };
-/** Exact step count and env sets, in workflow order; only the summary has env. */
+/** Exact step count and env sets, in workflow order. */
 export const RELEASE_STEP_ENV_KEYS: Readonly<Record<string, readonly (readonly string[])[]>> = {
-  preflight: Array.from({ length: 20 }, () => []),
+  preflight: Array.from({ length: 21 }, () => []),
   publish: [[], [], [], [], [], [], [], ['BUNDLE_PATH'], []],
   release: [[], [], [], [], [], [], []],
 };
 export const RELEASE_STEP_ENV_VALUES: Readonly<Record<string, readonly (Readonly<Record<string, string>>)[]>> = {
-  preflight: Array.from({ length: 20 }, () => ({})),
+  preflight: Array.from({ length: 21 }, () => ({})),
   publish: [{}, {}, {}, {}, {}, {}, { BUNDLE_PATH: '${{ steps.attest.outputs.bundle-path }}' }, {}, {}],
   release: Array.from({ length: 7 }, () => ({})),
 };
@@ -215,12 +216,13 @@ export const RELEASE_SCRIPT_SHA256: Readonly<Record<string, Readonly<Record<stri
     'Release notes from CHANGELOG.md': '6b02feadd433cd65e1015870b5bfda5cf981a588aae43a3769fe7f497a401299',
     'Write the release summary': 'cc2e0b46751c5edb15b0080863e7b1a03fa0ab05e1d5ab2a1a466f54ebdff3f9',
     'Assemble the release-candidate artifact': 'e861316dc1f1c016ba16fb666f6fd38dd9f62b3c6f0460971d1129256375e352',
+    'Dry-run the publish command': 'cc1dd3dde975f98cabc12a1a04667eba7a68cde9bf8a74b72a521b5cb0e58981',
   },
   publish: {
-    'The tested package and module match their hashes': '811cb30d0d10067e32e51520ca5bb31830f480ec57a3ceac55f396a025d9a5cd',
+    'The tested package and module match their hashes': '40b70802634f1bd0600be9efb67bc0022b032fb21dac2211197bcad6928cce2a',
     'The package manifest and npm tag are valid': 'ec6922aa3f28d3bfe53f9f4d3926aa9231d85fde3c4cbe4cf59b7fcc33b86bd0',
     'Save the attestation bundle and its hash': '52c26c95cd62af4fe9ab784d2b436e5ec34a05304f4a7368eb85b57021cf7acb',
-    'Check the registry, then publish': 'e4ebf187e34be4694af488e7539aef5cc0da9eddaa2aea1f369bb372607d6c4e',
+    'Check the registry, then publish': '3b8c08e155469b3a6a9b4d5696d363416836c8afb2d0a18dde7195bb2d230b4f',
   },
   release: {
     'The release files match what was tested': '34632675a1545c76450ce2c154a35272b8c112b384d8ad3bd0855e62a2eb321c',

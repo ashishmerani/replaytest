@@ -3,6 +3,7 @@
  * work is fixture-backed through injectable fetchers; no live PostHog access.
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -15,22 +16,25 @@ import { runTriage } from './cli.js';
 import { describeIoError } from './cli/errors.js';
 import { freshnessEvidenceStatus } from './freshness-evidence.js';
 import { buildTriageSelectorGuidance } from './cli/verbs/triage.js';
-import { segmentJourneys, type Journey } from './journeys.js';
+import { SEGMENTATION_VERSION, segmentJourneys, type Journey } from './journeys.js';
+import { eventsPlannableIndex } from './journey-index.js';
 import type { NeutralSession, NeutralStep, NeutralTarget } from './neutral-session.js';
 import type { CapMetadata, CoarseSession } from './providers/posthog-adapter.js';
 import { journeySignature } from './selection.js';
-import { buildSidecar, renderScaffoldSpec, SIGNATURE_SEMANTICS_VERSION, type Sidecar, type SidecarAssertion, type SidecarHealthySearch, type SidecarStep } from './sidecar.js';
+import { buildSidecar, needsSegmentationReview, renderScaffoldSpec, SIGNATURE_SEMANTICS_VERSION, type Sidecar, type SidecarAssertion, type SidecarHealthySearch, type SidecarStep } from './sidecar.js';
 import { PLAN_HASH_DOMAIN, SPEC_EMITTED_HASHES_SCHEMA, specEmittedHashesPath } from './spec-emitted-hashes.js';
 import type { CoarseStoreProvenance } from './coarse-store.js';
 import { formatLocalTime } from './local-time.js';
 import {
   attachProposal,
   buildMissingSidecarTriageRefusal,
+  buildStatusEvidence,
   buildJourneyReplacementCaveat,
   buildTriageProposal,
   classifyTriageEvidenceWithFlowShiftWatch,
   classifyTriageEvidence,
   confirmedSessionsLookHealthy,
+  collectSelectorFreshness,
   collectTriageReport,
   DEFAULT_TRIAGE_REUSE_MAX_AGE_MS,
   deriveScanDegradation,
@@ -53,7 +57,10 @@ import {
   resolveSidecarSignature,
   stepMatchReport,
   TRIAGE_CONFIRM_CONCURRENCY,
+  TRIAGE_REPORT_CACHE_VERSION,
+  triageRecordingReadsAnnouncement,
   UNRELATED_REPLACEMENT_CAVEAT,
+  type ConfirmedRecordingEvidence,
   type TriageEvidence,
   type TriageFetchers,
   type TriageReport,
@@ -168,6 +175,8 @@ function sidecarFor(session: NeutralSession, generatedAt = '2026-07-09T12:00:00.
     sessionId: session.id,
     journeyIndex: 0,
     viewport: session.viewport,
+    signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
   });
   return { ...sidecar, source: { ...sidecar.source, generatedAt } };
 }
@@ -278,6 +287,208 @@ const original = sessionFromSteps('original-session', 'original-user', orderStep
 const originalSidecar = sidecarFor(original);
 const originalSignature = originalSidecar.source.signature ?? '';
 
+test('buildStatusEvidence counts all statuses; mid-flow reaches the planned page and an error after a new page fails', () => {
+  const confirmedWith = (status: Journey['status'], index: number, finality?: Journey['finality']) => ({
+    distinctId: `user-${index}`,
+    sessionId: `session-${index}`,
+    lastTs: new Date(Date.UTC(2026, 6, 9, 0, 0, index)).toISOString(),
+    journey: {
+      entryUrl: 'http://localhost:8000/index.html',
+      finalUrl: 'http://localhost:8000/done.html',
+      status,
+      ...(finality === undefined ? {} : { finality }),
+      ...(status === 'abandoned-mid-flow' ? { stoppedAtStep: 2, midFlowEvidence: 'typed-on-next-step' as const } : {}),
+      startedAt: '2026-07-09T00:00:00.000Z',
+      endedAt: new Date(Date.UTC(2026, 6, 9, 0, 0, index)).toISOString(),
+      steps: [],
+    } satisfies Journey,
+  });
+  const live = (['completed', 'navigated', 'submitted', 'abandoned'] as const)
+    .map((status, index) => confirmedWith(status, index, status === 'completed' ? 'witnessed' : undefined));
+  assert.deepEqual(buildStatusEvidence(live), {
+    baseline: 'completed',
+    completed: 1,
+    navigated: 1,
+    submitted: 1,
+    abandoned: 1,
+    completedWitnessed: 1,
+    abandonedMidFlow: 0,
+    errorAfterSubmit: 0,
+    nonCompleted: [
+      { distinctId: 'user-2', sessionId: 'session-2', status: 'submitted', at: '2026-07-09T00:00:02.000Z' },
+      { distinctId: 'user-3', sessionId: 'session-3', status: 'abandoned', at: '2026-07-09T00:00:03.000Z' },
+    ],
+  });
+
+  const midFlow = buildStatusEvidence([confirmedWith('abandoned-mid-flow', 4)], 'abandoned-mid-flow');
+  assert.equal(midFlow.planOutcome, 'abandoned-mid-flow');
+  assert.equal(midFlow.abandonedMidFlow, 1);
+  assert.deepEqual(midFlow.nonCompleted, []);
+  assert.equal(
+    classifyTriageEvidence(contestedEvidence({ statusDistribution: midFlow, flowVariants: [], presence: { candidatesFound: 1, sampled: 1, confirmed: 1 } })),
+    'healthy',
+    'for a Stopped mid-flow plan, a fresh matching journey that again reaches the intermediate page is not a completion regression',
+  );
+
+  // The plan's own outcome decides: for a completed plan the same fresh
+  // Stopped mid-flow match is not a success (and not a failure either).
+  const midFlowForCompletedPlan = buildStatusEvidence([confirmedWith('abandoned-mid-flow', 4)]);
+  assert.equal('planOutcome' in midFlowForCompletedPlan, false);
+  assert.equal(midFlowForCompletedPlan.abandonedMidFlow, 1);
+  assert.deepEqual(midFlowForCompletedPlan.nonCompleted, []);
+  assert.equal(
+    classifyTriageEvidence(contestedEvidence({ statusDistribution: midFlowForCompletedPlan, flowVariants: [], presence: { candidatesFound: 1, sampled: 1, confirmed: 1 } })),
+    'insufficient-evidence',
+    'a fresh Stopped mid-flow match does not count as a success for a completed plan',
+  );
+
+  const errorAfterNewPage = confirmedWith('error-after-submit', 5);
+  assert.notEqual(
+    errorAfterNewPage.journey.finalUrl,
+    errorAfterNewPage.journey.entryUrl,
+    'the error follows a witnessed navigation to a new page',
+  );
+  const errorAfterSubmit = buildStatusEvidence([errorAfterNewPage]);
+  assert.equal(errorAfterSubmit.errorAfterSubmit, 1);
+  assert.deepEqual(errorAfterSubmit.nonCompleted.map(({ status }) => status), ['error-after-submit']);
+  assert.equal(
+    classifyTriageEvidence(contestedEvidence({ statusDistribution: errorAfterSubmit, flowVariants: [], presence: { candidatesFound: 1, sampled: 1, confirmed: 1 } })),
+    'regression-evidence',
+    'an error remains a failure even when the journey reached a new page',
+  );
+});
+
+test('collectSelectorFreshness compares against the newest match that reached the plan\'s final page without an error, judged by the plan\'s own outcome', () => {
+  // Real recorded sessions; the confirmed statuses are set by hand because
+  // segmentation in this tree never emits the two newer statuses.
+  const newestSession = sessionFromSteps('fresh-newest', 'fresh-user-newest', orderSteps('a1b2c3'));
+  const olderSession = sessionFromSteps('fresh-older', 'fresh-user-older', orderSteps('d4e5f6'));
+  const confirmedAs = (session: NeutralSession, status: Journey['status']): ConfirmedRecordingEvidence => ({
+    distinctId: session.distinctId,
+    sessionId: session.id,
+    lastTs: session.endedAt,
+    journey: { ...firstJourney(session), status },
+    session,
+  });
+  const noMatchReason = 'no fresh match reached the plan\'s final page without an error, so there is nothing to compare selectors against';
+  const midFlowPlan = cloneJson(originalSidecar);
+  midFlowPlan.source.outcome = 'abandoned-mid-flow';
+
+  // Completed plan: the newest match is an error after reaching a new page,
+  // so the comparison skips it and uses the older completed match.
+  const errorAfterNewPage = confirmedAs(newestSession, 'error-after-submit');
+  assert.notEqual(errorAfterNewPage.journey.finalUrl, errorAfterNewPage.journey.entryUrl);
+  const skipsError = collectSelectorFreshness(originalSidecar, [errorAfterNewPage, confirmedAs(olderSession, 'completed')]);
+  assert.equal(skipsError.checked, true);
+  assert.equal(skipsError.sessionId, 'fresh-older');
+
+  // Only an error after a new page: nothing to compare, and the reason never
+  // claims the instance did not reach the page.
+  const onlyError = collectSelectorFreshness(originalSidecar, [errorAfterNewPage]);
+  assert.equal(onlyError.checked, false);
+  assert.equal(onlyError.reason, noMatchReason);
+
+  // A Stopped mid-flow match: compared for a Stopped mid-flow plan, not for a completed one.
+  const midFlowMatch = confirmedAs(newestSession, 'abandoned-mid-flow');
+  const forCompletedPlan = collectSelectorFreshness(originalSidecar, [midFlowMatch, confirmedAs(olderSession, 'completed')]);
+  assert.equal(forCompletedPlan.checked, true);
+  assert.equal(forCompletedPlan.sessionId, 'fresh-older', 'a completed plan compares against a completed match only');
+  const forMidFlowPlan = collectSelectorFreshness(midFlowPlan, [midFlowMatch, confirmedAs(olderSession, 'completed')]);
+  assert.equal(forMidFlowPlan.checked, true);
+  assert.equal(forMidFlowPlan.sessionId, 'fresh-newest', 'a mid-flow plan compares against its newest mid-flow match');
+
+  // Submitted and abandoned matches never establish freshness.
+  const failures = collectSelectorFreshness(originalSidecar, [confirmedAs(newestSession, 'submitted'), confirmedAs(olderSession, 'abandoned')]);
+  assert.equal(failures.checked, false);
+  assert.equal(failures.reason, noMatchReason);
+});
+
+test('renderTriageReport prints the finish-checked, Stopped mid-flow and Error after submit counts only when the report measured them', () => {
+  const lineOf = (report: TriageReport, prefix: string) => renderTriageReport(report).split('\n').find((line) => line.startsWith(prefix));
+  // A report saved before those counts existed: the keys are absent.
+  const older = reportForSelectorFreshness(stepMatchReport([], []));
+  older.evidence.statusDistribution.navigated = 0;
+  assert.equal(lineOf(older, '- Fresh confirmed:'), '- Fresh confirmed: completed 1, navigated 0, submitted 0, abandoned 0');
+  assert.doesNotMatch(renderTriageReport(older), /finish checked|stopped mid-flow|error after submit/i);
+  assert.equal(lineOf(older, '- Baseline:'), '- Baseline: the recorded journey reached the plan\'s final page.');
+
+  const measured = cloneJson(older);
+  measured.evidence.statusDistribution = {
+    ...measured.evidence.statusDistribution,
+    completedWitnessed: 0,
+    abandonedMidFlow: 2,
+    errorAfterSubmit: 1,
+    planOutcome: 'abandoned-mid-flow',
+    nonCompleted: [{ distinctId: 'u', sessionId: 's-err', status: 'error-after-submit', at: '2026-07-09T00:00:00.000Z' }],
+  };
+  assert.equal(
+    lineOf(measured, '- Fresh confirmed:'),
+    '- Fresh confirmed: completed 1 (0 with the finish checked), stopped mid-flow 2, navigated 0, submitted 0, error after submit 1, abandoned 0',
+  );
+  assert.equal(lineOf(measured, '- Baseline:'), '- Baseline: the recorded journey stopped mid-flow at the plan\'s final page.');
+  assert.equal(lineOf(measured, '- Non-completed witness:'), '- Non-completed witness: s-err (error after submit) at 2026-07-09T00:00:00.000Z');
+});
+
+test('collectTriageReport judges fresh matches by the plan\'s own recorded outcome, end to end', async () => {
+  const fresh = ['e1a1a1', 'e2b2b2'].map((id, index) => sessionFromSteps(`fresh-${index}`, `fresh-user-${index}`, orderSteps(id)));
+  const midFlowPlan = cloneJson(originalSidecar);
+  midFlowPlan.source.outcome = 'abandoned-mid-flow';
+  const report = await collectTriageReport({
+    sidecar: midFlowPlan,
+    sample: 8,
+    fetchers: fetchersFor({
+      coarse: fresh.map((session) => coarseFromSession(session)),
+      dom: Object.fromEntries(fresh.map((session) => [session.id, session])),
+    }),
+  });
+  assert.equal(report.kind, 'report');
+  if (report.kind !== 'report') return;
+  assert.equal(report.evidence.presence.confirmed, 2);
+  assert.equal(report.evidence.statusDistribution.planOutcome, 'abandoned-mid-flow');
+  const baseline = renderTriageReport(report).split('\n').find((line) => line.startsWith('- Baseline:'));
+  assert.equal(baseline, '- Baseline: the recorded journey stopped mid-flow at the plan\'s final page.');
+});
+
+test('collectTriageReport reads each sampled recording exactly once, with no lighter preflight, and announces the count first', async () => {
+  const fresh = ['f1a1a1', 'f2b2b2', 'f3c3c3'].map((id, index) => sessionFromSteps(`fresh-${index}`, `fresh-user-${index}`, orderSteps(id)));
+  const events: string[] = [];
+  const recordingReads = new Map<string, number>();
+  const report = await collectTriageReport({
+    sidecar: cloneJson(originalSidecar),
+    sample: 8,
+    fetchers: {
+      fetchCoarseSessions: () => ({ sessions: fresh.map((session) => coarseFromSession(session)), meta: metaFor(fresh.map((session) => coarseFromSession(session))) }),
+      fetchNeutralSessionsLight: () => assert.fail('triage confirmation must not run a light fetch'),
+      fetchNeutralSessionsLightAsync: () => assert.fail('triage confirmation must not run a light preflight'),
+      fetchNeutralSessionsWithDomEnrichment: async (_distinctId, sessionId) => {
+        events.push(`read ${sessionId ?? ''}`);
+        recordingReads.set(sessionId ?? '', (recordingReads.get(sessionId ?? '') ?? 0) + 1);
+        return fresh.filter((session) => session.id === sessionId);
+      },
+    },
+    progress: (line) => events.push(line),
+  });
+  assert.equal(report.kind, 'report');
+  if (report.kind !== 'report') return;
+  assert.equal(report.evidence.presence.confirmed, 3);
+  assert.equal(report.evidence.selectorFreshness.checked, true, 'the selector check reuses a confirmed recording');
+  assert.deepEqual([...recordingReads.values()], [1, 1, 1], 'one recording read per sampled session, none repeated for the selector check');
+  assert.equal(
+    events[0],
+    'Triage: reading 3 fresh recordings to confirm matches (one read per session, up to 4 at a time; expect about 5s).',
+    'the read count and wait are announced before the first read',
+  );
+  assert.equal(events.filter((line) => line.startsWith('Triage: reading')).length, 1);
+  assert.equal(
+    triageRecordingReadsAnnouncement(12, true),
+    'Triage: reading 12 more fresh recordings to confirm matches because the first sample had none (one read per session, up to 4 at a time; expect about 15s).',
+  );
+  assert.equal(
+    triageRecordingReadsAnnouncement(1, false),
+    'Triage: reading 1 fresh recording to confirm matches (one read per session, up to 4 at a time; expect about 5s).',
+  );
+});
+
 test('resolveSidecarSignature: uses source.signature without fetching legacy data', () => {
   const result = resolveSidecarSignature(originalSidecar, {
     fetchNeutralSessionsLight: () => {
@@ -288,7 +499,7 @@ test('resolveSidecarSignature: uses source.signature without fetching legacy dat
   assert.deepEqual(result, { signature: originalSignature, source: 'sidecar' });
 });
 
-test('resolveSidecarSignature: legacy sidecars fall back to the original completed journey', () => {
+test('resolveSidecarSignature: current-marker index-only sidecars fall back to the original plannable journey', () => {
   const legacy = withoutRecordedSignature(originalSidecar);
   const result = resolveSidecarSignature(legacy, {
     fetchNeutralSessionsLight: () => [original],
@@ -305,6 +516,48 @@ test('resolveSidecarSignature: unavailable legacy source returns an honest refus
 
   assert.equal('kind' in result ? result.code : undefined, 'signature-unresolvable');
   assert.match('kind' in result ? result.message : '', /no longer available/);
+});
+
+test('resolveSidecarSignature: an unmarked index-only plan refuses an in-range index after boundaries may have moved', () => {
+  const legacy = withoutRecordedSignature(originalSidecar);
+  delete legacy.source.segmentationVersion;
+  const changed = sessionFromSteps(
+    originalSidecar.source.sessionId,
+    originalSidecar.source.distinctId,
+    orderSteps('a1b2c3', { includeSubmit: false }),
+  );
+  assert.equal(segmentJourneys(changed).length, 1);
+  assert.equal(segmentJourneys(changed)[0]?.status, 'navigated');
+  assert.equal(legacy.source.journeyIndex, 0, 'the stale index is still numerically in range');
+  let fetched = 0;
+  const resolution = resolveSidecarSignature(legacy, { fetchNeutralSessionsLight: () => { fetched += 1; return [changed]; } });
+  assert.equal('kind' in resolution, true);
+  assert.equal('kind' in resolution ? resolution.code : undefined, 'signature-unresolvable');
+  // The session IS available: the refusal states the plan's age, never that the session is gone.
+  assert.equal(
+    'kind' in resolution ? resolution.message : undefined,
+    'Cannot triage: this plan was built by an earlier version of replaytest and has no recorded signature, so its saved journey position may now point at a different journey - re-plan it from its retained session.',
+  );
+  assert.doesNotMatch('kind' in resolution ? resolution.message : '', /no longer (available|contains)/);
+  assert.equal(fetched, 0, 'the plan alone decides this refusal; nothing is fetched');
+});
+
+test('resolveSidecarSignature: the visit-grouping refusal agrees with needsSegmentationReview for every marker shape', () => {
+  // Missing, null, an older number and the string "0" need review; current, "1" and newer do not.
+  // A copy of the predicate that checks only for a missing marker would let the older shapes through.
+  const markers: unknown[] = [undefined, null, 0, '0', SEGMENTATION_VERSION, String(SEGMENTATION_VERSION), SEGMENTATION_VERSION + 1];
+  for (const marker of markers) {
+    const legacy = withoutRecordedSignature(originalSidecar);
+    if (marker === undefined) delete legacy.source.segmentationVersion;
+    else (legacy.source as { segmentationVersion?: unknown }).segmentationVersion = marker;
+    let fetched = 0;
+    const resolution = resolveSidecarSignature(legacy, { fetchNeutralSessionsLight: () => { fetched += 1; return [original]; } });
+    const refusedForAge = 'kind' in resolution && /built by an earlier version of replaytest/.test(resolution.message);
+    const expected = needsSegmentationReview(legacy.source);
+    assert.equal(refusedForAge, expected, `marker ${JSON.stringify(marker) ?? 'missing'}: refusal must match needsSegmentationReview (${expected})`);
+    assert.equal(fetched, expected ? 0 : 1, `marker ${JSON.stringify(marker) ?? 'missing'}: a stale plan is refused before any fetch`);
+  }
+  assert.deepEqual(markers.map((marker) => needsSegmentationReview({ segmentationVersion: marker as number | undefined })), [true, true, true, true, false, false, false]);
 });
 
 test('resolveSidecarSignature: a session that is now navigated RESOLVES — the re-resolver shares plan\'s selection predicate', () => {
@@ -1076,7 +1329,7 @@ function flowEvidenceWith(flowVariants: TriageEvidence['flowVariants']): TriageE
   };
 }
 
-test('buildTriageProposal: fresh proposals always stamp live signature semantics while retaining configured wizard names', async () => {
+test('buildTriageProposal: fresh proposals always stamp live signature semantics and the current segmentation marker while retaining configured wizard names', async () => {
   const fresh = sessionFromSteps('proposal-fresh', 'proposal-user', orderSteps('3003'));
   const signature = journeySignature(firstJourney(fresh));
   const report = reportFor(
@@ -1103,7 +1356,13 @@ test('buildTriageProposal: fresh proposals always stamp live signature semantics
     } as never);
     assert.equal(result.kind, 'built', label);
     if (result.kind !== 'built') continue;
+    const allJourneys = segmentJourneys(fresh);
+    const targetJourney = allJourneys.find((journey) => journeySignature(journey, inputSidecar.source.wizardStepParamNames) === signature);
+    assert.notEqual(targetJourney, undefined);
+    assert.equal(result.sidecar.source.journeyIndex, eventsPlannableIndex(fresh, allJourneys, targetJourney!));
     assert.equal(result.sidecar.source.signatureSemanticsVersion, SIGNATURE_SEMANTICS_VERSION, label);
+    // An accepted proposal must not be born a pre-segmentation plan (review note, Tier A rules, origin refusal).
+    assert.equal(result.sidecar.source.segmentationVersion, SEGMENTATION_VERSION, label);
     assert.deepEqual(result.sidecar.source.wizardStepParamNames, ['step', 'phase'], label);
   }
 });
@@ -1365,11 +1624,12 @@ test('collectTriageReport: verdict priority chooses flow-changed above regressio
   assert.equal(report.verdict, 'flow-changed');
   assert.ok(report.secondaryFindings.includes('regression-evidence'));
   // The only fetchable confirmed match is submitted, so selector
-  // freshness is honestly unchecked (no completed instance to compare against) — it must
+  // freshness is honestly unchecked (no match reached the planned final page
+  // without an error) — it must
   // NOT surface as a selector-aged signal.
   assert.ok(!report.secondaryFindings.includes('selector-aged'));
   assert.equal(report.evidence.selectorFreshness.checked, false);
-  assert.match(report.evidence.selectorFreshness.reason ?? '', /no fresh completed instance/);
+  assert.match(report.evidence.selectorFreshness.reason ?? '', /^no fresh match reached the plan's final page without an error, so there is nothing to compare selectors against$/);
 });
 
 test('collectTriageReport: original source session is excluded from fresh evidence', async () => {
@@ -1731,7 +1991,7 @@ function maximalSidecar(): Required<Sidecar> {
       sessionId: 'session-1',
       journeyIndex: 0,
       generatedAt: '2026-07-09T12:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     viewport: { width: 1280, height: 720 },
     start: '/dashboard',
@@ -3472,7 +3732,7 @@ function manualSidecar(
       journeyIndex: 0,
       signature: '/dashboard > /orders/:id/pay > /orders/:id/confirmation',
       generatedAt: '2026-07-09T12:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
       ...source,
     },
     start: '/dashboard',
@@ -3492,7 +3752,7 @@ async function withExitCodeReset(fn: () => Promise<void>): Promise<void> {
   }
 }
 
-test('collectSelectorFreshness: compares against the newest completed match, never an abandoned same-signature instance', async () => {
+test('collectSelectorFreshness: compares against the newest final-page match, never an abandoned same-signature instance', async () => {
   // Newest confirmed match is ABANDONED (same nav signature, no submit) — an
   // honest must skip it and compare against the older COMPLETED instance,
   // or flow-shape truncation reads as false selector aging.
@@ -3521,7 +3781,7 @@ test('collectSelectorFreshness: navigated-only matches stay insufficient rather 
     }),
   );
   assert.equal(report.evidence.selectorFreshness.checked, false);
-  assert.match(report.evidence.selectorFreshness.reason ?? '', /no fresh completed instance/);
+  assert.match(report.evidence.selectorFreshness.reason ?? '', /^no fresh match reached the plan's final page without an error, so there is nothing to compare selectors against$/);
   assert.equal(report.verdict, 'insufficient-evidence');
 
   // The SECONDARY-findings gate needs its own pin: `secondaryFindings` runs the
@@ -3590,13 +3850,22 @@ test('the default sample confirming zero matches auto-widens to MAX and disclose
     noise.push(coarseFromSession(session, `2026-07-09T12:0${i}:00.000Z`));
   }
 
+  const events: string[] = [];
+  const base = fetchersFor({
+    coarse: [...noise, goodCoarse],
+    light: { [good.id]: good },
+    dom: { [good.id]: good },
+  });
   const report = await collectTriageReport({
     sidecar: cloneJson(originalSidecar),
-    fetchers: fetchersFor({
-      coarse: [...noise, goodCoarse],
-      light: { [good.id]: good },
-      dom: { [good.id]: good },
-    }),
+    fetchers: {
+      ...base,
+      fetchNeutralSessionsWithDomEnrichment: async (distinctId, sessionId) => {
+        events.push(`read ${sessionId ?? ''}`);
+        return base.fetchNeutralSessionsWithDomEnrichment(distinctId, sessionId);
+      },
+    },
+    progress: (line) => events.push(line),
   });
 
   assert.equal(report.kind, 'report');
@@ -3605,6 +3874,16 @@ test('the default sample confirming zero matches auto-widens to MAX and disclose
   assert.equal(report.window.sample, 20);
   assert.equal(report.evidence.presence.confirmed, 1);
   assert.match(renderTriageReport(report), /auto-widened from 8 to 20/);
+  // Each batch of reads is announced before it starts: the widened read of the
+  // one remaining candidate comes after its own announcement.
+  const widening = 'Triage: reading 1 more fresh recording to confirm matches because the first sample had none (one read per session, up to 4 at a time; expect about 5s).';
+  assert.deepEqual(events.filter((line) => line.startsWith('Triage: reading')), [
+    'Triage: reading 8 fresh recordings to confirm matches (one read per session, up to 4 at a time; expect about 10s).',
+    widening,
+  ]);
+  assert.equal(events.indexOf(widening), events.length - 2, 'the widening announcement comes after the first sample\'s reads');
+  assert.equal(events.at(-1), `read ${good.id}`, 'the widened read follows its announcement');
+  assert.equal(events.filter((line) => line.startsWith('read ')).length, 9);
 });
 
 test('an explicit --sample never auto-widens even when it confirms zero', async () => {
@@ -3724,11 +4003,11 @@ test('`triage <slug> --sample 30` shows the honest clamp note through the CLI, n
 });
 
 // ---------------------------------------------------------------------------
-// Bounded-concurrency confirm loop — several candidates' fetches
+// Bounded-concurrency confirm loop — several candidates' recording reads
 // run concurrently (up to TRIAGE_CONFIRM_CONCURRENCY), but the merged
 // `confirmed` evidence must stay in candidate INPUT order (newest-first, per
 // `findSignatureCandidates`) regardless of which fetch actually finishes
-// first — `collectSelectorFreshness` picks the FIRST completed entry in
+// first — `collectSelectorFreshness` picks the FIRST final-page entry in
 // `confirmed` as "newest", so a completion-order leak would silently change
 // which session gets DOM-enriched and compared.
 // ---------------------------------------------------------------------------
@@ -3751,13 +4030,13 @@ function delayedAsyncFetcher(
     });
 }
 
-test('confirmSignatureCandidates (via collectTriageReport): bounds concurrency at TRIAGE_CONFIRM_CONCURRENCY and keeps candidate order deterministic regardless of completion order', async () => {
+test('confirmSignatureCandidates (via collectTriageReport): recording reads stay bounded and candidate ordered', async () => {
   // 5 same-signature completed sessions, newest-first by lastTs (matches
   // findSignatureCandidates' compareCandidatesNewestFirst): 'rank-0' is
   // always candidate index 0 ("newest"), 'rank-4' always last.
   const ranks = [0, 1, 2, 3, 4].map((i) => sessionFromSteps(`rank-${i}`, `rank-user-${i}`, orderSteps(`c0ffee${i}`)));
   const coarse = ranks.map((session, i) => coarseFromSession(session, `2026-07-09T12:0${4 - i}:00.000Z`));
-  const light = Object.fromEntries(ranks.map((session) => [session.id, session]));
+  const recording = Object.fromEntries(ranks.map((session) => [session.id, session]));
   const concurrency = { current: 0, max: 0 };
   // 'rank-0' (candidate index 0) is the SLOWEST to resolve. If completion
   // order leaked into the merged evidence, a faster session would wrongly end
@@ -3769,18 +4048,14 @@ test('confirmSignatureCandidates (via collectTriageReport): bounds concurrency a
     fetchNeutralSessionsLight: () => {
       throw new Error('the sync fetcher must not be used when an async fetcher is supplied');
     },
-    fetchNeutralSessionsWithDomEnrichment: async (_distinctId, sessionId) => {
-      const entry = sessionId === undefined ? undefined : light[sessionId];
-      return entry === undefined ? [] : [entry];
-    },
-    fetchNeutralSessionsLightAsync: delayedAsyncFetcher(light, delays, concurrency),
+    fetchNeutralSessionsWithDomEnrichment: delayedAsyncFetcher(recording, delays, concurrency),
   });
 
   assert.equal(report.evidence.presence.confirmed, 5);
   assert.equal(
     report.evidence.selectorFreshness.sessionId,
     'rank-0',
-    'the DOM-enriched comparison must stay pinned to candidate order, not completion order',
+    'the selector comparison must stay pinned to candidate order, not completion order',
   );
   // The 4 workers dispatch their first fetch synchronously before any timer
   // fires (Node's event loop cannot run a `setTimeout` callback until the
@@ -3848,7 +4123,8 @@ test('runTriage: a plain run never emits an evidenceSource disclosure, but still
   assert.equal(fs.existsSync(cachePath), true);
   const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as { kind: string; version: number; report: { verdict: string } };
   assert.equal(cached.kind, 'triage-report-cache');
-  assert.equal(cached.version, 4);
+  assert.equal(cached.version, TRIAGE_REPORT_CACHE_VERSION);
+  assert.equal(TRIAGE_REPORT_CACHE_VERSION, 5);
   assert.equal(cached.report.verdict, json.verdict);
   // Round-trip through the REAL runTriage writer and the parser together. A
   // hand-built cache would miss a reader/writer version mismatch.
@@ -3971,7 +4247,7 @@ test('runTriage: a healthy-trail rename failure removes its staged temp file', a
   assert.match(logs.at(-1) ?? '', /Healthy-traffic evidence could not be recorded/);
 });
 
-test('runTriage: a v3 report cache is ignored and regenerated as v4 on the live fallback path', async (t: TestContext) => {
+test('runTriage: an older report cache is ignored and regenerated at the current version on the live fallback path', async (t: TestContext) => {
   const ws = triageWorkspace(t);
   const fresh = sessionFromSteps('fresh-v3-session', 'fresh-v3-user', orderSteps('a1b2c3'));
   const capturedReport = await mustReport(
@@ -3982,7 +4258,7 @@ test('runTriage: a v3 report cache is ignored and regenerated as v4 on the live 
   const cachePath = path.join(ws.triageEvidenceDir, `${ws.slug}.report-cache.json`);
   fs.writeFileSync(cachePath, JSON.stringify({
     kind: 'triage-report-cache',
-    version: 3,
+    version: 4,
     generatedAt: '2099-01-02T00:00:00.000Z',
     report: capturedReport,
   }), 'utf8');
@@ -4004,7 +4280,7 @@ test('runTriage: a v3 report cache is ignored and regenerated as v4 on the live 
   const json = JSON.parse(logs[0]) as { evidenceSource?: { kind?: string } };
   assert.equal(json.evidenceSource?.kind, 'live');
   const regenerated = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as { version: number };
-  assert.equal(regenerated.version, 4);
+  assert.equal(regenerated.version, TRIAGE_REPORT_CACHE_VERSION);
 });
 
 test('runTriage: --reuse-evidence reuses a fresh cached report with ZERO live fetches, disclosed honestly in both text and --json', async (t: TestContext) => {

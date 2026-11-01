@@ -41,6 +41,7 @@ import {
   PUBLISH_IF,
   BANNED_EXEC_TOKENS,
   PUBLISH_COMMAND,
+  DRY_RUN_PUBLISH_COMMAND,
   BLOCK_SCALAR_HEADER,
   PREFLIGHT_GUARD_BLOCKS,
   PUBLISH_GUARD_BLOCKS,
@@ -839,8 +840,8 @@ function checkReleaseTriggerInputs(text: string, findings: Finding[]): void {
   if (!version.includes('required: true')) {
     findings.push(finding(5, RELEASE_WORKFLOW, '`version` must be `required: true`'));
   }
-  if (!npmTag.includes('type: choice') || !npmTag.includes('default: next') || !npmTag.includes('required: true') || options.join(',') !== '- next,- latest') {
-    findings.push(finding(5, RELEASE_WORKFLOW, '`npm_tag` must be the required choice with exactly `next` and `latest`, defaulting to `next`'));
+  if (!npmTag.includes('type: choice') || !npmTag.includes('default: latest') || !npmTag.includes('required: true') || options.join(',') !== '- next,- latest') {
+    findings.push(finding(5, RELEASE_WORKFLOW, '`npm_tag` must be the required choice with exactly `next` and `latest`, defaulting to `latest`'));
   }
 }
 
@@ -1024,13 +1025,10 @@ function checkReleaseJob(text: string, permissionsByJob: WorkflowPermissionAnaly
 
 function checkPublishCommand(text: string, findings: Finding[]): void {
   const publishLines = fileLines(text).filter((line) => line.includes('npm publish'));
-  if (publishLines.length !== 1) {
-    findings.push(finding(9, RELEASE_WORKFLOW, `found ${publishLines.length} \`npm publish\` lines; exactly one is expected`));
-    return;
-  }
-  const command = (publishLines[0] ?? '').trim();
-  if (command !== PUBLISH_COMMAND) {
-    findings.push(finding(9, RELEASE_WORKFLOW, `the publish command is \`${command}\`; it must be exactly \`${PUBLISH_COMMAND}\` — anything else may publish nothing, publish off \`latest\`, or publish somewhere else`));
+  const commands = publishLines.map((line) => line.trim());
+  const expected = [DRY_RUN_PUBLISH_COMMAND, PUBLISH_COMMAND];
+  if (JSON.stringify(commands) !== JSON.stringify(expected)) {
+    findings.push(finding(9, RELEASE_WORKFLOW, `the npm publish commands are [${commands.join(', ')}]; they must be exactly [${expected.join(', ')}] in dry-run then publish order`));
   }
 }
 
@@ -1051,7 +1049,7 @@ function checkReleaseSafetySteps(text: string, findings: Finding[]): void {
     if (actual !== expected) findings.push(finding(19, RELEASE_WORKFLOW, `${jobName}/${stepName} must run exactly ${JSON.stringify(expected)}`));
   }
   const order: Readonly<Record<string, readonly string[]>> = {
-    preflight: ['Runtime floor — npm must be at least 11.5.1 for trusted publishing', 'This commit is a release point on main', 'The version and npm tag are valid', "The runner's gh can create the release", 'Pack and hash the tested package', 'Release notes from CHANGELOG.md', 'Write the release summary', 'Assemble the release-candidate artifact'],
+    preflight: ['Runtime floor — npm must be at least 11.5.1 for trusted publishing', 'This commit is a release point on main', 'The version and npm tag are valid', "The runner's gh can create the release", 'Pack and hash the tested package', 'Release notes from CHANGELOG.md', 'Write the release summary', 'Assemble the release-candidate artifact', 'Dry-run the publish command'],
     publish: ['The tested package and module match their hashes', 'The package manifest and npm tag are valid', 'Attest the package file', 'Save the attestation bundle and its hash', 'Check the registry, then publish'],
     release: ['The release files match what was tested', 'Check the attestation', 'Decide and create the release'],
   };

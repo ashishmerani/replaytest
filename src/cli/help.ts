@@ -64,6 +64,10 @@ const VERB_HELP: ReadonlyArray<{ name: VerbName; lines: string[] }> = [
     lines: [
       `  ${TOOL_NAME} sessions [<sessionId> --from-archive <dir>] [--app <name>] [--completed] [--navigated] [--submitted] [--with-exceptions] [--shape <name>] [--families] [--gaps-only] [--stored] [--exact] [--json] [--replay-availability] [--fresh] [--since-hours N] [--limit N] [--all] [--page-size N] [--max-pages N] [--refresh-top N] [--steal-scan-lock] [--watch [--interval 15m|1h] [--max-ticks N]]`,
       `      List ranked canonical journeys from recent sessions (default last ${formatSessionScanWindow(DEFAULT_SESSION_SCAN_HOURS)}; override with --since-hours N).`,
+      '      --completed selects Completed rows only (not Stopped mid-flow rows).',
+      '      --navigated selects Navigated rows only.',
+      '      --submitted selects Submitted rows only.',
+      '      Stopped mid-flow rows appear only when no status filter is set. The Sessions scan cannot show Error after submit.',
       "      --with-exceptions filters to journeys whose session's events witnessed a JS",
       '      exception (exact scan only — coarse mode prints an honest one-liner and exits 0',
       '      with no rows rather than pretending).',
@@ -71,6 +75,7 @@ const VERB_HELP: ReadonlyArray<{ name: VerbName; lines: string[] }> = [
       "      output labels Seen directly, Strong hint, or Couldn't check; unavailable evidence is reported, never treated as no match.",
       '      Wizard URL overrides: add {"wizardStepParams":["step","phase"]} to',
       '      .replaytest/config.json. Names are case-insensitive; only ordinal values 1–99 match.',
+      '      Configured wizard step parameters group plans and signatures; continuation into the next step reads only the `step` parameter.',
       '      App scope: declare {"apps":{"shop":["https://shop.example"]},"app":"shop"} in',
       '      .replaytest/config.json, or use --app <name> to select a declared app for this scan.',
       '      --families: Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path. Path-based grouping for path-changing flows.',
@@ -112,10 +117,12 @@ const VERB_HELP: ReadonlyArray<{ name: VerbName; lines: string[] }> = [
       `  ${TOOL_NAME} plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]`,
       '      Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)',
       '      to .replaytest/plans/ for each plannable journey. Refuses to overwrite a',
-      '      sidecar owned by a different or unknown journey unless --force is passed.',
-      '      Plannable = every completed journey, plus a navigated one holding a single',
+      '      sidecar when its session, journey position, or recorded flow shape differs, or when it cannot be read, unless --force is passed.',
+      '      Plannable = every Completed journey or Stopped mid-flow journey (the plan checks the step change it saw),',
+      '      plus a Navigated one holding a single',
       '      inline-commit create (its spec presses the committing keystroke as a step',
       '      marked SYNTHESIZED, because no recording captures it).',
+      '      Submitted, Abandoned, and Error after submit journeys are not plannable.',
       // The live refusal already says the whole session is held back; the help
       // text used to stop at the single journey. Not false, just less complete —
       // and a reader planning a multi-journey session deserves to know the

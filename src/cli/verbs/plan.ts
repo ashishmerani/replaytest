@@ -8,9 +8,10 @@ import { fetchCoarseSessions, fetchNeutralSessionsWithDomEnrichment, fetchNeutra
 import { CoarseStoreLockFencedError, CoarseStoreLockHeldError } from '../../coarse-store.js';
 import { buildArchiveProvenanceDisplayLine, buildArchiveProvenanceLine, createArchiveFetchers, getArchiveSessionArchivedAt, isArchiveMissingEventsError } from '../../providers/archive-adapter.js';
 import { canonicalizePath, findSignatureCandidates, journeySignature, type SignatureCandidate } from '../../selection.js';
+import { eventsPlannableIndex, JourneyIndexError, segmentEventsOnly } from '../../journey-index.js';
 import { getWizardStepConfig, isWizardStepConfigInvalid, type WizardStepConfig, type WizardStepConfigResult } from '../../canonical-url.js';
-import { isMergedMultiCreateJourney, isPlannableJourney, journeyOrigins, journeyPerformsWrites, segmentJourneys, type Journey } from '../../journeys.js';
-import { NAVIGATED_MULTI_CREATE_REFUSAL, NAVIGATED_PLAN_SYNTHESIS_NOTE } from '../../completion-evidence.js';
+import { isMergedMultiCreateJourney, isPlannableJourney, journeyOrigins, journeyPerformsWrites, SEGMENTATION_VERSION, segmentJourneys, type Journey } from '../../journeys.js';
+import { formatOutcomeCoverageLine, NAVIGATED_MULTI_CREATE_REFUSAL, NAVIGATED_PLAN_SYNTHESIS_NOTE } from '../../completion-evidence.js';
 import { buildSidecar, renderPlanMarkdown, PRIVACY_BOUNDARY_VERSION, SIGNATURE_SEMANTICS_VERSION } from '../../sidecar.js';
 import type { NeutralSession } from '../../neutral-session.js';
 import { findWitnessedLogin, type WitnessedLogin } from '../../auth-witness.js';
@@ -28,10 +29,11 @@ import { formatFramesTip } from './scaffold.js';
 import { formatPlanSupersededReport } from './reconcile.js';
 import { buildPrivacyDisclosure, checkPrivacyGitIgnore, PRIVACY_DISCLOSURE_REQUIRED_COPY } from '../../pii-lint.js';
 
-/** The ownership fields `plan` preflight compares. Older sidecars may lack newer fields such as `signature`; preflight intentionally needs only these two stable fields. */
+/** The ownership fields `plan` preflight compares. Older sidecars may lack `signature`, so that comparison stays optional for legacy plans. */
 export interface PlanSidecarSourceKey {
   sessionId: string;
   journeyIndex: number;
+  signature?: string;
 }
 
 /** Existing `<slug>.plan.json` ownership material after the impure fs/JSON read layer has either extracted `source` or classified the file as unreadable/invalid. */
@@ -51,9 +53,11 @@ export function classifyExistingSidecar(
   const source = comparableSidecarSource(existing.source);
   if (source === undefined) return 'unknown';
 
-  return source.sessionId === target.sessionId && source.journeyIndex === target.journeyIndex
-    ? 'same'
-    : 'collision';
+  if (source.sessionId !== target.sessionId || source.journeyIndex !== target.journeyIndex) return 'collision';
+  if (isNonEmptySignature(source.signature) && isNonEmptySignature(target.signature) && source.signature !== target.signature) {
+    return 'collision';
+  }
+  return 'same';
 }
 
 /** One target slug's preflight input. `existing: undefined` means no file currently occupies that slug. */
@@ -112,6 +116,19 @@ function buildPlanWriteRefusal(
 ): PlanWriteRefusal {
   if (classification === 'collision') {
     const existingSource = comparableSidecarSource(target.existing?.kind === 'source' ? target.existing.source : undefined);
+    const signatureMismatch = existingSource !== undefined &&
+      existingSource.sessionId === target.source.sessionId &&
+      existingSource.journeyIndex === target.source.journeyIndex &&
+      isNonEmptySignature(existingSource.signature) &&
+      isNonEmptySignature(target.source.signature) &&
+      existingSource.signature !== target.source.signature;
+    if (signatureMismatch) {
+      return {
+        slug: target.slug,
+        reason: 'collision',
+        detail: `the existing plan for session ${target.source.sessionId} journey ${target.source.journeyIndex} records a different flow shape (its journey signature differs: a different journey, or the same one under changed step rules)`,
+      };
+    }
     const existingDetail =
       existingSource === undefined
         ? 'existing sidecar belongs to a different journey'
@@ -141,25 +158,74 @@ function comparableSidecarSource(source: unknown): PlanSidecarSourceKey | undefi
 
   const sessionId = (source as { sessionId?: unknown }).sessionId;
   const journeyIndex = (source as { journeyIndex?: unknown }).journeyIndex;
+  const signature = (source as { signature?: unknown }).signature;
   if (typeof sessionId !== 'string') return undefined;
   if (typeof journeyIndex !== 'number' || !Number.isInteger(journeyIndex)) return undefined;
 
-  return { sessionId, journeyIndex };
+  return { sessionId, journeyIndex, ...(typeof signature === 'string' && signature.length > 0 ? { signature } : {}) };
 }
+
+function isNonEmptySignature(value: string | undefined): value is string {
+  return value !== undefined && value.length > 0;
+}
+
+/**
+ * `plan`'s customer line when a journey's position among the events-only plannable journeys cannot be
+ * established (`JourneyIndexError`). Nothing is written for the session: a plan file keyed by a
+ * position that cannot be proved could later be overwritten by a different journey.
+ */
+export const JOURNEY_INDEX_REFUSAL =
+  'Cannot write a plan for this session: its journeys could not be matched to the ones its events alone show, so nothing was written. Try another recorded session of this journey.';
 
 /** `plan`'s one honest line when the session had journeys it did not plan — `undefined` when every journey in the session was plannable (nothing to report). Pure. */
 export function buildSkippedJourneysNote(allJourneys: Journey[]): string | undefined {
   const merged = allJourneys.filter(isMergedMultiCreateJourney).length;
-  const other = allJourneys.filter(
-    (journey) => journey.status === 'submitted' || journey.status === 'abandoned',
-  ).length;
-  if (merged === 0 && other === 0) return undefined;
+  const other = allJourneys.filter((journey) => journey.status === 'submitted' || journey.status === 'abandoned');
+  const errors = allJourneys.filter((journey) => journey.status === 'error-after-submit');
+  if (merged === 0 && other.length === 0 && errors.length === 0) return undefined;
   const lines: string[] = [];
   if (merged > 0) {
-    lines.push(`Skipped ${merged} navigated ${merged === 1 ? 'journey' : 'journeys'}: ${NAVIGATED_MULTI_CREATE_REFUSAL}`);
+    lines.push(`Skipped ${merged} Navigated ${merged === 1 ? 'journey' : 'journeys'}: ${NAVIGATED_MULTI_CREATE_REFUSAL}`);
   }
-  if (other > 0) {
-    lines.push(`Skipped ${other} ${other === 1 ? 'journey' : 'journeys'} because ${other === 1 ? 'it did' : 'they did'} not reach a final destination (submitted/abandoned). Choose a completed journey to create a plan.`);
+  if (other.length > 0) {
+    lines.push(`Skipped ${other.length} Submitted or Abandoned ${other.length === 1 ? 'journey because the' : 'journeys because their'} last submit did not reach a new page or no submit was seen. Stopped mid-flow journeys can also be planned, as a check of the step change that was seen. Choose a Completed or Stopped mid-flow journey to create a plan.`);
+    const coverageLines = [...new Set(other.map((journey) => formatOutcomeCoverageLine(journey.outcomeCoverage)).filter((line): line is string => line !== undefined))];
+    lines.push(...coverageLines.map((line) => `  ${line}`));
+  }
+  if (errors.length > 0) {
+    // Three shapes, each told the way the recording showed it. A navigation that re-presents the
+    // submitted form (the page came back with the same form and an error) is NOT moving on: the
+    // user is still on the refused form. Only a navigation that does not re-present it is.
+    const afterLastSubmitNavigations = (journey: Journey) => {
+      const lastSubmit = journey.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.kind === 'submit').at(-1)?.index;
+      return lastSubmit === undefined ? [] : journey.steps.slice(lastSubmit + 1).filter((step) => step.kind === 'navigation');
+    };
+    const movedOn = errors.filter((journey) =>
+      afterLastSubmitNavigations(journey).some((step) => step.landing?.rePresentsSubmittedForm !== true));
+    const reShown = errors.filter((journey) => {
+      const navigations = afterLastSubmitNavigations(journey);
+      return navigations.length > 0 && navigations.every((step) => step.landing?.rePresentsSubmittedForm === true);
+    });
+    // "With an error" is said only when the recording saw the error on the re-shown form
+    // (`errorShown === true`); a form re-shown with no error seen on it is told without that claim.
+    const reShownWithError = reShown.filter((journey) =>
+      afterLastSubmitNavigations(journey).some((step) => step.landing?.errorShown === true));
+    const reShownNoErrorSeen = reShown.length - reShownWithError.length;
+    const stayed = errors.length - movedOn.length - reShown.length;
+    const plural = (count: number) => (count === 1 ? 'journey' : 'journeys');
+    const submitReference = (count: number) => (count === 1 ? 'its submit' : 'their submits');
+    if (stayed > 0) {
+      lines.push(`Skipped ${stayed} ${plural(stayed)} because the recording showed an error after ${submitReference(stayed)}. This path cannot be planned; try another recorded session of this journey.`);
+    }
+    if (reShownWithError.length > 0) {
+      lines.push(`Skipped ${reShownWithError.length} ${plural(reShownWithError.length)} because, after ${submitReference(reShownWithError.length)}, the page showed the same form again with an error. This path cannot be planned; try another recorded session of this journey.`);
+    }
+    if (reShownNoErrorSeen > 0) {
+      lines.push(`Skipped ${reShownNoErrorSeen} ${plural(reShownNoErrorSeen)} because, after ${submitReference(reShownNoErrorSeen)}, the page showed the same form again. This path cannot be planned; try another recorded session of this journey.`);
+    }
+    if (movedOn.length > 0) {
+      lines.push(`Skipped ${movedOn.length} ${plural(movedOn.length)} because the recording showed an error after ${submitReference(movedOn.length)}, and the user then moved on to another page. This path cannot be planned; try another recorded session of this journey.`);
+    }
   }
   return lines.join('\n');
 }
@@ -168,22 +234,19 @@ export function buildSkippedJourneysNote(allJourneys: Journey[]): string | undef
 export function buildSynthesizedCommitNote(plannedJourneys: Journey[]): string | undefined {
   const count = plannedJourneys.filter((journey) => journey.status === 'navigated').length;
   if (count === 0) return undefined;
-  return `Planned ${count} navigated ${count === 1 ? 'journey' : 'journeys'}: ${NAVIGATED_PLAN_SYNTHESIS_NOTE}`;
+  return `Planned ${count} Navigated ${count === 1 ? 'journey' : 'journeys'}: ${NAVIGATED_PLAN_SYNTHESIS_NOTE}`;
 }
 
 /**
  * `plan`'s message when the session has zero PLANNABLE journeys.
  *
- * Deliberately UNCHANGED from its long-standing wording. It is reached only when
- * nothing was plannable, so "no completed journeys found" remains literally
- * true; anything that WAS recognized and skipped is named separately and
- * explicitly by `buildSkippedJourneysNote`, so the pair stays honest without
- * this line changing. It is also frozen into 17 eval goldens and matched on by
- * the eval runner + archive validator — rewording it for tidiness alone would
- * spend a refreeze on nothing. Pure.
+ * This opener names the actual condition: no journey in the session could be
+ * planned. It is frozen into 17 eval goldens and matched by the eval runner and
+ * archive validator, so those baselines are re-frozen with this copy change.
+ * Pure.
  */
 export function buildNoCompletedJourneysMessage(): string {
-  return 'No completed journeys found in the session.';
+  return 'No journey in this session can be planned.';
 }
 
 /**
@@ -195,7 +258,7 @@ export function buildNoCompletedJourneysMessage(): string {
  */
 const NO_COMPLETED_JOURNEYS_NEXT_STEP =
   `No automated next step from this session alone — try a different session with \`${TOOL_NAME} sessions\` ` +
-  `(look for completed/navigated activity), or if this journey's traffic has moved elsewhere, ` +
+  `(look for completed, stopped mid-flow, or navigated activity), or if this journey's traffic has moved elsewhere, ` +
   `\`${TOOL_NAME} regenerate <slug>\` from its existing plan searches fresh candidates.`;
 
 /**
@@ -203,10 +266,8 @@ const NO_COMPLETED_JOURNEYS_NEXT_STEP =
  * to write. Pure, and deliberately non-zero so automation can distinguish
  * "nothing planned" from success.
  *
- * APPEND-ONLY: `buildNoCompletedJourneysMessage()`'s sentence is frozen into 17
- * eval goldens and matched on by the eval runner + archive validator, so the
- * next step is added as a LINE AFTER it rather than folded into it. The frozen
- * sentence stays byte-identical; only this result's line list grows.
+ * The opener and the following detail stay separate so the no-plan condition
+ * is clear before the recovery options.
  */
 export function buildNoCompletedJourneysResult(allJourneys: Journey[]): { lines: string[]; exitCode: 1 } {
   const skippedNote = buildSkippedJourneysNote(allJourneys);
@@ -344,6 +405,8 @@ export interface PlanRunDeps extends Partial<PlanFetchers> {
   /** Progress stays on stderr so `plan --json` remains one JSON document. */
   progress?: (line: string) => void;
   log?: (line: string) => void;
+  /** The events-only index written as `source.journeyIndex`; tests inject one that refuses, production uses journey-index's. */
+  eventsPlannableIndex?: typeof eventsPlannableIndex;
 }
 
 /** Deterministic same-directory temp path for a plan sidecar target — a leading-dot hidden file so it never collides with a real `<slug>.md`/`<slug>.plan.json` target, and same-directory so the later `fs.renameSync` into place is atomic (same filesystem). Deterministic (not random) is deliberate: within one `plan` run every slug is already deduped (`usedSlugs`), so no in-run collision is possible, and a stale temp file left behind by a prior crashed run is simply overwritten (self-healing) rather than needing separate cleanup. Pure. */
@@ -415,6 +478,7 @@ function resolvePlanRunDeps(deps: PlanRunDeps): PlanFetchers & {
   retiredDir: string;
   progress: (line: string) => void;
   log: (line: string) => void;
+  eventsPlannableIndex: typeof eventsPlannableIndex;
 } {
   const progress = deps.progress ?? ((line: string) => console.error(line));
   const resolved: PlanFetchers & {
@@ -425,6 +489,7 @@ function resolvePlanRunDeps(deps: PlanRunDeps): PlanFetchers & {
     retiredDir: string;
     progress: (line: string) => void;
     log: (line: string) => void;
+    eventsPlannableIndex: typeof eventsPlannableIndex;
   } = {
     getProviderConfigStatus,
     getWizardStepConfig,
@@ -437,6 +502,7 @@ function resolvePlanRunDeps(deps: PlanRunDeps): PlanFetchers & {
     retiredDir: RETIRED_DIR,
     progress,
     log: (line) => console.log(line),
+    eventsPlannableIndex,
   };
   if (deps.getProviderConfigStatus !== undefined) resolved.getProviderConfigStatus = deps.getProviderConfigStatus;
   if (deps.getWizardStepConfig !== undefined) resolved.getWizardStepConfig = deps.getWizardStepConfig;
@@ -450,6 +516,7 @@ function resolvePlanRunDeps(deps: PlanRunDeps): PlanFetchers & {
   if (deps.retiredDir !== undefined) resolved.retiredDir = deps.retiredDir;
   if (deps.progress !== undefined) resolved.progress = deps.progress;
   if (deps.log !== undefined) resolved.log = deps.log;
+  if (deps.eventsPlannableIndex !== undefined) resolved.eventsPlannableIndex = deps.eventsPlannableIndex;
   return resolved;
 }
 
@@ -746,10 +813,9 @@ function buildPlanArtifacts(
   resolvedDeps: ResolvedPlanRunDeps,
 ): BuiltPlanArtifacts | undefined {
   const allJourneys = segmentJourneys(fetched.session);
-  // ONE selection predicate, shared with every journeyIndex re-resolver (triage.ts).
-  // journeyIndex is an index INTO this list, so a site holding its own copy would
-  // re-resolve a persisted plan against a differently shaped list. See
-  // isPlannableJourney + journeys.test.ts's drift guard.
+  // Keep this DOM-enriched plannable position for aggregationEvidence and slug order.
+  // The persisted journeyIndex is computed separately against the events-only
+  // plannable list so a plan keeps the same identity when recording evidence is unavailable.
   const completed = allJourneys.filter(isPlannableJourney);
   const witnessedLogin = findWitnessedLogin(allJourneys);
   if (completed.length === 0) {
@@ -777,22 +843,35 @@ function buildPlanArtifacts(
     prepared.args.stealScanLock === true,
   );
   const usedSlugs = new Set<string>();
-  const artifacts = completed.map((journey, journeyIndex) =>
-    buildPlanArtifact(journey, journeyIndex, {
-      prepared,
-      fetched,
-      allJourneys,
-      witnessedLogin,
-      aggregationEvidence,
-      usedSlugs,
-      plansDir: resolvedDeps.plansDir,
-    }));
+  let artifacts: PlanWriteArtifact[];
+  try {
+    // Segmented once for the whole run: one segmentation per journey makes a long session quadratic.
+    const eventsOnly = segmentEventsOnly(fetched.session);
+    artifacts = completed.map((journey, journeyIndex) => {
+      const persistedJourneyIndex = resolvedDeps.eventsPlannableIndex(fetched.session, allJourneys, journey, eventsOnly);
+      return buildPlanArtifact(journey, journeyIndex, persistedJourneyIndex, {
+        prepared,
+        fetched,
+        allJourneys,
+        witnessedLogin,
+        aggregationEvidence,
+        usedSlugs,
+        plansDir: resolvedDeps.plansDir,
+      });
+    });
+  } catch (error) {
+    if (!(error instanceof JourneyIndexError)) throw error;
+    resolvedDeps.log(JOURNEY_INDEX_REFUSAL);
+    process.exitCode = 1;
+    return undefined;
+  }
   return { allJourneys, completed, artifacts };
 }
 
 function buildPlanArtifact(
   journey: Journey,
-  journeyIndex: number,
+  plannablePosition: number,
+  persistedJourneyIndex: number,
   context: {
     prepared: PreparedPlanRun;
     fetched: FetchedPlanSession;
@@ -803,13 +882,13 @@ function buildPlanArtifact(
     plansDir: string;
   },
 ): PlanWriteArtifact {
-  const aggregation = context.aggregationEvidence.get(journeyIndex);
+  const aggregation = context.aggregationEvidence.get(plannablePosition);
   const sessionJourneyIndex = context.allJourneys.indexOf(journey);
   const auth = buildPlanArtifactAuth(context.witnessedLogin, sessionJourneyIndex);
   const sidecar = buildSidecar(journey, {
     distinctId: context.fetched.session.distinctId,
     sessionId: context.fetched.session.id,
-    journeyIndex,
+    journeyIndex: persistedJourneyIndex,
     viewport: context.fetched.session.viewport,
     witnessedConsole: context.fetched.session.witnessedConsole,
     witnessedExceptions: context.fetched.session.witnessedExceptions,
@@ -821,9 +900,14 @@ function buildPlanArtifact(
     // record with no submit anywhere in it.
     ...(!context.prepared.archiveMode && journeyPerformsWrites(journey) ? { performsWrites: true as const } : {}),
     ...(aggregation === undefined ? {} : aggregation),
+    // Live plans carry every current-rules marker, the segmentation one
+    // included, so regenerate and triage recognise them as built under the
+    // current journey boundaries. Archive builds stay unmarked to keep the
+    // frozen eval artifacts byte-identical.
     ...(!context.prepared.archiveMode
       ? {
           signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+          segmentationVersion: SEGMENTATION_VERSION,
           privacyBoundaryVersion: PRIVACY_BOUNDARY_VERSION,
           wizardStepParamNames: context.prepared.wizardStepConfig.paramNames,
         }

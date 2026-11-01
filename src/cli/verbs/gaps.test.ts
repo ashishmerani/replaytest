@@ -1,3 +1,4 @@
+import { toolIdentifier } from '../../tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from '../../test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -115,6 +116,39 @@ test('runGaps: reuses ranked discovery, emits the new envelope, and applies its 
   assert.match(tableLogs[0] ?? '', /Take a sample now — it looks at your newest sessions without changing the map above: `replaytest gaps --refresh-sample`/);
 });
 
+test('runGaps: a submitted exact row prints its refusal and the gaps command', async () => {
+  const entry = 'http://localhost:8000/checkout';
+  const session = neutralSessionFromSteps('gap-submitted-session', 'gap-submitted-user', [
+    { kind: 'navigation', url: entry, at: '2026-09-02T00:00:00.000Z' },
+    { kind: 'submit', url: entry, at: '2026-09-02T00:00:01.000Z', target: { tag: 'form' } },
+  ]);
+  const output: string[] = [];
+
+  await runGaps(['--shape', 'form-submit-signal', '--since-hours', '72'], {
+    readSampledRegister: () => undefined,
+    getProviderConfigStatus: () => ({ projectId: 'project', hasApiKey: true }),
+    getWizardStepConfig: () => ({ paramNames: ['step'], overridesActive: false }),
+    fetchers: {
+      fetchCoarseSessionCount: () => ({ total: 1, scanUntil: '2026-09-02T00:00:00.000Z' }),
+      fetchAllSessions: () => [session],
+    },
+    localInputs: async () => ({
+      planIndex: [],
+      specSlugs: [],
+      suiteFiles: [],
+      suiteInventory: { state: 'complete' as const, filesScanned: 0, eligibleFiles: 0 },
+    }),
+    log: (line) => output.push(line),
+  });
+
+  const rendered = output.join('\n');
+  const nextStepLine = rendered.split('\n').findIndex((line) => line.includes('Next step: Submitted and Abandoned journeys cannot be planned.'));
+  assert.notEqual(nextStepLine, -1, 'the submitted row prints its existing refusal reason');
+  const rowLines = rendered.split('\n').slice(nextStepLine, nextStepLine + 3).join('\n');
+  assert.match(rowLines, /Command: replaytest gaps --shape form-submit-signal --since-hours 72/);
+  assert.doesNotMatch(rowLines, /replaytest plan\b/);
+});
+
 test('a clean fixture workspace serializes gaps with no fabricated unreadable-artifact fields or copy', async (t: TestContext) => {
   const session = neutralSessionFromSteps('clean-session', 'clean-user', orderConfirmationSteps('2002'));
   const fixture = suiteFixture(t, 'clean-byte-stability', 0, false);
@@ -130,7 +164,7 @@ test('a clean fixture workspace serializes gaps with no fabricated unreadable-ar
       journeyIndex: 0,
       signature,
       generatedAt: '2026-08-21T15:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
       signatureSemanticsVersion: 1,
       wizardStepParamNames: [],
     },

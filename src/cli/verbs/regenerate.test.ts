@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 
 import { buildVerbHelpText, runRegenerate } from '../../cli.js';
-import { segmentJourneys } from '../../journeys.js';
+import { SEGMENTATION_VERSION, segmentJourneys } from '../../journeys.js';
 import type { NeutralSession } from '../../neutral-session.js';
 import type { CapMetadata, CoarseSession } from '../../providers/posthog-adapter.js';
 import { buildSidecar, SIGNATURE_SEMANTICS_VERSION, type Sidecar } from '../../sidecar.js';
@@ -407,7 +407,11 @@ test('runRegenerate: an unwritable plans directory still prints the full no-cand
   const slug = 'order-confirmation';
   const old = neutralSessionFromSteps('old-session', 'old-user', orderConfirmationSteps('1001'));
   const sidecarPath = path.join(target.plansDir, `${slug}.plan.json`);
-  fs.writeFileSync(sidecarPath, `${JSON.stringify(sidecarFor(old), null, 2)}\n`, 'utf8');
+  // A plan as `plan` writes it today: it carries the segmentation marker, so
+  // regenerate treats it as current and its search gains retirement evidence.
+  const written = sidecarFor(old);
+  written.source.segmentationVersion = SEGMENTATION_VERSION;
+  fs.writeFileSync(sidecarPath, `${JSON.stringify(written, null, 2)}\n`, 'utf8');
   const bytesBefore = fs.readFileSync(sidecarPath);
   const meta: CapMetadata = {
     scanUntil: '2026-08-12T01:00:00.000Z', sessionsSeen: 0, totalSessionsAtScanStart: 0,

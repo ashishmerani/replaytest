@@ -1,3 +1,4 @@
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
@@ -60,7 +61,7 @@ function sidecar(overrides: Partial<Sidecar> = {}): Sidecar {
         specPath: 'tests/generated/checkout.spec.ts',
       }],
       regeneration: { kind: 'regenerate', tier: 'same-signature', signatureSource: 'sidecar' },
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     viewport: { width: 1440, height: 900 },
     start: '/cart',

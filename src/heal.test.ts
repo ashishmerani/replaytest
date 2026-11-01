@@ -956,7 +956,7 @@ function multiSuiteReport(suites: JSONReportSuite[], globalErrors: JSONReport['e
   return buildReport({ suites, errors: globalErrors });
 }
 
-test('collectHealReport: resolver-provided async confirms reach TRIAGE_CONFIRM_CONCURRENCY instead of the serial sync fallback', async (t: TestContext) => {
+test('collectHealReport: confirmation reads the resolver-provided recording fetcher at TRIAGE_CONFIRM_CONCURRENCY, with no light fetch', async (t: TestContext) => {
   const { plansDir, generatedTestsDir } = mkTempDirs(t);
   const original = sessionFromSteps('original-session', 'original-user', orderSteps('a1b2c3'));
   writeSidecar(plansDir, 'concurrent-heal', sidecarFor(original));
@@ -969,9 +969,12 @@ test('collectHealReport: resolver-provided async confirms reach TRIAGE_CONFIRM_C
   const resolved = resolveHealRunDeps({
     fetchCoarseSessions: () => ({ sessions: fresh.map(coarseFromSession), meta: fakeMeta(fresh.map(coarseFromSession)) }),
     fetchNeutralSessionsLight: () => {
-      throw new Error('the sync confirm fetcher must not run when the resolver received an async twin');
+      throw new Error('triage confirmation must not run a light fetch');
     },
-    fetchNeutralSessionsLightAsync: (_distinctId, sessionId) =>
+    fetchNeutralSessionsLightAsync: () => {
+      throw new Error('triage confirmation must not run a light preflight');
+    },
+    fetchNeutralSessionsWithDomEnrichment: (_distinctId, sessionId) =>
       new Promise<NeutralSession[]>((resolve) => {
         inFlight.current += 1;
         inFlight.max = Math.max(inFlight.max, inFlight.current);
@@ -981,10 +984,6 @@ test('collectHealReport: resolver-provided async confirms reach TRIAGE_CONFIRM_C
           resolve(entry === undefined ? [] : [entry]);
         }, 10);
       }),
-    fetchNeutralSessionsWithDomEnrichment: async (_distinctId, sessionId) => {
-      const entry = sessionId === undefined ? undefined : detailed[sessionId];
-      return entry === undefined ? [] : [entry];
-    },
   });
 
   const report = await collectHealReport({
@@ -997,6 +996,48 @@ test('collectHealReport: resolver-provided async confirms reach TRIAGE_CONFIRM_C
 
   assert.equal(report.slugs[0]?.result.kind, 'report');
   assert.equal(inFlight.max, TRIAGE_CONFIRM_CONCURRENCY);
+});
+
+test('heal: each slug states its recording-read count and expected wait on the progress channel before the first read', async (t: TestContext) => {
+  const { plansDir, generatedTestsDir } = mkTempDirs(t);
+  const root = makeTempDir(t, path.join(os.tmpdir(), 'replaytest-heal-announce-root-'));
+  const original = sessionFromSteps('original-session', 'original-user', orderSteps('a1b2c3'));
+  writeSidecar(plansDir, 'announce-heal', sidecarFor(original));
+  const specFile = writeSpec(generatedTestsDir, 'announce-heal', undefined);
+  const resultsPath = path.join(plansDir, 'results.json');
+  const report = failedTestReport(specFile, 'locator failed');
+  report.stats.startTime = '2026-08-29T12:00:00.000Z';
+  fs.writeFileSync(resultsPath, JSON.stringify(report), 'utf8');
+  const fresh = ['d1e2f3', 'd4e5f6'].map((id, index) => sessionFromSteps(`fresh-${index}`, `fresh-user-${index}`, orderSteps(id)));
+  const events: string[] = [];
+  const previousExitCode = process.exitCode;
+  try {
+    process.exitCode = undefined;
+    await runHeal(['--results', resultsPath, '--json'], {
+      plansDir,
+      generatedTestsDir,
+      workspaceRoot: root,
+      healLatestPath: path.join(root, '.replaytest', 'state', 'heal-latest.json'),
+      lastRunStatePath: path.join(root, '.replaytest', 'state', 'last-run.json'),
+      now: () => new Date('2026-08-29T12:00:00.000Z'),
+      log: () => undefined,
+      progress: (line) => events.push(line),
+      getProviderConfigStatus: () => ({ projectId: 'p', hasApiKey: true }),
+      fetchCoarseSessions: () => ({ sessions: fresh.map(coarseFromSession), meta: fakeMeta(fresh.map(coarseFromSession)) }),
+      fetchNeutralSessionsWithDomEnrichment: async (_distinctId, sessionId) => {
+        events.push(`read ${sessionId ?? ''}`);
+        return fresh.filter((session) => session.id === sessionId);
+      },
+    });
+  } finally {
+    process.exitCode = previousExitCode;
+  }
+  // A heal batch triages several slugs, so the read line names the slug it reads for.
+  const announcement = 'Triage for announce-heal: reading 2 fresh recordings to confirm matches (one read per session, up to 4 at a time; expect about 5s).';
+  assert.deepEqual(events.filter((line) => line.startsWith('Triage')), [announcement]);
+  const firstRead = events.findIndex((line) => line.startsWith('read '));
+  assert.ok(firstRead > -1, `the recordings were read: ${events.join(' | ')}`);
+  assert.ok(events.indexOf(announcement) < firstRead, `the announcement comes before the first read: ${events.join(' | ')}`);
 });
 
 test('collectHealReport: a genuinely-failed spec maps via the PATH convention when there is no header, and gets a full traffic verdict', async (t: TestContext) => {

@@ -21,6 +21,7 @@ import {
 } from './repro-builder.js';
 import type { Journey } from './journeys.js';
 import type { NeutralSession, NeutralStep, NeutralStepKind, NeutralTarget } from './neutral-session.js';
+import { fetchArchiveNeutralSessionsLight } from './providers/archive-adapter.js';
 
 const BASE = 'http://localhost:8000';
 const ENTRY_URL = `${BASE}/index.html`;
@@ -956,6 +957,14 @@ test('buildReproSpecs: stays status-agnostic and returns one repro spec per jour
   assert.ok(specs[0].includes(`test('Invoice confirmation — reproduction'`));
   assert.ok(specs[1].includes(`test('Invoice pay — reproduction'`));
   assert.ok(specs[2].includes(`test('Customer created — reproduction'`));
+});
+
+test('forward continuation keeps a real search step-1→step-3 journey, and it scaffolds', () => {
+  const [session] = fetchArchiveNeutralSessionsLight('archive', '019f4a5a-48a6-79aa-80d5-280b15dee17a');
+  assert.ok(session !== undefined);
+  const specs = buildReproSpecs(session);
+  assert.equal(specs.length, 3, 'one scaffold each for customer create, invoice, and search');
+  assert.ok(specs[2]?.includes('search-1-step3'), 'the forward continuation keeps its click and final step');
 });
 
 test('buildReproSpec: hostile recorded locator text is normalized/escaped into parseable TypeScript', () => {

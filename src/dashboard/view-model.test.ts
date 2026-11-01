@@ -195,6 +195,15 @@ test('annotateJourneysWithCoverage: no plans, no specs -> every journey is unpla
   assert.deepEqual(result, [{ ...ranked[0], planned: false, tested: false }]);
 });
 
+test('annotateJourneysWithCoverage: finality and stopped step stay on the dashboard row', () => {
+  const completed = rankedJourney({ status: 'completed', finality: 'witnessed' });
+  const stopped = rankedJourney({ status: 'abandoned-mid-flow', stoppedAtStep: 3, midFlowEvidence: 'typed-on-next-step', rank: 2 });
+  const rows = annotateJourneysWithCoverage([completed, stopped], [], []);
+  assert.equal(rows[0].finality, 'witnessed');
+  assert.equal(rows[1].stoppedAtStep, 3);
+  assert.equal(rows[1].midFlowEvidence, 'typed-on-next-step');
+});
+
 test('Focus-on-gaps predicate hides only fully covered exact rows and keeps coarse coverage visible', () => {
   const exactCovered = { provenance: 'exact' as const, planned: true, tested: true, lifecycle: 'passing' as const, signature: '/exact-covered' };
   const exactExecuted = { provenance: 'exact' as const, planned: true, tested: true, lifecycle: 'executed' as const, signature: '/exact-executed' };
@@ -550,7 +559,7 @@ test('annotateJourneysWithCoverage: a matching plan by signature -> planned, pla
 test('annotateJourneysWithCoverage: carries needsReview only from the first matching plan', () => {
   const review = {
     kind: 'older-url-semantics' as const,
-    note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+    note: 'ⓘ This plan was built under different URL rules.',
     replanCommand: 'replaytest plan user-1 --session session-1',
   };
   const flagged = rankedJourney({ status: 'completed', signature: '/flagged' });

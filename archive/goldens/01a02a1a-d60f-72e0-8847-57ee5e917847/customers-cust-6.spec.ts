@@ -31,10 +31,10 @@ test.afterEach(async () => {
 });
 
 // Recording findings (from the session data — surfaced, never assertions):
-//   - This flow performs writes (it creates a record by committing an inline edit — no form submit was witnessed). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production. It is NOT idempotent: every run creates another new record, and this tool has no cleanup step.
+//   - This flow performs writes (it creates a record by committing an inline edit — no form submit was seen). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production. It is NOT idempotent: every run creates another new record, and this tool has no cleanup step.
 //   - Step "Quick add customer" presses Enter to commit the edit. SYNTHESIZED, not witnessed: no provider tier records the committing keystroke (autocapture has no keypress event; session replay records input values, not keys). The landing that follows it in the recording is the evidence the commit happened. Verify Enter is your app's commit mechanic — a blur- or Tab-commit app looks identical in the recording.
 //   - This journey was recognized structurally (typed input, then a landing on a new route) — nobody witnessed the intent. Three shapes look identical to a create and would be wrong to keep: searching and opening an existing result; editing a field then leaving for an unrelated reason; and creating something that was deleted again later. Confirm this is really a create before committing the generated spec.
-//   - Triage cannot yet assess this plan: the regression arithmetic scores completed/submitted/abandoned outcomes only, so fresh traffic for this journey reports as insufficient evidence rather than healthy or regressed. Re-check it by hand until that arithmetic covers the navigated class.
+//   - Triage does not assess this plan: regression checks cover completed, submitted, and abandoned outcomes only. Fresh traffic for this journey reports as insufficient evidence rather than healthy or regressed. Check it by hand.
 
 test.use({ viewport: { width: 1280, height: 720 } });
 

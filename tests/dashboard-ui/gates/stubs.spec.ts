@@ -10,7 +10,7 @@ type BrowserPredicate = (page: import('@playwright/test').Page) => Promise<boole
 const predicates: Record<string, BrowserPredicate> = {
   // The current vocabulary, matching `label-gate.ts`: `Unknown` / `Mixed` / `No test yet` /
   // `Maybe in your suite` / `⚠ Needs a look` are the five replacement labels.
-  label: async (page) => (await page.locator('[data-testid^="dash-chip-"]').allTextContents()).every((text) => new Set(['Completed', 'Navigated', 'Submitted', 'Abandoned', 'Unknown', 'Mixed', 'No test yet', 'Planned', 'Scaffolded', 'Executed', 'Passing', 'Maybe in your suite', '⚠ Needs a look']).has(text.trim())),
+  label: async (page) => (await page.locator('[data-testid^="dash-chip-"]').allTextContents()).every((text) => new Set(['Completed · finish not checked', 'Navigated', 'Submitted', 'Abandoned', 'Unknown', 'Mixed', 'No test yet', 'Planned', 'Scaffolded', 'Executed', 'Passing', 'Maybe in your suite', '⚠ Needs a look']).has(text.trim())),
   number: async (page) => !/\b999\b/.test(await page.locator('body').innerText()),
   reachability: async (page) => (await page.locator('body').innerText()).includes('Every journey your real users actually took'),
   geometry: async (page) => await page.locator('[data-testid="dash-cell-info"]').count() === 0,

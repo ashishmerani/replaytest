@@ -291,6 +291,7 @@ export function assertPackedPathContract(
   assert.ok(packedPathSet.has('dist/dashboard/index.html'), 'packed tarball must contain the dashboard HTML');
   assert.ok(packedPathSet.has('dist/dashboard/demo-store.json'), 'packed tarball must contain the generated demo dashboard store');
   assert.ok(packedPathSet.has('dist/providers/posthog-adapter.js'), 'packed tarball must contain the provider adapter');
+  assert.ok(packedPathSet.has('dist/tool-identifier.js'), 'packed tarball must contain the package-version identifier module');
   // Mechanism only — this proves the stamp mechanism ships (the
   // packed manifest carries the file `npm run build` writes), not that dist/
   // is fresh right now. Freshness is a release-gate-time question (Gate 2

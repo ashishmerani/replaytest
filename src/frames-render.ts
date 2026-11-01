@@ -32,6 +32,8 @@ export interface CaptureResult {
   pngBuffer: Buffer;
   fidelity: CaptureFidelity;
   offsetMs: number;
+  /** Plain explanation when the replay window cannot support a trustworthy capture. */
+  reason?: string;
 }
 
 /** Neutralized witness data; never the provider's original property names. */
@@ -211,13 +213,17 @@ async function pauseAndSerialize({ offsetMs }: { offsetMs: number }): Promise<st
   return root.querySelector('iframe')?.contentDocument?.documentElement.outerHTML;
 }
 
-function notRenderableCapture(request: CaptureRequest): CaptureResult {
+/** Plain reason for a window the replayer has no starting page for. */
+export const NO_FULL_SNAPSHOT_REASON = 'This recorded window has no full page snapshot to start drawing from.';
+
+function notRenderableCapture(request: CaptureRequest, reason?: string): CaptureResult {
   return {
     id: request.id,
     html: '',
     pngBuffer: Buffer.alloc(0),
     fidelity: 'not-renderable',
     offsetMs: request.offsetMs,
+    ...(reason === undefined ? {} : { reason }),
   };
 }
 
@@ -231,7 +237,13 @@ export async function renderCaptures(
   requests: CaptureRequest[],
   options: RenderCapturesOptions = {},
 ): Promise<CaptureResult[]> {
-  if (!replayWindow.hasFullSnapshot) return requests.map(notRenderableCapture);
+  if (replayWindow.decodeIssues?.length) {
+    const reason = replayWindow.decodeIssues[0];
+    return requests.map((request) => notRenderableCapture(request, reason));
+  }
+  if (!replayWindow.hasFullSnapshot) {
+    return requests.map((request) => notRenderableCapture(request, NO_FULL_SNAPSHOT_REASON));
+  }
 
   const browser = await (options.launchBrowser ?? launchCustomerBrowser)();
   let context: RenderContext | undefined;

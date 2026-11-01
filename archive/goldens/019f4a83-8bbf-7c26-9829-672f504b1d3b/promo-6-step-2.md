@@ -2,24 +2,17 @@
 
 **Provenance:** source: file archive (archive), archived 2026-07-11T19:38:36.588Z; single-session -- aggregation requires the live corpus
 
-**Starting point:** /flows/promo-3
+**Starting point:** /flows/promo-6
 **Viewport:** 1280×720
 
 ## Steps
-1. Go to /flows/promo-3
-2. Fill in the "Your name" field (placeholder value) `getByTestId('promo-3-s1-field-0')`
-3. Click "Input" `getByTestId('promo-3-s1-field-2')`
-4. Fill in the "Enable option 3" field `getByTestId('promo-3-s1-field-2')`
-5. Fill in the "Promo code" field (placeholder value) `getByTestId('promo-3-s1-field-1')`
-6. Fill in the "Phone number 4" field (placeholder value) `getByTestId('promo-3-s1-field-3')`
-7. Fill in the "Promo code" field (placeholder value) `getByTestId('promo-3-s1-field-1')`
-8. Click "Apply code" (submits the form) `getByTestId('promo-3-s1-submit')`
-9. Fill in the "name" field (placeholder value) `locator('#promo-6-s1-f0')`
-10. Fill in the "promo-6-s1-email-4" field (placeholder value) `locator('#promo-6-s1-f3')`
-11. Fill in the "promo_code" field (placeholder value) `locator('#promo-6-s1-f1')`
-12. Fill in the "promo-6-s1-text-3" field (placeholder value) `locator('#promo-6-s1-f2')`
-13. Fill in the "promo_code" field (placeholder value) `locator('#promo-6-s1-f1')`
-14. Click "Apply code" (submits the form) `getByTestId('promo-6-s1-submit')`
+1. Go to /flows/promo-6
+2. Fill in the "name" field (placeholder value) `locator('#promo-6-s1-f0')`
+3. Fill in the "promo-6-s1-email-4" field (placeholder value) `locator('#promo-6-s1-f3')`
+4. Fill in the "promo_code" field (placeholder value) `locator('#promo-6-s1-f1')`
+5. Fill in the "promo-6-s1-text-3" field (placeholder value) `locator('#promo-6-s1-f2')`
+6. Fill in the "promo_code" field (placeholder value) `locator('#promo-6-s1-f1')`
+7. Click "Apply code" (submits the form) `getByTestId('promo-6-s1-submit')`
 
 ## Expected outcome
 - The final URL matches /flows/promo-6/step/:id (witnessed: /flows/promo-6/step/2)

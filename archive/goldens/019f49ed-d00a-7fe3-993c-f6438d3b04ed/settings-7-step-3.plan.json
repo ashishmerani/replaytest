@@ -8,7 +8,7 @@
     "journeyIndex": 0,
     "signature": "/flows/settings-7 > /flows/settings-7/step/:id > /flows/settings-7/step/:id",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
   "start": "/flows/settings-7",
   "steps": [

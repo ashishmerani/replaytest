@@ -22,7 +22,8 @@ import { COMPLETION_CENSUS_CORPUS_ENV, COMPLETION_CENSUS_PATH, parseCensusCorpus
 import { StateLockHeldError, type StateLockOptions } from '../../state-lock.js';
 import { describeUnattributableExceptionReason } from '../../journey-evidence.js';
 import { formatScannedOfTotal } from '../../triage.js';
-import { collectPlanReviewReport, type PlanReviewReport } from '../../plan-review-report.js';
+import { collectPlanReviewReport, plansNeedReviewNote, type PlanReviewReport } from '../../plan-review-report.js';
+import { PLAN_REVIEW_CLEARING_NOTE } from '../../sidecar.js';
 import { collectOrphanPlansReport, type OrphanPlansReport } from '../../orphan-plans.js';
 import { formatSessionScanWindow, maybePrintVerbHelp } from '../help.js';
 import { buildUsageError, emitUsageError, parseSessionsArgs, resolveRequestedShapes, type SessionsArgs } from '../args.js';
@@ -52,10 +53,10 @@ export function formatWizardStepParamsEcho(config: WizardStepConfig): string | u
 // ---------------------------------------------------------------------------
 
 /**
- * Filters `ranked` by the requested statuses. No flags passes every status;
- * requested flags form a union. `--completed` deliberately excludes
- * `navigated`: the latter is a weaker landing witness and is selected only by
- * its own flag. Coarse scans cannot identify navigated journeys. Pure — no I/O.
+ * Filters `ranked` by the requested literal status tokens. No flags passes
+ * every status; requested flags form a union. `--completed` selects completed
+ * only, so stopped-mid-flow rows are excluded and listed only with no status
+ * filter. Coarse scans cannot identify navigated journeys. Pure — no I/O.
  */
 export function filterByStatus(
   ranked: RankedJourney[],
@@ -94,7 +95,7 @@ export function buildStatusFilterNote(
   const labels = statusFilterLabels(filters);
   const exact = `${labels.join(' or ')} ${labels.length === 1 ? 'journeys' : 'journeys'}`;
   const coarse = ' In coarse scans, navigated journeys cannot be identified; completed/submitted retain only ≈ likely submitted rows.';
-  return `Status filter: showing ${exact}.${provenance === 'coarse' ? coarse : ''}`;
+  return `Status filter: showing ${exact}.${provenance === 'coarse' ? coarse : ''} Stopped mid-flow rows appear only when no status filter is set. The Sessions scan reads events only, so it cannot show Error after submit.`;
 }
 
 /** Appends the status-filter confirmation to human tables only; JSON already exposes the filtered rows directly and keeps its stable envelope. */
@@ -194,8 +195,30 @@ function defaultSessionsOutputCapOption(
     : { outputCap: { limit: DEFAULT_OUTPUT_ROW_CAP, totalRows } };
 }
 
-/** Fits the longest display label, `≈ likely submitted`. */
-const STATUS_COLUMN_WIDTH = '≈ likely submitted'.length;
+/**
+ * The status column's minimum width: the longest plain label (the stopped-mid-flow step form up to
+ * a two-digit step included) and the coarse approximation, derived from the label formatter itself.
+ */
+const STATUS_COLUMN_WIDTH = Math.max(
+  '≈ likely submitted'.length,
+  ...[
+    formatJourneyStatusToken('completed'),
+    formatJourneyStatusToken('completed', 'witnessed'),
+    formatJourneyStatusToken('abandoned-mid-flow', undefined, 99),
+    formatJourneyStatusToken('navigated'),
+    formatJourneyStatusToken('submitted'),
+    formatJourneyStatusToken('error-after-submit'),
+    formatJourneyStatusToken('abandoned'),
+  ].map((label) => label.length),
+);
+
+/**
+ * The status column fits the longest cell this table prints — a "(mixed)" row or a long step
+ * number widens it — so a long label never shifts the distinct-id and signature columns.
+ */
+function statusColumnWidth(cells: readonly string[]): number {
+  return Math.max(STATUS_COLUMN_WIDTH, ...cells.map((cell) => cell.length));
+}
 
 export function buildNoSessionsFoundMessage(sinceHours: number = DEFAULT_SESSION_SCAN_HOURS): string {
   return (
@@ -238,21 +261,21 @@ function formatCoarseJourneyStatus(guess: string | undefined): string {
 
 /**
  * A collapsed row whose members ended differently is marked, never presented as
- * if the representative spoke for all of them: the strongest single instance
- * wins the label (the `statusRank` order is untouched), but `(mixed)`
+ * if the representative spoke for all of them: the highest-ranked single
+ * instance wins the label, but `(mixed)`
  * plus the per-rank breakdown below the table say so out loud.
  */
 function formatJourneyStatus(entry: RankedJourney): string {
   if (entry.provenance === 'coarse') {
     return formatCoarseJourneyStatus(entry.signal?.guess);
   }
-  const token = formatJourneyStatusToken(entry.status);
+  const token = formatJourneyStatusToken(entry.status, entry.finality, entry.stoppedAtStep);
   return entry.statusMix === undefined || token === '' ? token : `${token} (mixed)`;
 }
 
 /** A family headline is a MAX over members, so a disagreeing family is marked the same way a row is. */
-function formatFamilyStatus(family: { status?: JourneyStatus; statusMix?: JourneyStatusMix }): string {
-  const token = formatJourneyStatusToken(family.status);
+function formatFamilyStatus(family: { status?: JourneyStatus; statusMix?: JourneyStatusMix; finality?: RankedJourney['finality']; stoppedAtStep?: number }): string {
+  const token = formatJourneyStatusToken(family.status, family.finality, family.stoppedAtStep);
   return family.statusMix === undefined || token === '' ? token : `${token} (mixed)`;
 }
 
@@ -262,7 +285,7 @@ export function formatMixedStatusRowsNote(ranked: readonly RankedJourney[]): str
   if (mixed.length === 0) return undefined;
   return [
     'Mixed rows: the sessions grouped on these rows did not all end the same way. ' +
-      'The status shown is the strongest single session, and that is also the session "watch one session" opens.',
+    'The status shown is the session ranked most testable (completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned), and that is also the session "watch one session" opens.',
     ...mixed.map((entry) => `  rank ${entry.rank}: ${formatStatusMix(entry.statusMix as JourneyStatusMix)}`),
   ].join('\n');
 }
@@ -631,7 +654,7 @@ const FAMILIES_GLOSS =
 
 /** The "what do I do with this table" pointer appended after exact-scan rows. Without the id column and this line, the README's `plan <distinctId>` step was only completable via `--json`. Coarse scans don't get it — `formatCoarseScanNote` already routes to `plan`. Pure. */
 function buildSessionsNextStepHint(): string {
-  return `Next: ${TOOL_NAME} plan <distinct id> — turn a completed row into a reviewable plan (then: ${TOOL_NAME} scaffold <slug>).`;
+  return `Next: ${TOOL_NAME} plan <distinct id> — turn a Completed or Stopped mid-flow row into a reviewable plan (then: ${TOOL_NAME} scaffold <slug>).`;
 }
 
 /** The `sessions` table's header + one row per ranked journey (rank / sessions / status / distinct id / signature — the distinct-id column is what feeds `plan <distinctId>`; selection.ts's dev-only `printTable` keeps the older 4-column shape). Empty input renders a friendly sentence instead of a bare header; exact scans append a next-step hint line. Pure string-builder. */
@@ -649,7 +672,7 @@ interface SessionsTableOptions {
   /** Corpus-level signal retained when filtering or the render cap hides an unassessed coarse row. */
   coarseRageClicksAssessed: boolean;
   /** Exact scan prevalence, computed before display filters. */
-  completionCounts?: { completed: number; navigated: number };
+  completionCounts?: CompletionCounts;
   /** The coverage those counts were read from; a capped scan must never print an unqualified number. */
   completionCoverage?: CompletionScanCoverage;
   /** Stored snapshots state their source without implying a live provider read. */
@@ -669,12 +692,13 @@ function formatSessionsTableBody(ranked: RankedJourney[], opts: SessionsTableOpt
   }
   const showOrigins = shouldRenderOriginColumn(ranked);
   const originWidth = showOrigins ? originColumnWidth(ranked) : 0;
+  const statusWidth = statusColumnWidth(ranked.map(formatJourneyStatus));
   return [
-    `${'rank'.padEnd(4)}  ${'sessions'.padEnd(8)}  ${'status'.padEnd(STATUS_COLUMN_WIDTH)}  ${opts.shapeFiltered ? `${'confidence'.padEnd(SHAPE_FIDELITY_COLUMN_WIDTH)}  ` : ''}${'distinct id'.padEnd(DISTINCT_ID_COLUMN_WIDTH)}  ${originColumnHeaderCell(showOrigins, originWidth)}signature`,
+    `${'rank'.padEnd(4)}  ${'sessions'.padEnd(8)}  ${'status'.padEnd(statusWidth)}  ${opts.shapeFiltered ? `${'confidence'.padEnd(SHAPE_FIDELITY_COLUMN_WIDTH)}  ` : ''}${'distinct id'.padEnd(DISTINCT_ID_COLUMN_WIDTH)}  ${originColumnHeaderCell(showOrigins, originWidth)}signature`,
     ...ranked.map(
       (entry) =>
         `${String(entry.rank).padStart(4)}  ${String(entry.sessionCount).padStart(8)}  ` +
-        `${formatJourneyStatus(entry).padEnd(STATUS_COLUMN_WIDTH)}  ` +
+        `${formatJourneyStatus(entry).padEnd(statusWidth)}  ` +
         `${opts.shapeFiltered ? `${formatShapeFidelity(entry).padEnd(SHAPE_FIDELITY_COLUMN_WIDTH)}  ` : ''}` +
         `${(entry.representativeDistinctId ?? '').padEnd(DISTINCT_ID_COLUMN_WIDTH)}  ` +
         `${originColumnCell(showOrigins, entry, originWidth)}${entry.signature}${formatExceptionsSuffix(entry)}`,
@@ -702,7 +726,7 @@ function formatSessionsTableNotes(
       : undefined;
   const hint = ranked.length > 0 && opts.provenance !== 'coarse' ? buildSessionsNextStepHint() : undefined;
   const statusFootnote = ranked.length > 0
-    ? 'Status is an aggregate signal for the ranked journey; an individual session may resolve differently at plan time.'
+    ? 'Unchecked: we saw the user reach a new page, but did not see whether it was the last step. Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; `plan` and `frames` read the recording. An individual session may resolve differently at plan time.'
     : undefined;
   const completionCounts = opts.completionCounts === undefined
     ? undefined
@@ -748,11 +772,29 @@ export function formatSessionsTable(
  * footnote elsewhere.
  */
 export function formatCompletionPrevalence(
-  counts: { completed: number; navigated: number },
+  counts: CompletionCounts,
   coverage?: CompletionScanCoverage,
 ): string {
+  // This line reads an events-only scan, so it never prints a count it could not measure: the
+  // finish-checked and error-after-submit figures need the recording, and a count object says the
+  // recording was read only by carrying `completedWitnessed`. An events-only scan leaves
+  // `errorAfterSubmit` out; without `completedWitnessed`, any `errorAfterSubmit` (an older saved
+  // scan wrote 0) means "not measured", and 0 must never stand in for that.
+  // Stopped mid-flow is half measured on an events-only scan: typing on the next step is an event,
+  // but an empty next form needs the recording. So an events-only count is a minimum ("at least N",
+  // left out at 0); a recording-backed count is measured and prints plainly, 0 included.
+  const recordingMeasured = Number.isInteger(counts.completedWitnessed);
+  const countParts = [`${counts.completed} completed`];
+  if (recordingMeasured) countParts.push(`${counts.completedWitnessed} finish checked`);
+  if (counts.abandonedMidFlow !== undefined) {
+    if (recordingMeasured) countParts.push(`${counts.abandonedMidFlow} stopped mid-flow`);
+    else if (counts.abandonedMidFlow > 0) countParts.push(`at least ${counts.abandonedMidFlow} stopped mid-flow`);
+  }
+  countParts.push(`at least ${counts.navigated} navigated`, `${counts.submitted} submitted`);
+  if (recordingMeasured && counts.errorAfterSubmit !== undefined) countParts.push(`${counts.errorAfterSubmit} error after submit`);
+  countParts.push(`${counts.abandoned} abandoned`);
   return [
-    `${counts.completed} completed · ${counts.navigated} navigated`,
+    countParts.join(' · '),
     coverage === undefined || !coverage.capped
       ? undefined
       : `Counted from ${coverage.sessionsScanned} of ${coverage.totalSessionsAtScanStart} sessions in this window — a sample, not the whole window.`,
@@ -786,7 +828,7 @@ interface FamiliesTableOptions {
   /** Corpus-level signal retained when filtering hides an unassessed coarse row. */
   coarseRageClicksAssessed: boolean;
   /** Exact scan prevalence, computed before display filters. */
-  completionCounts?: { completed: number; navigated: number };
+  completionCounts?: CompletionCounts;
   /** The coverage those counts were read from; a capped scan must never print an unqualified number. */
   completionCoverage?: CompletionScanCoverage;
   /** Stored snapshots state their source without implying a live provider read. */
@@ -822,6 +864,7 @@ function renderFamilyTableRows(
   opts: FamiliesTableOptions,
   showOrigins: boolean,
   originWidth: number,
+  statusWidth: number,
 ): { rows: string[]; visibleJourneys: RankedJourney[] } {
   const renderedRows: string[] = [];
   /** Ranked journey rows actually printed inside the shared physical-row budget. */
@@ -836,7 +879,7 @@ function renderFamilyTableRows(
         : ` (shared core of ${entry.fitsFamilies} families)`;
       renderedRows.push(
         `${String(position).padStart(8)}  ${String(entry.journey.sessionCount).padStart(8)}  ` +
-          `${formatJourneyStatus(entry.journey).padEnd(STATUS_COLUMN_WIDTH)}  ` +
+          `${formatJourneyStatus(entry.journey).padEnd(statusWidth)}  ` +
           `${''.padStart(7)}  ${originColumnCell(showOrigins, entry.journey, originWidth)}${entry.journey.signature}${sharedCore}${shapeMatchSuffix(entry.journey, opts.shapeMatchedSignatures)}`,
       );
       visibleJourneys.push(entry.journey);
@@ -850,7 +893,7 @@ function renderFamilyTableRows(
       : `  [${matchingMembers.length} matching member${matchingMembers.length === 1 ? '' : 's'} below]`;
     renderedRows.push(
       `${String(position).padStart(8)}  ${String(entry.family.sessionCount).padStart(8)}  ` +
-        `${formatFamilyStatus(entry.family).padEnd(STATUS_COLUMN_WIDTH)}  ` +
+        `${formatFamilyStatus(entry.family).padEnd(statusWidth)}  ` +
         `${String(entry.family.members.length).padStart(7)}  ${originColumnCell(showOrigins, familyOrigins(entry.family.members), originWidth)}${entry.family.headSignature}${familyShapeNote}`,
     );
     // The family headline consumes one physical row.
@@ -859,7 +902,7 @@ function renderFamilyTableRows(
     renderedRows.push(...visibleMembers.map(
       (member) =>
         `${''.padStart(8)}  ${String(member.sessionCount).padStart(8)}  ` +
-        `${formatJourneyStatus(member).padEnd(STATUS_COLUMN_WIDTH)}  ` +
+        `${formatJourneyStatus(member).padEnd(statusWidth)}  ` +
         `${''.padStart(7)}  ${originColumnCell(showOrigins, member, originWidth)}↳ ${member.signature}${shapeMatchSuffix(member, opts.shapeMatchedSignatures)}`,
     ));
     visibleJourneys.push(...visibleMembers);
@@ -892,12 +935,17 @@ export function formatFamiliesTable(
         ),
       )
     : 0;
-  const rendered = renderFamilyTableRows(entries, opts, showOrigins, originWidth);
+  const statusWidth = statusColumnWidth(entries.flatMap((entry) =>
+    entry.kind === 'single'
+      ? [formatJourneyStatus(entry.journey)]
+      : [formatFamilyStatus(entry.family), ...entry.family.members.map(formatJourneyStatus)],
+  ));
+  const rendered = renderFamilyTableRows(entries, opts, showOrigins, originWidth, statusWidth);
   const body =
     entries.length === 0
       ? opts.emptyMessage ?? buildNoSessionsFoundMessage(resolveSessionScanHours(opts.sinceHours))
       : [
-          `${'rank'.padEnd(8)}  ${'sessions'.padEnd(8)}  ${'status'.padEnd(STATUS_COLUMN_WIDTH)}  members  ${originColumnHeaderCell(showOrigins, originWidth)}signature`,
+          `${'rank'.padEnd(8)}  ${'sessions'.padEnd(8)}  ${'status'.padEnd(statusWidth)}  members  ${originColumnHeaderCell(showOrigins, originWidth)}signature`,
           ...rendered.rows,
         ].join('\n');
   const meta = opts.meta ?? null;
@@ -995,7 +1043,7 @@ export function formatSessionsJson(
         provenance: discovery.provenance,
         meta: discovery.meta,
         size: buildOutputSize(totalRows, discovery.ranked.length),
-        journeys: discovery.ranked,
+        journeys: discovery.ranked.map(withoutJourneyVisit),
         ...(discovery.completionCounts === undefined ? {} : { completionCounts: discovery.completionCounts }),
         ...(discovery.completionCoverage === undefined ? {} : { completionCoverage: discovery.completionCoverage }),
         ...(discovery.refresh === undefined ? {} : { refresh: discovery.refresh }),
@@ -1031,14 +1079,14 @@ export function formatFamiliesJson(
         provenance: discovery.provenance,
         meta: discovery.meta,
         size: buildOutputSize(totalRows, countFamilyTableRows(entries)),
-        journeys,
+        journeys: journeys.map(withoutJourneyVisit),
         ...(discovery.completionCounts === undefined ? {} : { completionCounts: discovery.completionCounts }),
         ...(discovery.completionCoverage === undefined ? {} : { completionCoverage: discovery.completionCoverage }),
         ...(discovery.appScope === undefined ? {} : { appScope: discovery.appScope }),
         ...(scanMode === undefined ? {} : { scanMode }),
         ...(discovery.meta?.backfillEstimate === undefined ? {} : { backfillEstimate: discovery.meta.backfillEstimate }),
         ...(discovery.meta?.projectWideScan === undefined ? {} : { projectWideScan: discovery.meta.projectWideScan }),
-        families: { provenance: discovery.provenance, entries },
+        families: { provenance: discovery.provenance, entries: entries.map(withoutTopLevelEntryVisit) },
       },
       null,
       2,
@@ -1046,6 +1094,20 @@ export function formatFamiliesJson(
     discovery.provenance,
     coarseRageClicksAssessedInCorpus,
   );
+}
+
+/** `visit` is an internal diagnostic; the public sessions JSON keeps the stable journey fields only. */
+function withoutJourneyVisit<T extends object>(journey: T): T {
+  const publicJourney = { ...journey } as T & { visit?: unknown };
+  delete publicJourney.visit;
+  return publicJourney;
+}
+
+function withoutTopLevelEntryVisit<T extends TopLevelEntry>(entry: T): T {
+  const sanitized = entry.kind === 'single'
+    ? { ...entry, journey: withoutJourneyVisit(entry.journey) }
+    : { ...entry, family: { ...entry.family, members: entry.family.members.map(withoutJourneyVisit) } };
+  return sanitized as T;
 }
 
 /** The stored-sessions JSON envelope adds local snapshot provenance after its coverage join. */
@@ -1419,7 +1481,7 @@ export function appendSessionsCoverage(
     inputs.suiteFiles,
     inputs.lifecycleBySlug,
     { specReadErrors: inputs.specReadErrors, planUnavailableReason: inputs.planUnavailableReason },
-  ).map(withSuiteMatchNote).map(withCoverageBlock);
+  ).map(withSuiteMatchNote).map(withCoverageBlock).map(withoutJourneyVisit);
   const families = parsed.families === undefined
     ? undefined
     : {
@@ -1435,7 +1497,7 @@ export function appendSessionsCoverage(
             { specReadErrors: inputs.specReadErrors, planUnavailableReason: inputs.planUnavailableReason },
           ),
         ),
-      ),
+      ).map(withoutTopLevelEntryVisit),
     };
   return JSON.stringify(
     {
@@ -1711,12 +1773,21 @@ function appScopeKey(appScope: AppScope | undefined): string | undefined {
     : JSON.stringify({ app: appScope.app, prefixes: [...appScope.prefixes].sort() });
 }
 
+/**
+ * The app-scope part of a stored key. The scope is followed by the
+ * segmentation suffix (`segmentationCacheKeySuffix`) and then `|limit=`, or by
+ * `|limit=` alone on keys written before the suffix existed, so the slice ends
+ * at the EARLIEST of the two markers.
+ */
 function storedAppScopeKey(filterKey: string): string | undefined {
   const marker = '|appScope=';
   const start = filterKey.indexOf(marker);
   if (start === -1) return undefined;
-  const end = filterKey.indexOf('|limit=', start);
-  return filterKey.slice(start + marker.length, end === -1 ? filterKey.length : end);
+  const ends = ['|segmentation=', '|limit=']
+    .map((terminator) => filterKey.indexOf(terminator, start + marker.length))
+    .filter((index) => index !== -1);
+  const end = ends.length === 0 ? filterKey.length : Math.min(...ends);
+  return filterKey.slice(start + marker.length, end);
 }
 
 /**
@@ -1829,6 +1900,21 @@ function loadStoredSessions(
     process.exitCode = 1;
     return undefined;
   }
+  // The schema check runs BEFORE the scope and filter checks: a snapshot
+  // written by an older build carries an older key shape, so it can never
+  // match the current scope or filter key, and advising the reader to "re-run
+  // with the same filters" would dead-end. The only true remedy is a re-scan.
+  if (envelope.payloadSchemaVersion !== DASHBOARD_LAST_SCAN_PAYLOAD_SCHEMA_VERSION) {
+    // A stored-first dashboard must revisit this dashboard-autoscan remedy when opening
+    // the dashboard stops running the scan.
+    deps.log(buildStoredSnapshotRefusal(
+      `because its payload schema is ${String(envelope.payloadSchemaVersion)} (this tool requires ${DASHBOARD_LAST_SCAN_PAYLOAD_SCHEMA_VERSION})`,
+      `Open the dashboard (\`${TOOL_NAME} dashboard\`) — loading it re-runs the scan and rewrites the snapshot in the current format.`,
+      envelope.filterKey,
+    ));
+    process.exitCode = 1;
+    return undefined;
+  }
   const scopeRefusal = storedAppScopeRefusal(envelope.filterKey, appScope);
   if (scopeRefusal !== undefined) {
     // The refusal already names which site the snapshot holds, so asking for
@@ -1847,17 +1933,6 @@ function loadStoredSessions(
     deps.log(buildStoredSnapshotRefusal(
       'with filters that differ from the stored snapshot',
       'Re-run --stored with the same filters as the stored snapshot, or run a live scan with these filters.',
-      envelope.filterKey,
-    ));
-    process.exitCode = 1;
-    return undefined;
-  }
-  if (envelope.payloadSchemaVersion !== DASHBOARD_LAST_SCAN_PAYLOAD_SCHEMA_VERSION) {
-    // A stored-first dashboard must revisit this dashboard-autoscan remedy when opening
-    // the dashboard stops running the scan.
-    deps.log(buildStoredSnapshotRefusal(
-      `because its payload schema is ${String(envelope.payloadSchemaVersion)} (this tool requires ${DASHBOARD_LAST_SCAN_PAYLOAD_SCHEMA_VERSION})`,
-      `Open the dashboard (\`${TOOL_NAME} dashboard\`) — loading it re-runs the scan and rewrites the snapshot in the current format.`,
       envelope.filterKey,
     ));
     process.exitCode = 1;
@@ -2036,7 +2111,7 @@ export function appendSessionsSemanticsDisclosure(
 
 /** One plain-language sentence retained as data in `sessions --json`. */
 export const STALE_PLAN_SIGNATURES_NOTE =
-  'Plans built under older signature rules may read as uncovered — re-run plan for them.';
+  `These plans were built under different URL rules. ${PLAN_REVIEW_CLEARING_NOTE}`;
 
 /** One plain-language sentence retained as data in `sessions --json`. */
 export const SUPERSEDED_PLANS_NOTE =
@@ -2051,28 +2126,42 @@ export function appendSessionsPlanReviewDisclosure(
   json: boolean,
   report: PlanReviewReport,
 ): string {
-  if (report.plans.length === 0) return rendered;
+  if (report.plans.length === 0 && report.plansNeedReview.length === 0) return rendered;
 
   if (json) {
     const parsed = JSON.parse(rendered) as Record<string, unknown>;
+    const disclosure: Record<string, unknown> = { ...parsed };
+    if (report.plans.length > 0) {
+      disclosure.stalePlanSignatures = { plans: report.plans, note: STALE_PLAN_SIGNATURES_NOTE };
+    }
+    if (report.plansNeedReview.length > 0) {
+      disclosure.plansNeedReview = {
+        plans: report.plansNeedReview,
+        note: plansNeedReviewNote(report.plansNeedReview),
+      };
+    }
     return JSON.stringify(
-      {
-        ...parsed,
-        stalePlanSignatures: { plans: report.plans, note: STALE_PLAN_SIGNATURES_NOTE },
-      },
+      disclosure,
       null,
       2,
     );
   }
 
-  const visiblePlans = report.plans.slice(0, 10);
-  const remaining = report.plans.length - visiblePlans.length;
+  const visiblePlans = report.plansNeedReview.slice(0, 10);
+  const remaining = report.plansNeedReview.length - visiblePlans.length;
+  const planCount = report.plansNeedReview.length;
+  const heading = planCount === 1 ? 'ⓘ 1 plan needs review:' : `ⓘ ${planCount} plans need review:`;
   return [
     rendered,
     '',
-    `⚠ ${report.plans.length} plan(s) were built under older signature rules and may read as uncovered — re-run plan for them:`,
-    ...visiblePlans.map((plan) => `  ${plan.replanCommand}  # ${plan.slug}`),
+    heading,
+    ...visiblePlans.flatMap((plan) => [
+      `  ${plan.slug}:`,
+      ...plan.reasons.map((reason) => `    ${reason.note}`),
+      `    ${plan.replanCommand}`,
+    ]),
     ...(remaining === 0 ? [] : [`… and ${remaining} more (see suite-status --json)`]),
+    `  ${PLAN_REVIEW_CLEARING_NOTE}`,
   ].join('\n');
 }
 

@@ -2,18 +2,13 @@
 
 **Provenance:** source: file archive (archive), archived 2026-07-11T19:16:39.245Z; single-session -- aggregation requires the live corpus
 
-**Starting point:** /flows/settings-6
+**Starting point:** /flows/search-3
 **Viewport:** 1280×720
 
 ## Steps
-1. Go to /flows/settings-6
-2. Fill in the "Work email" field (placeholder value) `getByTestId('settings-6-0-settings-6-p0-f3')`
-3. Click "Input" `getByTestId('settings-6-0-settings-6-p0-f1-Platinum')`
-4. Fill in the "Full name" field (placeholder value) `getByTestId('settings-6-0-settings-6-p0-f2')`
-5. Fill in the "Full name" field (placeholder value) `getByTestId('settings-6-0-settings-6-p0-name')`
-6. Fill in the "Platinum" field `getByTestId('settings-6-0-settings-6-p0-f1-Platinum')`
-7. Fill in the "Search query" field (placeholder value) `getByTestId('search-3-0-search-3-query')`
-8. Click "Search" (submits the form) `getByTestId('flow-search')`
+1. Go to /flows/search-3
+2. Fill in the "Search query" field (placeholder value) `getByTestId('search-3-0-search-3-query')`
+3. Click "Search" (submits the form) `getByTestId('flow-search')`
 
 ## Expected outcome
 - The final URL is /flows/search-3/step2

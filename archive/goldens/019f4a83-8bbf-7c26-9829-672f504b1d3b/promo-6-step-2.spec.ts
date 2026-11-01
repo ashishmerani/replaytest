@@ -38,37 +38,19 @@ test('2', async ({ page, baseURL }) => {
     if (msg.type() === 'error') consoleErrors.push(msg.text());
   });
 
-  await page.goto('/flows/promo-3');
-  // recorded action 1: fill "Your name"
-  await page.getByTestId('promo-3-s1-field-0').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 2: click "Input"
-  await page.getByTestId('promo-3-s1-field-2').click();
-  // The recording witnessed a checkbox/radio interaction but not its resulting state
-  // (masking/no captured value at the seam) — .check() assumes the common case;
-  // use .uncheck() if this control should end up unchecked.
-  // recorded action 3: fill "Enable option 3"
-  await page.getByTestId('promo-3-s1-field-2').check();
-  // recorded action 4: fill "Promo code"
-  await page.getByTestId('promo-3-s1-field-1').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 5: fill "Phone number 4"
-  await page.getByTestId('promo-3-s1-field-3').fill('5555550100'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 6: fill "Promo code"
-  await page.getByTestId('promo-3-s1-field-1').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // If submit is blocked by a required field the recording didn't capture (e.g. a masked input), add its synthetic fill above.
-  // recorded action 7: click "Apply code"
-  await page.getByTestId('promo-3-s1-submit').click();
-  // recorded action 8: fill "name"
+  await page.goto('/flows/promo-6');
+  // recorded action 1: fill "name"
   await page.locator('#promo-6-s1-f0').fill('example'); // replaytest-marker: placeholder-value — placeholder value; TODO: replace 'example' with a valid value for the "name" field
-  // recorded action 9: fill "promo-6-s1-email-4"
+  // recorded action 2: fill "promo-6-s1-email-4"
   await page.locator('#promo-6-s1-f3').fill('example'); // replaytest-marker: placeholder-value — placeholder value; TODO: replace 'example' with a valid value for the "promo-6-s1-email-4" field
-  // recorded action 10: fill "promo_code"
+  // recorded action 3: fill "promo_code"
   await page.locator('#promo-6-s1-f1').fill('example'); // replaytest-marker: placeholder-value — placeholder value; TODO: replace 'example' with a valid value for the "promo_code" field
-  // recorded action 11: fill "promo-6-s1-text-3"
+  // recorded action 4: fill "promo-6-s1-text-3"
   await page.locator('#promo-6-s1-f2').fill('example'); // replaytest-marker: placeholder-value — placeholder value; TODO: replace 'example' with a valid value for the "promo-6-s1-text-3" field
-  // recorded action 12: fill "promo_code"
+  // recorded action 5: fill "promo_code"
   await page.locator('#promo-6-s1-f1').fill('example'); // replaytest-marker: placeholder-value — placeholder value; TODO: replace 'example' with a valid value for the "promo_code" field
   // If submit is blocked by a required field the recording didn't capture (e.g. a masked input), add its synthetic fill above.
-  // recorded action 13: click "Apply code"
+  // recorded action 6: click "Apply code"
   await page.getByTestId('promo-6-s1-submit').click();
 
   await expect(page).toHaveURL(baseURL === undefined ? /^(?:[^/]+:\/\/[^/]+)?\/flows\/promo-6\/step\/[^\/]+$/ : new RegExp('^' + new URL(baseURL).origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\/flows\\/promo-6\\/step\\/[^\\/]+$')); // baseURL undefined: retain the sidecar's stored pattern unchanged.

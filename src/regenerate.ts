@@ -8,7 +8,8 @@
 
 import { appScopeDisclosure, scopeSessionsByWitnessedUrls, type AppScope, type AppScopeDisclosure } from './app-scope.js';
 import { canonicalizePath, extractPathname, type WizardStepParamNames } from './canonical-url.js';
-import { isPlannableJourney, journeyOrigins, segmentJourneys } from './journeys.js';
+import { isPlannableJourney, journeyOrigins, SEGMENTATION_VERSION, segmentJourneys } from './journeys.js';
+import { eventsPlannableIndex, JourneyIndexError } from './journey-index.js';
 import type { NeutralSession } from './neutral-session.js';
 import type { CoarseSession } from './providers/posthog-adapter.js';
 import {
@@ -17,7 +18,7 @@ import {
   type RetirementEvidenceStatus,
 } from './retirement-evidence.js';
 import { findSignatureCandidates, journeySignature } from './selection.js';
-import { buildSidecar, fidelityRegressionSummary, renderPlanMarkdown, SIGNATURE_SEMANTICS_VERSION, signatureSemanticsReview, type Sidecar, type SidecarEmptySearch, type SidecarFidelityRegression, type SidecarStep, type SidecarSuccessorObservation } from './sidecar.js';
+import { buildSidecar, fidelityRegressionSummary, needsSegmentationReview, renderPlanMarkdown, SEGMENTATION_MIGRATION_REVIEW_NOTE, SIGNATURE_SEMANTICS_VERSION, signatureSemanticsReview, type Sidecar, type SidecarEmptySearch, type SidecarFidelityRegression, type SidecarStep, type SidecarSuccessorObservation } from './sidecar.js';
 import {
   deriveScanDegradation,
   diffSidecars,
@@ -159,13 +160,25 @@ export async function regeneratePlan(opts: RegenerateOptions): Promise<Regenerat
 
   const scoped = scopeSessionsByWitnessedUrls(scan.sessions, (session) => session.navPath, opts.scope);
   const scopeDisclosure = appScopeDisclosure(scoped, opts.scope);
-  const stale = signatureSemanticsReview(opts.sidecar.source, opts.paramNames);
+  // Two different staleness markers, two different consequences. A plan whose
+  // SIGNATURE SEMANTICS are stale cannot be matched by exact signature, so Tier
+  // A is skipped and matching goes by journey kinship. A plan that is stale
+  // only on SEGMENTATION (no `segmentationVersion`, or an older one — every
+  // plan written before visits and wizard steps were recognised) keeps Tier A:
+  // a fresh session that still holds the exact journey is the best evidence
+  // the journey is unchanged; the result carries the review note.
+  const staleSegmentation = needsSegmentationReview(opts.sidecar.source);
+  const staleSignature = signatureSemanticsReview(opts.sidecar.source, opts.paramNames);
+  const staleNotes = [
+    ...(staleSignature === undefined ? [] : ['Signature predates current rules — matching by similar journeys instead']),
+    ...(staleSegmentation ? [SEGMENTATION_MIGRATION_REVIEW_NOTE.replace(/^ⓘ /, '').replace(/\.$/, '')] : []),
+  ];
   const searchBase = {
     sinceHours: opts.sinceHours,
     signature,
     signatureSource,
     ...(scopeDisclosure === undefined ? {} : { appScope: scopeDisclosure }),
-    ...(stale === undefined ? {} : { staleSignature: 'signature predates current rules — matching by journey kinship instead' }),
+    ...(staleNotes.length === 0 ? {} : { staleSignature: staleNotes.join('. ') }),
   };
   const degraded = deriveScanDegradation(scan.meta);
   if (degraded !== undefined) {
@@ -182,15 +195,32 @@ export async function regeneratePlan(opts: RegenerateOptions): Promise<Regenerat
     };
   }
 
-  const tierACandidates = stale === undefined
+  const tierACandidates = staleSignature === undefined
     ? signatureCandidates(scoped.sessions, signature, opts.sidecar.source.sessionId, opts.paramNames)
     : [];
   let tierAAttempted = 0;
   const crossOriginCandidates: string[][] = [];
+  // A candidate whose deep load holds no journey with the searched signature
+  // is one miss, not the search's answer: the search moves on to the next
+  // candidate, and `segmentation-changed` is returned only when EVERY attempted
+  // candidate was such a miss. A candidate that could not be given a journey
+  // index is also one miss; the index refusal is returned only after the whole
+  // search, when nothing built.
+  let segmentationMisses = 0;
+  let indexErrors = 0;
   for (const candidate of tierACandidates) {
     tierAAttempted += 1;
     progress(`Regenerate: checking Tier A candidate ${tierAAttempted}/${tierACandidates.length}.`);
-    const built = await buildCandidate(opts, candidate, signature, 'same-signature', liveOrigin);
+    const built = await buildCandidate(opts, candidate, signature, 'same-signature', liveOrigin, undefined, staleSegmentation);
+    if (built.kind === 'index-error') {
+      // Defensive: a journey plannable with the recording is plannable on events alone, so its index resolves.
+      indexErrors += 1;
+      continue;
+    }
+    if (built.kind === 'segmentation-changed') {
+      segmentationMisses += 1;
+      continue;
+    }
     if (built.kind === 'cross-origin') {
       crossOriginCandidates.push(built.origins);
       continue;
@@ -219,7 +249,16 @@ export async function regeneratePlan(opts: RegenerateOptions): Promise<Regenerat
     for (const candidate of variantCandidates) {
       tierBAttempted += 1;
       progress(`Regenerate: checking Tier B successor ${tierBAttempted}/${tierBCandidates} (${variant.signature}).`);
-      const built = await buildCandidate(opts, candidate, variant.signature, 'successor-flow', liveOrigin, variant.kinshipSegments);
+      const built = await buildCandidate(opts, candidate, variant.signature, 'successor-flow', liveOrigin, variant.kinshipSegments, staleSegmentation);
+      if (built.kind === 'index-error') {
+        // Defensive: a journey plannable with the recording is plannable on events alone, so its index resolves.
+        indexErrors += 1;
+        continue;
+      }
+      if (built.kind === 'segmentation-changed') {
+        segmentationMisses += 1;
+        continue;
+      }
       if (built.kind === 'cross-origin') {
         crossOriginCandidates.push(built.origins);
         continue;
@@ -247,6 +286,19 @@ export async function regeneratePlan(opts: RegenerateOptions): Promise<Regenerat
       search: { ...searchBase, ...counts },
     };
   }
+  if (segmentationMisses > 0 && segmentationMisses === tierAAttempted + tierBAttempted) {
+    // Recorded nothing: a boundary change is not evidence that the flow is gone.
+    return segmentationChangedRefusal(signature, signatureSource, searchBase, counts);
+  }
+  if (indexErrors > 0) {
+    // Defensive (unreachable through the production fetchers, see above).
+    // Recorded nothing: a candidate held the journey, so the flow is not gone.
+    return journeyIndexRefusal(signature, signatureSource, searchBase, counts, crossOriginCandidates, liveOrigin);
+  }
+  // Any other mix (a withheld cross-origin candidate, a candidate holding the
+  // journey that is not plannable, alongside segmentation misses) is the
+  // ordinary no-candidates answer, which carries the review note and the
+  // withheld-candidate disclosure.
   const entryNote = entryChanged ? ' Fresh traffic no longer shares the recorded entry page, so Tier B has no kin variants to inspect.' : '';
   // The genuine no-candidates path records an empty-search entry on the live
   // sidecar (the fetch-threw and degraded-scan paths never reach here — a scan
@@ -291,6 +343,8 @@ type CoarseCandidate = { distinctId: string; sessionId: string; lastTs: string }
 
 type CandidateBuild =
   | { kind: 'not-plannable' }
+  | { kind: 'index-error' }
+  | { kind: 'segmentation-changed' }
   | { kind: 'cross-origin'; origins: string[] }
   // No `diff` here by design: the consent diff is computed in
   // `resultFor`, after the `source.regeneration` stamp lands on the sidecar.
@@ -303,6 +357,7 @@ async function buildCandidate(
   tier: RegenerateTier,
   liveOrigin: string | undefined,
   kinshipSegments?: number,
+  staleSegmentation = false,
 ): Promise<CandidateBuild> {
   let sessions: NeutralSession[];
   try {
@@ -312,9 +367,15 @@ async function buildCandidate(
   }
   const session = sessions.find((item) => item.id === candidate.sessionId);
   if (session === undefined) return { kind: 'not-plannable' };
-  const plannable = segmentJourneys(session).filter(isPlannableJourney);
+  const allJourneys = segmentJourneys(session);
+  const plannable = allJourneys.filter(isPlannableJourney);
   const journey = plannable.find((item) => journeySignature(item, opts.paramNames) === expectedSignature);
-  if (journey === undefined) return { kind: 'not-plannable' };
+  if (journey === undefined) {
+    if (staleSegmentation && !allJourneys.some((item) => journeySignature(item, opts.paramNames) === expectedSignature)) {
+      return { kind: 'segmentation-changed' };
+    }
+    return { kind: 'not-plannable' };
+  }
   const origins = journeyOrigins(journey);
   const foreignOrigin = liveOrigin !== undefined && origins.some((origin) => origin !== liveOrigin);
   // A candidate without an absolute witnessed origin cannot prove it belongs
@@ -325,14 +386,22 @@ async function buildCandidate(
     return { kind: 'cross-origin', origins };
   }
 
+  let journeyIndex: number;
+  try {
+    journeyIndex = eventsPlannableIndex(session, allJourneys, journey);
+  } catch (error) {
+    if (!(error instanceof JourneyIndexError)) throw error;
+    return { kind: 'index-error' };
+  }
   const sidecar = buildSidecar(journey, {
     distinctId: session.distinctId,
     sessionId: session.id,
-    journeyIndex: plannable.indexOf(journey),
+    journeyIndex,
     viewport: session.viewport,
     witnessedConsole: session.witnessedConsole,
     witnessedExceptions: session.witnessedExceptions,
     signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
     wizardStepParamNames: opts.paramNames,
   });
   return {
@@ -486,7 +555,7 @@ function noCandidateRefusal(
     ? trail === undefined
       ? 'Widen --since-hours, re-run after fresh traffic arrives, or retire/re-plan this path.'
       : renderTrailRecovery(opts.slug, trail)
-    : `ⓘ ${base.staleSignature}. Tier A was skipped by construction; re-plan this path with \`replaytest plan ${opts.sidecar.source.distinctId} --session ${opts.sidecar.source.sessionId}\`.`;
+    : `ⓘ ${base.staleSignature}. ${signatureSemanticsReview(opts.sidecar.source, opts.paramNames) === undefined ? 'Re-plan' : 'Tier A was skipped by construction; re-plan'} this path with \`replaytest plan ${opts.sidecar.source.distinctId} --session ${opts.sidecar.source.sessionId}\`.`;
   return {
     kind: 'refusal',
     code: 'no-candidates',
@@ -497,6 +566,46 @@ function noCandidateRefusal(
     // recorded nothing, so publishing a status there would imply the run
     // counted for something.
     ...(trail === undefined ? {} : { retirement: trail }),
+  };
+}
+
+function journeyIndexRefusal(
+  signature: string,
+  signatureSource: RegenerateSearch['signatureSource'],
+  base: Omit<RegenerateSearch, 'tierA' | 'tierB'>,
+  counts: Pick<RegenerateSearch, 'tierA' | 'tierB'>,
+  crossOriginCandidates: readonly string[][] = [],
+  liveOrigin: string | undefined = undefined,
+): RegenerateRefusal {
+  return {
+    kind: 'refusal',
+    code: 'no-candidates',
+    message: `Cannot regenerate safely: this journey could not be matched to its place in the recorded session. Re-plan it from the retained session.${crossOriginCandidates.length === 0 ? '' : ` ${crossOriginWithheldMessage(crossOriginCandidates, liveOrigin)}`}`,
+    exitCode: 1,
+    search: { ...base, signature, signatureSource, ...counts },
+  };
+}
+
+/**
+ * Returned only after the whole search: every candidate was tried, none built,
+ * and EVERY attempted candidate's deep load held no journey with the searched
+ * signature (the recorded one in Tier A, a successor's in Tier B) while this
+ * plan predates the current segmentation. Any other miss in the mix (withheld
+ * cross-origin, holds the journey but not plannable) gets the no-candidates
+ * refusal instead, so nothing withheld goes unsaid.
+ */
+function segmentationChangedRefusal(
+  signature: string,
+  signatureSource: RegenerateSearch['signatureSource'],
+  base: Omit<RegenerateSearch, 'tierA' | 'tierB'>,
+  counts: Pick<RegenerateSearch, 'tierA' | 'tierB'>,
+): RegenerateRefusal {
+  return {
+    kind: 'refusal',
+    code: 'segmentation-changed',
+    message: `Cannot regenerate: none of the fresh sessions checked holds "${signature}", or a successor of it, as a single journey — this plan was built by an earlier version of replaytest, so its journey may have been split or extended. Re-plan it from the retained session.`,
+    exitCode: 1,
+    search: { ...base, signature, signatureSource, ...counts },
   };
 }
 
@@ -608,7 +717,15 @@ function originalJourneyOrigin(
   }
   const session = sessions.find((candidate) => candidate.id === sidecar.source.sessionId);
   if (session === undefined) return undefined;
+  if (needsSegmentationReview(sidecar.source)) return undefined;
   const journey = segmentJourneys(session).filter(isPlannableJourney)[sidecar.source.journeyIndex];
+  const recordedSignature = sidecar.source.signature?.trim();
+  if (
+    journey !== undefined &&
+    recordedSignature !== undefined &&
+    recordedSignature.length > 0 &&
+    journeySignature(journey, sidecar.source.wizardStepParamNames) !== recordedSignature
+  ) return undefined;
   return journey === undefined ? undefined : originFromAbsoluteUrl(journey.entryUrl);
 }
 

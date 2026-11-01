@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 
 import { assertDemoStore, buildDemoStore, DEMO_STORE_SOURCE_PATH, type DemoStore } from '../../scripts/dashboard-demo-store.js';
 import { handleRequest, readDemoStore, readDemoUnavailableMessage } from './server.js';
+import { stepOrdinal } from '../journey-outcome.js';
 
 const DASHBOARD_INDEX_PATH = path.resolve('src/dashboard/index.html');
 
@@ -52,13 +53,48 @@ test('demo store is bounded, synthetic, and cross-tab coherent', () => {
 
 test('demo Sessions completion counts sum the sessions in each status, not journey families', () => {
   const { completionCounts, sessions } = buildDemoStore().sessions as {
-    completionCounts: { completed: number; navigated: number };
-    sessions: Array<{ status: string; sessionCount: number }>;
+    completionCounts: Record<string, number>;
+    sessions: Array<{ status: string; sessionCount: number; finality?: string }>;
   };
-  assert.deepEqual(completionCounts, {
-    completed: sessions.reduce((total, row) => total + (row.status === 'completed' ? row.sessionCount : 0), 0),
-    navigated: sessions.reduce((total, row) => total + (row.status === 'navigated' ? row.sessionCount : 0), 0),
-  });
+  const statusCount = (status: string) => sessions.reduce((total, row) => total + (row.status === status ? row.sessionCount : 0), 0);
+  assert.equal(completionCounts.completed, statusCount('completed'));
+  assert.equal(completionCounts.abandonedMidFlow, statusCount('abandoned-mid-flow'));
+  assert.equal(completionCounts.navigated, statusCount('navigated'));
+  assert.equal(completionCounts.submitted, statusCount('submitted'));
+  assert.equal(completionCounts.abandoned, statusCount('abandoned'));
+  assert.equal(
+    completionCounts.completed + completionCounts.abandonedMidFlow + completionCounts.navigated + completionCounts.submitted + completionCounts.abandoned,
+    sessions.reduce((total, row) => total + row.sessionCount, 0),
+  );
+  assert.deepEqual(new Set(sessions.map((row) => row.status)), new Set(['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'abandoned']));
+});
+
+/**
+ * The demo Sessions list is an events-only scan, so it shows only what one can produce — the same
+ * limits its own ⓘ states. Each clause below is a thing the demo once showed and must not.
+ */
+test('demo Sessions list shows only what an events-only scan can produce', () => {
+  const { completionCounts, sessions } = buildDemoStore().sessions as {
+    completionCounts: Record<string, number>;
+    sessions: Array<{ rank: number; status: string; finality?: string; stoppedAtStep?: number; examplePaths: string[]; plannable?: boolean; lifecycle?: string }>;
+  };
+  assert.deepEqual(sessions.filter((row) => row.status === 'error-after-submit').map((row) => row.rank), [], 'no Error after submit rows');
+  assert.deepEqual(sessions.filter((row) => row.finality === 'witnessed').map((row) => row.rank), [], 'no finish-checked rows');
+  assert.equal('completedWitnessed' in completionCounts, false, 'no finish-checked count');
+  assert.equal('errorAfterSubmit' in completionCounts, false, 'no error-after-submit count');
+  // A real Stopped mid-flow row always carries its step: the status needs a later step of the same
+  // flow, read from the page URL by the same rule (`stepOrdinal`), and only those rows carry one.
+  const pageStep = (url: string) => stepOrdinal(new URL(url, 'http://demo.invalid').href);
+  const midFlowWithoutStep = sessions.filter((row) => row.status === 'abandoned-mid-flow' && row.stoppedAtStep === undefined);
+  assert.deepEqual(midFlowWithoutStep.map((row) => row.rank), [], 'every Stopped mid-flow row shows "(at step N)"');
+  const stepless = sessions.filter((row) => row.stoppedAtStep !== undefined && pageStep(row.examplePaths.at(-1) ?? '') !== row.stoppedAtStep);
+  assert.deepEqual(stepless.map((row) => row.rank), [], 'every "(at step N)" is the step number of the row\'s last page');
+  assert.deepEqual(sessions.filter((row) => row.status !== 'abandoned-mid-flow' && row.stoppedAtStep !== undefined).map((row) => row.rank), [], 'only Stopped mid-flow rows carry a step');
+  // The five suite-covered ranks carry a plan and a test, so their statuses must be plannable.
+  const unplannableSuiteRanks = sessions
+    .filter((row) => row.rank <= 5)
+    .filter((row) => !(row.status === 'completed' || ((row.status === 'abandoned-mid-flow' || row.status === 'navigated') && row.plannable === true)));
+  assert.deepEqual(unplannableSuiteRanks.map((row) => `${row.rank}:${row.status}`), []);
 });
 
 /**

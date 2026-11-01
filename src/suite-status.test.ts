@@ -16,7 +16,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { runSuiteStatus } from './cli.js';
-import { segmentJourneys, type Journey } from './journeys.js';
+import { SEGMENTATION_VERSION, segmentJourneys, type Journey } from './journeys.js';
 import type { NeutralSession, NeutralStep, NeutralTarget } from './neutral-session.js';
 import type { CapMetadata, CoarseSession } from './providers/posthog-adapter.js';
 import { buildSidecar, SIGNATURE_SEMANTICS_VERSION, type Sidecar } from './sidecar.js';
@@ -93,7 +93,15 @@ function firstJourney(session: NeutralSession): Journey {
 
 function sidecarFor(session: NeutralSession): Sidecar {
   const journey = firstJourney(session);
-  return buildSidecar(journey, { distinctId: session.distinctId, sessionId: session.id, journeyIndex: 0, viewport: session.viewport });
+  return buildSidecar(journey, {
+    distinctId: session.distinctId,
+    sessionId: session.id,
+    journeyIndex: 0,
+    viewport: session.viewport,
+    signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
+    wizardStepParamNames: ['step'],
+  });
 }
 
 function coarseFromSession(session: NeutralSession): CoarseSession {
@@ -228,7 +236,9 @@ test('collectSuiteStatusReport: old sidecars are marked needs-review without cha
   const { plansDir, generatedTestsDir } = mkTempDirs(t);
   const session = sessionFromSteps('old-sidecar', 'u1', orderSteps('8f31c2'));
   const fresh = sessionFromSteps('fresh-sidecar', 'u2', orderSteps('a1b2c3'));
-  writeSidecar(plansDir, 'old-wizard', sidecarFor(session));
+  const oldSidecar = sidecarFor(session);
+  delete oldSidecar.source.signatureSemanticsVersion;
+  writeSidecar(plansDir, 'old-wizard', oldSidecar);
 
   const report = await collectSuiteStatusReport({
     plansDir,
@@ -239,10 +249,68 @@ test('collectSuiteStatusReport: old sidecars are marked needs-review without cha
   assert.equal(report.entries[0]?.verdict, 'covered');
   assert.deepEqual(report.entries[0]?.signatureSemanticsNeedsReview, {
     kind: 'older-url-semantics',
-    note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+    note: 'ⓘ This plan was built under different URL rules.',
   });
-  assert.match(renderSuiteStatusReport(report), /Needs review — URL signature semantics/);
+  assert.equal(report.entries[0]?.segmentationNeedsReview, undefined, 'this fixture isolates signature review');
+  assert.match(renderSuiteStatusReport(report), /Plans need review/);
   assert.match(renderSuiteStatusReport(report), /replaytest plan u1 --session old-sidecar/);
+  assert.match(renderSuiteStatusReport(report), /^  Re-run plan for each listed session\.$/m);
+  assert.doesNotMatch(renderSuiteStatusReport(report), /--force|reconcile --apply/, 'the full clearing steps stay behind the dashboard ⓘ and in the docs');
+  assert.match(formatSuiteStatusJson(report), /"signatureSemanticsNeedsReview"/);
+});
+
+test('collectSuiteStatusReport: a dead plan built before the visit-boundary upgrade carries its review reason', async (t: TestContext) => {
+  const { plansDir, generatedTestsDir } = mkTempDirs(t);
+  const oldBoundaries = sidecarFor(sessionFromSteps('dead-old-boundaries', 'u1', orderSteps('8f31c2')));
+  delete oldBoundaries.source.segmentationVersion;
+  writeSidecar(plansDir, 'dead-old-boundaries', oldBoundaries);
+
+  const report = await collectSuiteStatusReport({
+    plansDir,
+    generatedTestsDir,
+    fetchers: { fetchCoarseSessions: () => ({ sessions: [], meta: fakeMeta([]) }) },
+  });
+
+  assert.equal(report.entries[0]?.verdict, 'dead');
+  assert.deepEqual(report.entries[0]?.segmentationNeedsReview, {
+    kind: 'older-journey-boundaries',
+    note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.',
+  });
+  assert.match(formatSuiteStatusJson(report), /"segmentationNeedsReview"/);
+  assert.ok(
+    renderSuiteStatusReport(report).includes([
+      'Plans need review (1):',
+      '- dead-old-boundaries:',
+      '  ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.',
+      '  replaytest plan u1 --session dead-old-boundaries',
+      '  Re-run plan for each listed session.',
+    ].join('\n')),
+    'the dead entry lists its visit-grouping reason, its command, and the short action line',
+  );
+});
+
+test('collectSuiteStatusReport: a malformed recognized-name list makes one plan unresolvable without stopping the report', async (t: TestContext) => {
+  const { plansDir, generatedTestsDir } = mkTempDirs(t);
+  const malformed = sidecarFor(sessionFromSteps('malformed-names', 'u1', orderSteps('8f31c2')));
+  (malformed.source as { wizardStepParamNames?: unknown }).wizardStepParamNames = [7];
+  writeSidecar(plansDir, 'a-malformed-names', malformed);
+  const healthy = sidecarFor(sessionFromSteps('healthy-names', 'u2', orderSteps('a1b2c3')));
+  writeSidecar(plansDir, 'b-healthy-names', healthy);
+
+  const report = await collectSuiteStatusReport({
+    plansDir,
+    generatedTestsDir,
+    fetchers: { fetchCoarseSessions: () => ({ sessions: [], meta: fakeMeta([]) }) },
+  });
+
+  const bySlug = new Map(report.entries.map((entry) => [entry.slug, entry]));
+  const broken = bySlug.get('a-malformed-names');
+  assert.equal(broken?.verdict, 'unresolvable');
+  assert.match(broken?.note ?? '', /Invalid plan review fields \(/);
+  assert.equal(broken?.signatureSemanticsNeedsReview, undefined, 'an unreadable name list yields no review reason');
+  assert.equal(broken?.segmentationNeedsReview, undefined, 'an unreadable name list yields no review reason');
+  assert.equal(bySlug.get('b-healthy-names')?.verdict, 'dead', 'the other plan is still checked');
+  assert.doesNotMatch(renderSuiteStatusReport(report), /Plans need review/);
 });
 
 test('collectSuiteStatusReport: a changed effective name-list is detected when the sidecar recorded one', async (t: TestContext) => {
@@ -260,7 +328,7 @@ test('collectSuiteStatusReport: a changed effective name-list is detected when t
   });
 
   assert.equal(report.entries[0]?.signatureSemanticsNeedsReview?.kind, 'recognized-param-names-changed');
-  assert.match(report.entries[0]?.signatureSemanticsNeedsReview?.note ?? '', /current names are \[step, phase\]/);
+  assert.match(report.entries[0]?.signatureSemanticsNeedsReview?.note ?? '', /different URL parameters.*\[step, phase\]/);
 });
 
 test('collectSuiteStatusReport: a corrupted plan.json is "unresolvable", never counted as dead, and never crashes the pass', async (t: TestContext) => {

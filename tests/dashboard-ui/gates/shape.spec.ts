@@ -88,16 +88,35 @@ test.describe('dashboard page shape', () => {
     // The approved copy replaced the four one-line statuses with ONE sentence. Pinned verbatim, so the
     // gate is red if the summary is reworded without a copy-table row — and the two-step shape
     // (summary → Full ladder → the untouched four-column ladder) is what the rest of this test holds.
-    await expect(summary, 'the current row-36 status summary, verbatim').toContainText(
-      "How far the user's journey got — not whether you have a test for it. Completed: a submit, then a different page. Navigated: typing, then a different page, with no submit seen.",
+    // Re-pinned with the six-status vocabulary: the six short ladder definitions, the Unchecked
+    // sentence and the footnote's one events-only sentence (the finish-checked definition and the
+    // full footnote stay behind "See how we decide").
+    await expect(summary, 'the current status summary, verbatim').toContainText(
+      "How far the user's journey got — not whether you have a test for it. Completed: a submit then a distinct landing, with no unfinished step or refused submit seen · Stopped mid-flow: reached the next step of a flow, then stopped there · Error after submit: an error appeared after submit and its form stayed or reappeared · Navigated: typed input then a new landing, with no submit seen · Submitted: a submit with no new page and no error seen · Abandoned: no rule above matched. Unchecked: we saw the user reach a new page, but did not see whether it was the last step. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit.",
     );
+    await expect(summary, 'no command back-ticks or finish-checked definition in the header summary').not.toContainText(/`|Finish checked means/);
+    // This one popover sizes to its text: no inner scroll, no sentence cut at the box edge, and the
+    // link is the element under the pointer without any scrolling (other popovers keep the 260px cap).
+    const fit = await summary.evaluate((popover) => {
+      const link = [...popover.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'See how we decide');
+      const box = popover.getBoundingClientRect();
+      const linkBox = link?.getBoundingClientRect();
+      return {
+        innerScroll: popover.scrollHeight > popover.clientHeight + 1,
+        linkInsideBox: linkBox !== undefined && linkBox.bottom <= box.bottom + 0.5 && linkBox.top >= box.top - 0.5,
+        linkUnderPointer: linkBox !== undefined && document.elementFromPoint(linkBox.left + linkBox.width / 2, linkBox.top + linkBox.height / 2) === link,
+        insideWindow: box.top >= 0 && box.bottom <= window.innerHeight,
+      };
+    });
+    expect(fit, 'the Status summary shows all its text and its link without scrolling').toEqual({ innerScroll: false, linkInsideBox: true, linkUnderPointer: true, insideWindow: true });
     await summary.getByRole('button', { name: 'See how we decide' }).click({ timeout: 2000 });
     const ladder = page.locator('[data-testid="dash-popover-status"]');
     await expect(ladder, 'the ladder kept its own test id behind the link').toBeVisible({ timeout: 2000 });
     // The inventory's ladder is four columns and one row per status — pinned as an exact COUNT,
     // never `> 0`: a ladder that lost a status would keep any floor worth writing.
     await expect(ladder.locator('thead th')).toHaveCount(4);
-    await expect(ladder.locator('tbody tr')).toHaveCount(4);
+    // One row per journey status: six since Stopped mid-flow and Error after submit joined the ladder.
+    await expect(ladder.locator('tbody tr')).toHaveCount(6);
   });
 
   test('empty drawer sections are absent, with one muted not-measured line', async ({ page, dashboardBaseUrl }) => {

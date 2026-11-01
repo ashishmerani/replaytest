@@ -249,7 +249,16 @@ export function paritySessionsResponse() {
     suiteScan: { state: 'complete', filesScanned: 14, capped: false, skippedStandardDirs: false, maxFiles: 500, maxFileBytes: 524288, note: 'A best-effort local match.' },
     needsReview: {
       count: 1,
-      plans: [{ slug: 'fixture-legacy', kind: 'older-url-semantics', note: 'Built under older signature rules.', replanCommand: 'replaytest plan fixture-user-legacy' }],
+      plans: [{
+        slug: 'fixture-legacy',
+        kind: 'older-url-semantics',
+        note: 'ⓘ This plan was built under different URL rules.',
+        reasons: [
+          { kind: 'older-url-semantics', note: 'ⓘ This plan was built under different URL rules.' },
+          { kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' },
+        ],
+        replanCommand: 'replaytest plan fixture-user-legacy',
+      }],
     },
     completionCounts: { completed: 8, navigated: 4, submitted: 6, abandoned: 14, submitThenNav: 8, commitThenNewRoute: 4 },
     completionCoverage: { sessionsScanned: 32, totalSessionsAtScanStart: 32, capped: false },
@@ -419,8 +428,8 @@ async function jsonRoute(route: Route, body: unknown, delayMs = 0): Promise<void
 const RECHECK_DELAY_MS = 750;
 
 /** Fulfills dashboard data locally so no provider endpoint is contacted. */
-export async function installParityRoutes(page: Page): Promise<void> {
-  await page.route('**/api/sessions**', (route) => jsonRoute(route, paritySessionsResponse(), route.request().url().includes('check=1') ? RECHECK_DELAY_MS : 0));
+export async function installParityRoutes(page: Page, sessionsResponse = paritySessionsResponse()): Promise<void> {
+  await page.route('**/api/sessions**', (route) => jsonRoute(route, sessionsResponse, route.request().url().includes('check=1') ? RECHECK_DELAY_MS : 0));
   await page.route('**/api/suite-health**', (route) => jsonRoute(route, paritySuiteHealthResponse(), route.request().url().includes('refresh=1') ? RECHECK_DELAY_MS : 0));
   await page.route('**/api/plans', (route) => jsonRoute(route, parityPlansResponse()));
   await page.route('**/api/tests', (route) => jsonRoute(route, parityTestsResponse()));

@@ -75,7 +75,8 @@ export interface CompletionCensusEntry {
 }
 
 export interface CompletionCensus {
-  version: 1;
+  /** Readers return v2; v1 remains in the type for injected legacy readers. */
+  version: 1 | 2;
   latest: CompletionCensusEntry;
   history: CompletionCensusEntry[];
 }
@@ -95,7 +96,10 @@ export function isCompletionCounts(value: unknown): value is CompletionCounts {
     isCount(value.submitted) &&
     isCount(value.abandoned) &&
     isCount(value.submitThenNav) &&
-    isCount(value.commitThenNewRoute);
+    isCount(value.commitThenNewRoute) &&
+    (value.completedWitnessed === undefined || isCount(value.completedWitnessed)) &&
+    (value.abandonedMidFlow === undefined || isCount(value.abandonedMidFlow)) &&
+    (value.errorAfterSubmit === undefined || isCount(value.errorAfterSubmit));
 }
 
 /** Parses an operator corpus label of the form `<app>:<wave>`; anything else is no label at all. */
@@ -144,11 +148,11 @@ export function isCompletionCensusEntry(value: unknown): value is CompletionCens
 }
 
 export function parseCompletionCensus(value: unknown): CompletionCensus | undefined {
-  if (!isRecord(value) || value.version !== 1 || !isCompletionCensusEntry(value.latest) || !Array.isArray(value.history)) {
+  if (!isRecord(value) || value.version !== 2 || !isCompletionCensusEntry(value.latest) || !Array.isArray(value.history)) {
     return undefined;
   }
   if (!value.history.every(isCompletionCensusEntry)) return undefined;
-  return { version: 1, latest: value.latest, history: value.history };
+  return { version: 2, latest: value.latest, history: value.history };
 }
 
 export function readCompletionCensus(root: string): CompletionCensus | undefined {
@@ -215,7 +219,7 @@ export function writeCompletionCensus(
       .filter((candidate, index, entries) => entries.findIndex((other) => other.scannedAt === candidate.scannedAt) === index);
     // Under protected-set pressure, `latest` may be absent from `history` and `history[0]` may not be the newest overall; the known reader searches `[latest, ...history]`.
     const retainedHistory = retainCompletionCensusHistory(history, historyLimit);
-    const census: CompletionCensus = { version: 1, latest: entry, history: retainedHistory };
+    const census: CompletionCensus = { version: 2, latest: entry, history: retainedHistory };
     const filePath = path.resolve(root, COMPLETION_CENSUS_PATH);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     writeStateFile('completion-census', filePath, `${JSON.stringify(census, null, 2)}\n`, { stateLockHandle: lock, publicationLedger });

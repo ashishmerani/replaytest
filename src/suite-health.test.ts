@@ -1154,14 +1154,45 @@ test('assembleSuiteHealth: regression evidence renders witnessed counts and repl
     plans: [plan('pay')],
     healEnvelope: envelope({
       observedSpecs: [{ file: 'generated/pay.spec.ts', outcome: 'failed' }],
-      slugs: [{ slug: 'pay', verdict: 'regression-evidence', report: { evidence: { statusDistribution: { completed: 2, submitted: 1, abandoned: 2, nonCompleted: [{ sessionId: 'replay-a' }, { sessionId: 'replay-b' }] }, selectorFreshness: { changed: [] } }, window: { sinceHours: 720 } } }],
+      slugs: [{ slug: 'pay', verdict: 'regression-evidence', report: { evidence: { statusDistribution: { completed: 2, completedWitnessed: 1, abandonedMidFlow: 3, errorAfterSubmit: 4, submitted: 1, abandoned: 2, nonCompleted: [{ sessionId: 'replay-a' }, { sessionId: 'replay-b' }] }, selectorFreshness: { changed: [] } }, window: { sinceHours: 720 } } }],
     }),
   }));
   const diagnosis = model.rows[0].diagnosis;
-  assert.match(diagnosis.summary, /2 completed and 3 did not/);
+  // Two plain sentences: what passed and what did not, then what counts as neither.
+  assert.equal(
+    diagnosis.summary,
+    'In the sampled matching journeys, 2 completed (1 with the finish checked) and 7 did not, 4 of them with an error after submit (last 720h window). Another 3 stopped mid-flow, which count as neither.',
+  );
+  assert.doesNotMatch(diagnosis.summary, /at a planned step/);
+  assert.equal(diagnosis.evidence?.completedWitnessed, 1);
+  assert.equal(diagnosis.evidence?.abandonedMidFlow, 3);
+  assert.equal(diagnosis.evidence?.errorAfterSubmit, 4);
   assert.deepEqual(diagnosis.evidence?.replaySessionIds, ['replay-a', 'replay-b']);
   assert.doesNotMatch(diagnosis.summary, /users are failing/i);
   assert.doesNotMatch(diagnosis.summary, /navigated/, 'a sample with no navigated journeys says nothing about them');
+});
+
+test('assembleSuiteHealth: for a plan that stopped mid-flow, fresh Stopped mid-flow matches reach the plan\'s page, as triage counts them', () => {
+  // Triage counts completed + stopped mid-flow as reaching a Stopped mid-flow plan's final page
+  // (`reachedPlanFinalPage`). The summary must not call those matches "neither".
+  const statusDistribution = { completed: 2, completedWitnessed: 1, abandonedMidFlow: 3, errorAfterSubmit: 4, submitted: 1, abandoned: 2, navigated: 1, nonCompleted: [] };
+  const summaryFor = (planOutcome: string | undefined): string => assembleSuiteHealth(input({
+    specs: [spec('pay')],
+    plans: [plan('pay')],
+    healEnvelope: envelope({
+      observedSpecs: [{ file: 'generated/pay.spec.ts', outcome: 'failed' }],
+      slugs: [{ slug: 'pay', verdict: 'regression-evidence', report: { evidence: { statusDistribution: { ...statusDistribution, ...(planOutcome === undefined ? {} : { planOutcome }) }, selectorFreshness: { changed: [] } }, window: { sinceHours: 720 } } }],
+    }),
+  })).rows[0].diagnosis.summary;
+  assert.equal(
+    summaryFor('abandoned-mid-flow'),
+    'In the sampled matching journeys, 5 reached the plan\'s final page and 7 did not, 4 of them with an error after submit (last 720h window). Of the 5, 2 completed (1 with the finish checked) and 3 stopped mid-flow, as the recorded journey did. Another 1 navigated (typed input then a new landing, with no submit seen), which count as neither.',
+  );
+  // A completed plan (no planOutcome) keeps Stopped mid-flow as neither.
+  assert.equal(
+    summaryFor(undefined),
+    'In the sampled matching journeys, 2 completed (1 with the finish checked) and 7 did not, 4 of them with an error after submit (last 720h window). Another 3 stopped mid-flow and 1 navigated (typed input then a new landing, with no submit seen), which count as neither.',
+  );
 });
 
 test('assembleSuiteHealth: regression prose NAMES navigated rather than understating the sample it was drawn from', () => {
@@ -1177,9 +1208,10 @@ test('assembleSuiteHealth: regression prose NAMES navigated rather than understa
     }),
   }));
   const diagnosis = model.rows[0].diagnosis;
-  assert.match(diagnosis.summary, /2 completed and 3 did not/);
-  assert.match(diagnosis.summary, /4 navigated/);
-  assert.match(diagnosis.summary, /counted as neither/);
+  assert.equal(
+    diagnosis.summary,
+    'In the sampled matching journeys, 2 completed and 3 did not (last 720h window). Another 4 navigated (typed input then a new landing, with no submit seen), which count as neither.',
+  );
   assert.equal(diagnosis.evidence?.navigated, 4);
 });
 

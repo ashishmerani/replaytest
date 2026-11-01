@@ -26,7 +26,7 @@ import * as path from 'node:path';
 
 import { appScopeDisclosure, scopeSessionsByWitnessedUrls, type AppScope, type AppScopeDisclosure } from './app-scope.js';
 import { canonicalizePath, extractPathname, type WizardStepParamNames } from './canonical-url.js';
-import { signatureSemanticsReview, type SignatureSemanticsReview } from './sidecar.js';
+import { PLAN_REVIEW_CLEARING_NOTE, planReviewReasons, type PlanReviewReason, type SegmentationReview, type SignatureSemanticsReview } from './sidecar.js';
 import { fetchCoarseSessions, resolveSessionScanHours } from './providers/posthog-adapter.js';
 import { findSignatureCandidates } from './selection.js';
 import { parseSidecarJson, type TriageFetchers } from './triage.js';
@@ -63,6 +63,10 @@ export interface SuiteStatusEntry {
   signatureSemanticsNeedsReview?: SignatureSemanticsReview;
   /** Present exactly with the migration marker; regenerates this plan's key. */
   signatureSemanticsReplanCommand?: string;
+  /** Visit-boundary review stays separate from the 0.1.0 signature field. */
+  segmentationNeedsReview?: SegmentationReview;
+  /** Present with segmentationNeedsReview; re-runs this plan's recorded session. */
+  segmentationReplanCommand?: string;
   note: string;
   /** Additive lifecycle projection; absent on callers that predate lifecycle projection. */
   lifecycle?: SpecLifecycleResult['lifecycle'];
@@ -266,13 +270,33 @@ export async function collectSuiteStatusReport(opts: SuiteStatusCollectOptions):
       continue;
     }
 
-    const signatureReview = signatureSemanticsReview(
-      parsed.sidecar.source,
-      opts.wizardStepParamNames ?? ['step'],
-    );
+    let reviewReasons: PlanReviewReason[];
+    try {
+      reviewReasons = planReviewReasons(parsed.sidecar.source, opts.wizardStepParamNames ?? ['step']);
+    } catch (err) {
+      entries.push({
+        slug,
+        verdict: 'unresolvable',
+        hasSpec,
+        drift,
+        note: buildUnresolvableNote(`Invalid plan review fields (${err instanceof Error ? err.message : String(err)}).`),
+      });
+      continue;
+    }
+    const signatureReview = reviewReasons.find((reason): reason is SignatureSemanticsReview => reason.kind !== 'older-journey-boundaries');
+    const segmentationReview = reviewReasons.find((reason): reason is SegmentationReview => reason.kind === 'older-journey-boundaries');
     const signatureSemanticsReplanCommand = signatureReview === undefined
       ? undefined
       : buildReplanCommand(parsed.sidecar.source.distinctId, parsed.sidecar.source.sessionId);
+    const segmentationReplanCommand = segmentationReview === undefined
+      ? undefined
+      : buildReplanCommand(parsed.sidecar.source.distinctId, parsed.sidecar.source.sessionId);
+    const reviewFields = {
+      ...(signatureReview === undefined ? {} : { signatureSemanticsNeedsReview: signatureReview }),
+      ...(signatureSemanticsReplanCommand === undefined ? {} : { signatureSemanticsReplanCommand }),
+      ...(segmentationReview === undefined ? {} : { segmentationNeedsReview: segmentationReview }),
+      ...(segmentationReplanCommand === undefined ? {} : { segmentationReplanCommand }),
+    };
     const signature = parsed.sidecar.source.signature;
     if (signature === undefined || signature.trim().length === 0) {
       entries.push({
@@ -280,8 +304,7 @@ export async function collectSuiteStatusReport(opts: SuiteStatusCollectOptions):
         verdict: 'unresolvable',
         hasSpec,
         drift,
-        ...(signatureReview === undefined ? {} : { signatureSemanticsNeedsReview: signatureReview }),
-        ...(signatureSemanticsReplanCommand === undefined ? {} : { signatureSemanticsReplanCommand }),
+        ...reviewFields,
         note: buildUnresolvableNote(
           'This plan predates recorded signatures (an older sidecar) — dead-coverage cannot be checked without one. Re-run "replaytest plan" for this journey to add one.',
         ),
@@ -329,8 +352,7 @@ export async function collectSuiteStatusReport(opts: SuiteStatusCollectOptions):
         ...(deadCoverageQualifier === undefined ? {} : { deadCoverageQualifier }),
         hasSpec,
         drift,
-        ...(signatureReview === undefined ? {} : { signatureSemanticsNeedsReview: signatureReview }),
-        ...(signatureSemanticsReplanCommand === undefined ? {} : { signatureSemanticsReplanCommand }),
+        ...reviewFields,
         note:
           deadCoverageQualifier === undefined
             ? buildDeadNote(sinceHours)
@@ -343,8 +365,7 @@ export async function collectSuiteStatusReport(opts: SuiteStatusCollectOptions):
         candidatesFound: exactCandidates.length,
         hasSpec,
         drift,
-        ...(signatureReview === undefined ? {} : { signatureSemanticsNeedsReview: signatureReview }),
-        ...(signatureSemanticsReplanCommand === undefined ? {} : { signatureSemanticsReplanCommand }),
+        ...reviewFields,
         note: buildCoveredNote(exactCandidates.length, sinceHours),
       });
     }
@@ -437,13 +458,17 @@ export function renderSuiteStatusReport(report: SuiteStatusReport): string {
     }
   }
 
-  const needsReview = report.entries.filter((entry) => entry.signatureSemanticsNeedsReview !== undefined);
+  const needsReview = report.entries.filter((entry) => entry.signatureSemanticsNeedsReview !== undefined || entry.segmentationNeedsReview !== undefined);
   if (needsReview.length > 0) {
-    lines.push('', `Needs review — URL signature semantics (${needsReview.length}):`);
+    lines.push('', `Plans need review (${needsReview.length}):`);
     for (const entry of needsReview) {
-      lines.push(`- ${entry.slug}: ${entry.signatureSemanticsNeedsReview?.note}`);
-      if (entry.signatureSemanticsReplanCommand !== undefined) lines.push(`  ${entry.signatureSemanticsReplanCommand}`);
+      lines.push(`- ${entry.slug}:`);
+      if (entry.signatureSemanticsNeedsReview !== undefined) lines.push(`  ${entry.signatureSemanticsNeedsReview.note}`);
+      if (entry.segmentationNeedsReview !== undefined) lines.push(`  ${entry.segmentationNeedsReview.note}`);
+      const replanCommand = entry.signatureSemanticsReplanCommand ?? entry.segmentationReplanCommand;
+      if (replanCommand !== undefined) lines.push(`  ${replanCommand}`);
     }
+    lines.push(`  ${PLAN_REVIEW_CLEARING_NOTE}`);
   }
 
   const missingSpec = report.entries.filter((e) => !e.hasSpec && e.drift.relocatedSpec === undefined);

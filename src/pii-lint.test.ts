@@ -23,8 +23,72 @@ import {
   privacyGitIgnoreWarningCopy,
   scanForPii,
 } from './pii-lint.js';
+import { decodeFullReplayStream, enrichNeutralSessionWithReplayEvidence } from './providers/posthog-adapter.js';
 
 const providerTokenFixture = `phc_${'a'.repeat(30)}`;
+
+test('recording evidence privacy: raw DOM identity and content never leave the adapter', () => {
+  const sentinel = 'fabricatedprivacyvalueqx73';
+  const element = (id: number, tagName: string, attributes: Record<string, unknown> = {}, childNodes: unknown[] = []) =>
+    ({ type: 2, id, tagName, attributes, childNodes });
+  const text = (id: number, textContent: string) => ({ type: 3, id, textContent });
+  // Recording and steps on one clock, so the recording lines up with the visits it holds.
+  const epoch = Date.UTC(2026, 0, 15, 10, 0, 0);
+  const at = (ms: number) => new Date(epoch + ms).toISOString();
+  const events = [
+    ['window', { type: 4, timestamp: epoch + 100, data: { href: 'https://app.example.test/account/login' } }],
+    ['window', { type: 2, timestamp: epoch + 101, data: { node: element(1, 'main', { id: sentinel, class: sentinel }, [
+      element(2, 'form', { id: 'login-form' }, [
+        element(3, 'input', { name: 'email', type: 'text', value: sentinel }),
+        element(4, 'button', { type: 'submit' }, [text(5, 'Sign in')]),
+      ]),
+    ]) } }],
+    ['window', { type: 3, timestamp: epoch + 200, data: { source: 2, type: 2, id: 4 } }],
+    ['window', { type: 3, timestamp: epoch + 250, data: { source: 0, adds: [
+      { parentId: 1, node: element(6, 'p', { id: sentinel, class: sentinel, 'data-testid': sentinel }, [text(7, sentinel)]) },
+      { parentId: 1, node: element(8, `x-${sentinel}`, {
+        role: sentinel,
+        'aria-live': sentinel,
+        'data-status': sentinel,
+        'data-type': sentinel,
+        'data-variant': sentinel,
+        'data-severity': sentinel,
+      }, [text(9, sentinel)]) },
+    ] } }],
+    ['window', { type: 4, timestamp: epoch + 400, data: { href: 'https://app.example.test/thanks' } }],
+    ['window', { type: 3, timestamp: epoch + 401, data: { source: 0, adds: [
+      { parentId: 1, node: element(10, 'form', { id: 'newsletter' }, [
+        element(11, 'input', { name: sentinel, type: 'text', value: sentinel }),
+        element(12, 'button', { type: 'submit' }, [text(13, 'Join')]),
+      ]) },
+    ] } }],
+    ['window', { type: 3, timestamp: epoch + 1_500, data: { source: 1, x: 1, y: 1 } }],
+  ];
+  const decoded = decodeFullReplayStream(events.map((event) => JSON.stringify(event)).join('\n'));
+  const steps = [
+    { kind: 'navigation' as const, url: 'https://app.example.test/account/login', at: at(0) },
+    { kind: 'submit' as const, url: 'https://app.example.test/account/login', at: at(100), target: { tag: 'form' } },
+    { kind: 'navigation' as const, url: 'https://app.example.test/thanks', at: at(300) },
+  ];
+  const session = {
+    id: 'privacy-recording-session',
+    distinctId: 'privacy-recording-user',
+    startedAt: at(0),
+    endedAt: at(300),
+    finalUrl: 'https://app.example.test/thanks',
+    steps,
+  };
+  const neutral = enrichNeutralSessionWithReplayEvidence(session, decoded, true).session;
+  const serialized = JSON.stringify(neutral);
+  // Broadest matcher: case-insensitive, and any 8-character run of the
+  // sentinel counts, so a truncated or re-cased copy is still a leak.
+  const haystack = serialized.toLowerCase();
+  const leakedRuns = Array.from({ length: sentinel.length - 7 }, (_value, index) => sentinel.slice(index, index + 8))
+    .filter((run) => haystack.includes(run));
+  assert.deepEqual(leakedRuns, [], 'the broad sentinel matcher finds no raw identity or content');
+  assert.equal(neutral.steps[1]?.afterSubmit?.appeared.some((entry) => entry.tag === 'other'), true);
+  assert.equal(neutral.steps[2]?.landing?.unrelatedOpenForm, 'filled');
+});
 
 // ---------------------------------------------------------------------------
 // email — hits

@@ -14,7 +14,9 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { gzipSync } from 'node:zlib';
+import { Worker } from 'node:worker_threads';
 
 import { DEFAULT_SESSION_SCAN_HOURS } from '../session-scan-defaults.js';
 import { isTransientProbePath, readSourceFile, transientProbePath, withSourceSnapshotRetry } from '../test-discovery.js';
@@ -50,6 +52,11 @@ import {
   extractWitnessedRageClicks,
   parseFullSnapshotTrees,
   decodeFullReplayStream,
+  enrichNeutralSessionWithReplayEvidence,
+  fetchReplayPayload,
+  enrichSessionsFromReplay,
+  fullSnapshotTreesFromDecode,
+  BLOB_FETCH_WINDOW,
   buildDomIndex,
   enrichTargetsFromDom,
   buildRouteTimeline,
@@ -93,6 +100,7 @@ import {
   type RouteTimelineEntry,
   type RouteEnrichment,
   type DecodedFullSnapshot,
+  type ReplayStreamWindow,
 } from './posthog-adapter.js';
 import type { NeutralMaskedField, NeutralSession, NeutralStep, NeutralTarget } from '../neutral-session.js';
 import { ReplaytestUserFacingError } from '../user-facing-error.js';
@@ -237,6 +245,47 @@ test('$autocapture change maps to an input step with id/name target and no value
   assert.equal('value' in step, false);
   assert.ok(step.target);
   assert.equal('value' in step.target, false);
+});
+
+test('toNeutralSession marks input steps in landmark or role-based page chrome without changing main-form inputs', () => {
+  const timestamp = (second: number): string => new Date(Date.UTC(2026, 6, 2, 0, 0, second)).toISOString();
+  const [session] = toNeutralSession([
+    row({
+      timestamp: timestamp(0),
+      event: '$autocapture',
+      event_type: 'change',
+      url: 'http://app.test/',
+      elements_chain: 'input:attr__name="q";form;header;body',
+    }),
+    row({
+      timestamp: timestamp(1),
+      event: '$autocapture',
+      event_type: 'change',
+      url: 'http://app.test/',
+      elements_chain: 'input:attr__name="search";div:attr__role="search";body',
+    }),
+    row({
+      timestamp: timestamp(2),
+      event: '$autocapture',
+      event_type: 'change',
+      url: 'http://app.test/',
+      elements_chain: 'input:attr__name="email";form:attr__id="main-form";main;body',
+    }),
+    ...[
+      'input:attr__name="nav-q";form;nav;body',
+      'input:attr__name="footer-email";form;footer;body',
+      'input:attr__name="aside-q";form;aside;body',
+      'input:attr__name="side-q";div:attr__role="complementary";body',
+    ].map((elements_chain, index) => row({
+      timestamp: timestamp(3 + index),
+      event: '$autocapture',
+      event_type: 'change',
+      url: 'http://app.test/',
+      elements_chain,
+    })),
+  ]);
+
+  assert.deepEqual(session?.steps.map((step) => step.inPageChrome), [true, true, undefined, true, true, true, true]);
 });
 
 test('$autocapture submit maps to a submit step', () => {
@@ -2120,6 +2169,54 @@ test('decodeFullReplayStream: untuples tuple and bare lines, gzip-decodes FullSn
   ]);
 });
 
+test('decodeFullReplayStream: unpacks all gzip+latin1 arrays on an incremental mutation event', () => {
+  const packed = (value: unknown): string => gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1');
+  const mutationData = {
+    source: 0,
+    adds: packed([{ parentId: 5, nextId: null, node: { type: 2, tagName: 'p', id: 6 } }]),
+    attributes: packed([{ id: 5, attributes: { 'aria-live': 'polite' } }]),
+    removes: packed([{ parentId: 5, id: 4 }]),
+    texts: packed([{ id: 7, value: 'Save failed' }]),
+  };
+  const result = decodeFullReplayStream(JSON.stringify([
+    'packed-mutation-window',
+    { type: 3, timestamp: 100, data: mutationData },
+  ]));
+
+  assert.equal(result.malformedLinesSkipped, 0);
+  assert.deepEqual(result.windows[0]?.events, [{
+    type: 3,
+    timestamp: 100,
+    data: {
+      source: 0,
+      adds: [{ parentId: 5, nextId: null, node: { type: 2, tagName: 'p', id: 6 } }],
+      attributes: [{ id: 5, attributes: { 'aria-live': 'polite' } }],
+      removes: [{ parentId: 5, id: 4 }],
+      texts: [{ id: 7, value: 'Save failed' }],
+    },
+  }]);
+  assert.equal(result.windows[0]?.decodeIssues, undefined);
+});
+
+test('decodeFullReplayStream: skips an undecodable packed mutation and marks its stream with a plain reason', () => {
+  const jsonl = [
+    JSON.stringify(['bad-mutation-window', { type: 2, timestamp: 100, data: DECODER_FIXTURE_TREE }]),
+    JSON.stringify(['bad-mutation-window', { type: 3, timestamp: 200, data: { source: 0, texts: 'not-gzip' } }]),
+  ].join('\n');
+
+  const result = decodeFullReplayStream(jsonl);
+
+  assert.equal(result.malformedLinesSkipped, 1);
+  assert.deepEqual(result.windows, [{
+    window: 0,
+    events: [{ type: 2, timestamp: 100, data: DECODER_FIXTURE_TREE }],
+    hasFullSnapshot: true,
+    firstTimestampMs: 100,
+    lastTimestampMs: 200,
+    decodeIssues: ["Part of this session's recording could not be read. Try another recorded session of the same journey."],
+  }]);
+});
+
 test('decodeFullReplayStream: skips malformed lines honestly without throwing', () => {
   const result = decodeFullReplayStream([
     'not valid json',
@@ -2132,12 +2229,2222 @@ test('decodeFullReplayStream: skips malformed lines honestly without throwing', 
   assert.deepEqual(result.windows, [
     {
       window: 0,
+      events: [],
+      hasFullSnapshot: false,
+      firstTimestampMs: 20,
+      lastTimestampMs: 20,
+      decodeIssues: [
+        "Part of this session's recording could not be read. Try another recorded session of the same journey.",
+        "2 lines of this session's recording could not be read. Try another recorded session of the same journey.",
+      ],
+    },
+    {
+      window: 1,
       events: [{ type: 3, timestamp: 30, data: { source: 0 } }],
       hasFullSnapshot: false,
       firstTimestampMs: 30,
       lastTimestampMs: 30,
+      decodeIssues: ["2 lines of this session's recording could not be read. Try another recorded session of the same journey."],
     },
   ]);
+});
+
+test('decodeFullReplayStream: unreadable lines keep refusing every window and report a count, not joined-text line numbers', () => {
+  const good = JSON.stringify(['w', { type: 4, timestamp: 10, data: { href: 'http://app.test/' } }]);
+  const one = decodeFullReplayStream([good, '', '{"truncated', good].join('\n'));
+  assert.deepEqual(one.windows.map((window) => window.decodeIssues), [
+    ["1 line of this session's recording could not be read. Try another recorded session of the same journey."],
+  ]);
+  assert.doesNotMatch(JSON.stringify(one.windows), /\bline\s+#?\d+\b/i, 'no unreadable line number survives in a reason');
+  const many = decodeFullReplayStream([good, 'x', 'x', 'x', 'x', 'x'].join('\n'));
+  assert.deepEqual(many.windows[0]?.decodeIssues, [
+    "5 lines of this session's recording could not be read. Try another recorded session of the same journey.",
+  ]);
+  assert.doesNotMatch(JSON.stringify(many.windows), /\bline\s+#?\d+\b/i, 'plural reasons also avoid line numbers');
+});
+
+test('decodeFullReplayStream: one unreadable line marks every surviving window undecodable', () => {
+  const result = decodeFullReplayStream([
+    JSON.stringify(['first-window', { type: 4, timestamp: 10, data: { href: 'https://app.example.test/first' } }]),
+    'not valid json',
+    JSON.stringify(['second-window', { type: 4, timestamp: 20, data: { href: 'https://app.example.test/second' } }]),
+  ].join('\n'));
+  const exactReason = "1 line of this session's recording could not be read. Try another recorded session of the same journey.";
+  assert.equal(result.malformedLinesSkipped, 1);
+  assert.equal(result.windows.length, 2, 'both readable windows remain present');
+  assert.deepEqual(result.windows.map((window) => window.decodeIssues), [[exactReason], [exactReason]]);
+});
+
+test('fetchReplayPayload: the injected seam pulls an eleven-blob list in three windows and fails closed on a partial pull', async () => {
+  const keys = Array.from({ length: 11 }, (_value, index) => String(index));
+  const calls: string[] = [];
+  let blobGets = 0;
+  const replayFetch = {
+    credentials: { apiKey: 'test-key', projectId: '17' },
+    get: async (pathname: string) => {
+      calls.push(pathname);
+      if (!pathname.includes('source=blob_v2')) return { status: 200, body: JSON.stringify({ sources: keys.map((blob_key) => ({ source: 'blob_v2', blob_key })) }) };
+      blobGets += 1;
+      const windowId = `blob-window-${blobGets}`;
+      return {
+        status: 200,
+        body: JSON.stringify([windowId, { type: 4, timestamp: blobGets, data: { href: `https://app.example.test/${windowId}` } }]),
+      };
+    },
+  };
+  const pulled = await fetchReplayPayload('fixture-session', { replayFetch });
+  assert.equal(pulled.available, true);
+  assert.equal(blobGets, 3, `eleven keys use ${String(BLOB_FETCH_WINDOW)}-key GET windows`);
+  assert.equal(calls.filter((pathname) => pathname.includes('source=blob_v2')).length, 3, 'exact blob GET count');
+  assert.equal(pulled.decode?.windows.length, 3);
+
+  let partialBlobGets = 0;
+  const partial = await fetchReplayPayload('fixture-session', {
+    replayFetch: {
+      ...replayFetch,
+      get: async (pathname: string) => {
+        if (!pathname.includes('source=blob_v2')) return { status: 200, body: JSON.stringify({ sources: keys.map((blob_key) => ({ source: 'blob_v2', blob_key })) }) };
+        partialBlobGets += 1;
+        if (partialBlobGets === 3) return { status: 503, body: 'unavailable' };
+        return { status: 200, body: JSON.stringify([`partial-${partialBlobGets}`, { type: 4, timestamp: partialBlobGets, data: { href: 'https://app.example.test/' } }]) };
+      },
+    },
+  });
+  assert.equal(partialBlobGets, 3, 'the third window is attempted');
+  assert.deepEqual(partial, { available: false }, 'a partial stream never looks covered');
+});
+
+test('fetchNeutralSessionsWithDomEnrichment (its per-session half, enrichSessionsFromReplay): selector and evidence passes share one replay pull per session', async () => {
+  const keys = Array.from({ length: 11 }, (_value, index) => String(index));
+  let blobGets = 0;
+  const replayFetch = {
+    credentials: { apiKey: 'test-key', projectId: '17' },
+    get: async (pathname: string) => {
+      if (!pathname.includes('source=blob_v2')) return { status: 200, body: JSON.stringify({ sources: keys.map((blob_key) => ({ source: 'blob_v2', blob_key })) }) };
+      blobGets += 1;
+      return {
+        status: 200,
+        body: JSON.stringify([`blob-window-${blobGets}`, { type: 4, timestamp: blobGets, data: { href: 'https://app.example.test/' } }]),
+      };
+    },
+  };
+  const progressLines: string[] = [];
+  const sessions = await enrichSessionsFromReplay([evidenceSession([])], {
+    replayFetch,
+    progress: (line: string) => progressLines.push(line),
+  });
+  assert.equal(sessions.length, 1);
+  assert.equal(blobGets, 3, 'both enrichment passes consume the same three-GET replay pull');
+  const pullLines = progressLines.filter((line) => !line.startsWith('DOM enrichment:'));
+  assert.equal(pullLines.length, 4, 'one index line and three blob-window lines');
+  assert.equal(pullLines.every((line) => line.startsWith('DOM replay pull: ')), true, 'the DOM-enriched loader keeps its "DOM replay pull:" progress prefix');
+});
+
+test('fullSnapshotTreesFromDecode: the decoded stream yields the same routed trees as the raw-text parser, out-of-order lines included', () => {
+  const tree = (id: number, text: string) => gzipSync(Buffer.from(JSON.stringify({ node: { type: 2, id, tagName: 'main', attributes: {}, childNodes: [{ type: 3, id: id + 1, textContent: text }] } }), 'utf8')).toString('latin1');
+  const lines = [
+    ['w', { type: 4, timestamp: 300, data: { href: 'https://app.example.test/two' } }],
+    ['w', { type: 2, timestamp: 301, data: tree(20, 'Two') }],
+    ['w', { type: 4, timestamp: 100, data: { href: 'https://app.example.test/one' } }],
+    ['w', { type: 2, timestamp: 101, data: tree(10, 'One') }],
+  ].map((line) => JSON.stringify(line)).join('\n');
+  const fromText = parseFullSnapshotTrees(lines);
+  const fromDecode = fullSnapshotTreesFromDecode(decodeFullReplayStream(lines));
+  const byHref = (trees: DecodedFullSnapshot[]) => trees.map((entry) => JSON.stringify([entry.href, entry.timestampMs, entry.root])).sort();
+  assert.equal(fromDecode.length, 2);
+  assert.deepEqual(byHref(fromDecode), byHref(fromText));
+  assert.deepEqual(fromDecode.map((entry) => entry.href), ['https://app.example.test/one', 'https://app.example.test/two']);
+});
+
+test('events-only sessions and dashboard scan surfaces do not enter replay-stream fetch paths', () => {
+  const adapter = readSourceFile(path.resolve('src/providers/posthog-adapter.ts'));
+  const lightStart = adapter.indexOf('export function fetchNeutralSessionsLight(');
+  const lightEnd = adapter.indexOf('export async function fetchNeutralSessionsLightAsync(', lightStart);
+  assert.ok(lightStart >= 0 && lightEnd > lightStart, 'events-only session loader source boundaries resolve');
+  const lightLoader = adapter.slice(lightStart, lightEnd);
+  assert.match(lightLoader, /fetchSessionRows/);
+  assert.doesNotMatch(lightLoader, /fetchReplayPayload|fetchFullReplayStream|fetchDomSnapshot/);
+
+  const sessionsCommand = readSourceFile(path.resolve('src/cli/verbs/sessions.ts'));
+  assert.doesNotMatch(sessionsCommand, /fetchNeutralSessionsWithDomEnrichment|enrichSessionsFromReplay|fetchReplayPayload|fetchFullReplayStream|fetchDomSnapshot/);
+  const dashboardServer = readSourceFile(path.resolve('src/dashboard/server.ts'));
+  assert.doesNotMatch(dashboardServer, /fetchNeutralSessionsWithDomEnrichment|enrichSessionsFromReplay|fetchReplayPayload|fetchFullReplayStream|fetchDomSnapshot/);
+});
+
+test('decodeFullReplayStream: unpacks packed arrays on any incremental source (StyleSheetRule) and leaves an unpacked event of the same shape untouched', () => {
+  const packed = (value: unknown): string => gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1');
+  const adds = [{ rule: '.banner { color: red; }', index: 0 }];
+  const removes = [{ index: 1 }];
+  const plain = { type: 3, timestamp: 110, data: { source: 8, id: 3, adds, removes } };
+  const result = decodeFullReplayStream([
+    JSON.stringify(['w', { type: 3, timestamp: 100, cv: '2024-10', data: { source: 8, id: 3, adds: packed(adds), removes: packed(removes) } }]),
+    JSON.stringify(['w', plain]),
+  ].join('\n'));
+
+  assert.equal(result.malformedLinesSkipped, 0);
+  assert.deepEqual(result.windows[0]?.events, [
+    { type: 3, timestamp: 100, cv: '2024-10', data: { source: 8, id: 3, adds, removes } },
+    structuredClone(plain),
+  ]);
+  assert.equal(result.windows[0]?.decodeIssues, undefined);
+});
+
+test('decodeFullReplayStream: on a marked event any gzip-packed field is unpacked, while plain strings stay put', () => {
+  const packed = (value: unknown): string => gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1');
+  const declaration = { property: 'color', value: 'red', priority: '' };
+  const result = decodeFullReplayStream([
+    JSON.stringify(['w', { type: 3, timestamp: 100, cv: '2024-10', data: { source: 13, id: 3, set: packed(declaration) } }]),
+    JSON.stringify(['w', { type: 3, timestamp: 110, cv: '2024-10', data: { source: 5, id: 9, text: '***', isChecked: false } }]),
+  ].join('\n'));
+
+  assert.deepEqual(result.windows[0]?.events, [
+    { type: 3, timestamp: 100, cv: '2024-10', data: { source: 13, id: 3, set: declaration } },
+    { type: 3, timestamp: 110, cv: '2024-10', data: { source: 5, id: 9, text: '***', isChecked: false } },
+  ]);
+  assert.equal(result.windows[0]?.decodeIssues, undefined);
+});
+
+test('decodeFullReplayStream: a cv-marked whole-data gzip string decodes to an object; malformed marked data gets an issue and a plain twin stays unchanged', () => {
+  const packed = (value: unknown): string => gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1');
+  const payload = { source: 0, adds: [], attributes: [], removes: [], texts: [] };
+  const result = decodeFullReplayStream([
+    JSON.stringify(['w', { type: 3, timestamp: 10, cv: '2024-10', data: packed(payload) }]),
+    JSON.stringify(['w', { type: 3, timestamp: 20, cv: '2024-10', data: packed([]) }]),
+    JSON.stringify(['w', { type: 3, timestamp: 30, data: 'plain payload' }]),
+  ].join('\n'));
+
+  assert.deepEqual(result.windows[0]?.events, [
+    { type: 3, timestamp: 10, cv: '2024-10', data: payload },
+    { type: 3, timestamp: 30, data: 'plain payload' },
+  ]);
+  assert.deepEqual(result.windows[0]?.decodeIssues, ["Part of this session's recording could not be read. Try another recorded session of the same journey."]);
+  assert.equal(result.malformedLinesSkipped, 1);
+});
+
+test('decodeFullReplayStream: a packed field that decodes to the wrong shape is a decode issue, not a crash', () => {
+  const packed = (value: unknown): string => gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('latin1');
+  const result = decodeFullReplayStream([
+    JSON.stringify(['w', { type: 2, timestamp: 100, data: DECODER_FIXTURE_TREE }]),
+    JSON.stringify(['w', { type: 3, timestamp: 200, cv: '2024-10', data: { source: 0, adds: packed({ not: 'an array' }) } }]),
+  ].join('\n'));
+
+  assert.equal(result.malformedLinesSkipped, 1);
+  assert.deepEqual(result.windows[0]?.events, [{ type: 2, timestamp: 100, data: DECODER_FIXTURE_TREE }]);
+  assert.deepEqual(result.windows[0]?.decodeIssues, ["Part of this session's recording could not be read. Try another recorded session of the same journey."]);
+});
+
+test('decodeFullReplayStream: a FullSnapshot with null data is a decode issue, so dropped events never shift offsets silently', () => {
+  const result = decodeFullReplayStream([
+    JSON.stringify(['w', { type: 2, timestamp: 100, data: null }]),
+    JSON.stringify(['w', { type: 2, timestamp: 150, data: DECODER_FIXTURE_TREE }]),
+  ].join('\n'));
+
+  assert.equal(result.malformedLinesSkipped, 1);
+  assert.equal(result.windows[0]?.firstTimestampMs, 100);
+  assert.deepEqual(result.windows[0]?.decodeIssues, ["Part of this session's recording could not be read. Try another recorded session of the same journey."]);
+});
+
+function evidenceElement(id: number, tagName: string, attributes: Record<string, unknown> = {}, childNodes: unknown[] = []): unknown {
+  return { type: 2, id, tagName, attributes, childNodes };
+}
+
+function evidenceText(id: number, textContent: string): unknown {
+  return { type: 3, id, textContent };
+}
+
+function evidenceStep(kind: NeutralStep['kind'], path: string, ms: number): NeutralStep {
+  const url = `https://app.example.test${path}`;
+  const at = new Date(Date.UTC(2026, 0, 15, 10, 0, 0) + ms).toISOString();
+  return {
+    kind,
+    url,
+    at,
+    ...(kind === 'submit' ? { target: { tag: 'form' } } : {}),
+  };
+}
+
+function evidenceSession(steps: NeutralStep[]): NeutralSession {
+  const fallbackAt = new Date(Date.UTC(2026, 6, 2)).toISOString();
+  return {
+    id: 'evidence-session',
+    distinctId: 'evidence-user',
+    startedAt: steps[0]?.at ?? fallbackAt,
+    endedAt: steps[steps.length - 1]?.at ?? fallbackAt,
+    finalUrl: steps[steps.length - 1]?.url ?? 'https://app.example.test/',
+    steps,
+  };
+}
+
+function evidenceLandingDecode(
+  fromPath: string,
+  toPath: string,
+  forms: Array<{ id: number; controls: Array<{ tag: 'input' | 'textarea' | 'select' | 'button'; name?: string; type?: string; value?: string }> }>,
+  parentTag?: string,
+): { windows: ReplayStreamWindow[]; malformedLinesSkipped: number } {
+  const formsAdded = forms.map((form) => {
+    const parentId = parentTag === undefined ? 1 : 90;
+    const children = form.controls.map((control, controlIndex) => {
+      const id = form.id * 100 + controlIndex + 1;
+      if (control.tag === 'button') return evidenceElement(id, 'button', { type: control.type ?? 'submit' }, [evidenceText(id + 10_000, 'Continue')]);
+      return evidenceElement(id, control.tag, {
+        ...(control.name === undefined ? {} : { name: control.name }),
+        ...(control.type === undefined ? {} : { type: control.type }),
+        ...(control.value === undefined ? {} : { value: control.value }),
+      });
+    });
+    const tree = evidenceElement(form.id, 'form', {}, children);
+    return { parentId, node: tree };
+  });
+  const snapshot = evidenceFormSnapshot(fromPath, 40_000);
+  const events: unknown[] = [
+    ...snapshot,
+    { type: 3, timestamp: 40_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 5, timestamp: 40_200, data: { tag: '$pageview', payload: { href: `https://app.example.test${toPath}` } } },
+  ];
+  if (parentTag !== undefined) {
+    const wrapper = parentTag === 'role-search'
+      ? evidenceElement(90, 'div', { role: 'search' })
+      : evidenceElement(90, parentTag, parentTag === 'div' ? { class: 'navbar' } : {});
+    events.push({ type: 3, timestamp: 40_201, data: { source: 0, adds: [{ parentId: 1, node: wrapper }] } });
+  }
+  events.push({ type: 3, timestamp: 40_202, data: { source: 0, adds: formsAdded } });
+  events.push({ type: 3, timestamp: 41_300, data: { source: 1, x: 1, y: 1 } });
+  return evidenceDecode(events);
+}
+
+function landingFacts(
+  fromPath: string,
+  toPath: string,
+  forms: Array<{ id: number; controls: Array<{ tag: 'input' | 'textarea' | 'select' | 'button'; name?: string; type?: string; value?: string }> }>,
+  parentTag?: string,
+) {
+  const steps = [evidenceStep('navigation', fromPath, 0), evidenceStep('submit', fromPath, 1_000), evidenceStep('navigation', toPath, 2_000)];
+  return enrichNeutralSessionWithReplayEvidence(
+    evidenceSession(steps),
+    evidenceLandingDecode(fromPath, toPath, forms, parentTag),
+    true,
+  ).session.steps[2]?.landing;
+}
+
+test('recording evidence: landing form values use strict majorities, zero-count forms are filled, and empty wins across forms', () => {
+  const empty = { id: 100, controls: [{ tag: 'input' as const, name: 'empty', value: '' }, { tag: 'button' as const }] };
+  const filled = { id: 200, controls: [
+    ...Array.from({ length: 10 }, (_value, index) => ({ tag: 'input' as const, name: `filled-${index}`, value: 'masked' })),
+    { tag: 'button' as const },
+  ] };
+  for (const forms of [[empty, filled], [filled, empty]]) {
+    const forward = landingFacts('/checkout/step/3', '/checkout/step/4', forms);
+    assert.equal(forward?.relatedOpenForm, 'empty');
+    assert.equal(forward?.unrelatedOpenForm, 'none');
+    const unrelated = landingFacts('/checkout/step/3', '/thanks', forms);
+    assert.equal(unrelated?.relatedOpenForm, 'none');
+    assert.equal(unrelated?.unrelatedOpenForm, 'empty');
+  }
+  const noCount = landingFacts('/account/login', '/thanks', [{ id: 300, controls: [{ tag: 'input', name: 'choice', type: 'checkbox' }, { tag: 'button' }] }]);
+  assert.equal(noCount?.unrelatedOpenForm, 'filled', 'zero counted controls is present, not empty');
+  const unknownType = landingFacts('/account/login', '/thanks', [{ id: 400, controls: [{ tag: 'input', name: 'opaque', type: 'made-up', value: '' }, { tag: 'button' }] }]);
+  assert.equal(unknownType?.unrelatedOpenForm, 'empty', 'an unknown input type counts (the browser treats it as text)');
+  const emptyType = landingFacts('/account/login', '/thanks', [{ id: 410, controls: [{ tag: 'input', name: 'blank-type', type: '', value: '' }, { tag: 'button' }] }]);
+  assert.equal(emptyType?.unrelatedOpenForm, 'empty', 'an empty type attribute counts');
+  const nps = landingFacts('/account/login', '/thanks', [{ id: 420, controls: [
+    { tag: 'input', name: 'score', type: 'radio' }, { tag: 'input', name: 'score-2', type: 'radio' }, { tag: 'button' },
+  ] }]);
+  assert.equal(nps?.unrelatedOpenForm, 'filled', 'a radios-only NPS form has zero counted controls: present, not empty');
+  const review = landingFacts('/checkout/step/3', '/checkout/step/4', [{ id: 430, controls: [
+    { tag: 'input', name: 'review-name', value: 'masked' }, { tag: 'input', name: 'review-email', value: 'masked' },
+    { tag: 'textarea', name: 'review-notes', value: '' }, { tag: 'button' },
+  ] }]);
+  assert.equal(review?.relatedOpenForm, 'filled', 'a prefilled review step with one empty optional field is filled (strict majority)');
+  const hiddenAndEmpty = landingFacts('/account/login', '/thanks', [{ id: 500, controls: [
+    { tag: 'input', name: 'csrf', type: 'hidden', value: 'masked' },
+    { tag: 'input', name: 'visible', type: 'text', value: '' },
+    { tag: 'button' },
+  ] }]);
+  assert.equal(hiddenAndEmpty?.unrelatedOpenForm, 'empty', 'hidden inputs are outside the denominator');
+  const maskedSelect = landingFacts('/account/login', '/thanks', [{ id: 600, controls: [
+    { tag: 'select', name: 'country', value: '********' },
+    { tag: 'textarea', name: 'notes', value: '' },
+    { tag: 'button' },
+  ] }]);
+  assert.equal(maskedSelect?.unrelatedOpenForm, 'filled', 'masked select plus empty textarea is one of two empty');
+});
+
+test('recording evidence: URL relation alone splits open forms and main-content landmarks are honored', () => {
+  const nextStep = landingFacts('/checkout/shipping', '/checkout/payment', [{ id: 100, controls: [{ tag: 'input', name: 'payment', value: '' }, { tag: 'button' }] }]);
+  assert.equal(nextStep?.relatedOpenForm, 'none');
+  assert.equal(nextStep?.unrelatedOpenForm, 'empty', 'no step number means unrelated');
+  const stem = landingFacts('/customers/customer-1001', '/customers/customer-1002', [{ id: 200, controls: [{ tag: 'input', name: 'customer-email', value: '' }, { tag: 'button' }] }]);
+  assert.equal(stem?.unrelatedOpenForm, 'empty', 'shared naming stem never promotes an unrelated URL');
+  const header = landingFacts('/account/login', '/thanks', [{ id: 300, controls: [{ tag: 'input', name: 'search', value: '' }, { tag: 'button' }] }], 'header');
+  assert.equal(header?.relatedOpenForm, 'none');
+  assert.equal(header?.unrelatedOpenForm, 'none');
+  const roleSearch = landingFacts('/account/login', '/thanks', [{ id: 400, controls: [{ tag: 'input', name: 'search', value: '' }, { tag: 'button' }] }], 'role-search');
+  assert.equal(roleSearch?.unrelatedOpenForm, 'none');
+  const classOnlyChrome = landingFacts('/account/login', '/thanks', [{ id: 500, controls: [{ tag: 'input', name: 'search', value: '' }, { tag: 'button' }] }], 'div');
+  assert.equal(classOnlyChrome?.unrelatedOpenForm, 'empty', 'a navbar class without a landmark remains in main content');
+});
+
+/** Where `evidenceStep`'s ms 0 sits: the events clock of every synthetic evidence fixture. */
+const EVIDENCE_EPOCH_MS = Date.UTC(2026, 0, 15, 10, 0, 0);
+
+/**
+ * Puts a fixture's recording on the events clock: fixtures write recording
+ * timestamps on their own ms scale, and this shifts them so the recording's
+ * first event sits at `evidenceStep`'s ms 0 (plus `leadMs`), keeping every
+ * offset inside the recording. The lineup rule's per-pair time veto then
+ * passes or trips only where a fixture means it to.
+ */
+function onEventsClock(events: unknown[], leadMs = 0): unknown[] {
+  const stamps = events.flatMap((event) => typeof event === 'object' && event !== null && typeof (event as { timestamp?: unknown }).timestamp === 'number' ? [(event as { timestamp: number }).timestamp] : []);
+  if (stamps.length === 0) return events;
+  const shift = EVIDENCE_EPOCH_MS + leadMs - Math.min(...stamps);
+  return events.map((event) => typeof event === 'object' && event !== null && typeof (event as { timestamp?: unknown }).timestamp === 'number'
+    ? { ...(event as Record<string, unknown>), timestamp: (event as { timestamp: number }).timestamp + shift }
+    : event);
+}
+
+/** One recording window from fixture events, on the events clock (`onEventsClock`) unless `clock: 'raw'` keeps the timestamps as written. */
+function evidenceDecode(rawEvents: unknown[], decodeIssues?: string[], opts: { clock?: 'aligned' | 'raw'; leadMs?: number } = {}): { windows: ReplayStreamWindow[]; malformedLinesSkipped: number } {
+  const events = opts.clock === 'raw' ? rawEvents : onEventsClock(rawEvents, opts.leadMs);
+  const times = events.map((event) => typeof event === 'object' && event !== null && typeof (event as { timestamp?: unknown }).timestamp === 'number' ? (event as { timestamp: number }).timestamp : 0);
+  return {
+    windows: [{
+      window: 0,
+      events,
+      hasFullSnapshot: events.some((event) => typeof event === 'object' && event !== null && (event as { type?: unknown }).type === 2),
+      firstTimestampMs: Math.min(...times),
+      lastTimestampMs: Math.max(...times),
+      ...(decodeIssues === undefined ? {} : { decodeIssues }),
+    }],
+    malformedLinesSkipped: decodeIssues === undefined ? 0 : 1,
+  };
+}
+
+function evidenceFormSnapshot(path: string, timestamp: number, inputName = 'email'): unknown[] {
+  return [
+    { type: 4, timestamp, data: { href: `https://app.example.test${path}` } },
+    {
+      type: 2,
+      timestamp: timestamp + 1,
+      data: {
+        node: evidenceElement(1, 'main', {}, [
+          evidenceElement(2, 'form', { id: 'form-one' }, [
+            evidenceElement(3, 'input', { name: inputName, type: 'text' }),
+            evidenceElement(4, 'button', {}, [evidenceText(5, 'Continue')]),
+          ]),
+        ]),
+      },
+    },
+  ];
+}
+
+function evidenceRerenderLanding(opts: {
+  baselineMessages?: number;
+  landingMessages?: number;
+  baselineInvalid?: boolean;
+  landingInvalid?: boolean;
+  headerError?: boolean;
+  placeholderText?: boolean;
+  baselineMessageText?: string;
+  landingMessageText?: string;
+}) {
+  const baselineChildren = Array.from({ length: opts.baselineMessages ?? 0 }, (_value, index) =>
+    evidenceElement(20 + index * 2, 'span', { class: 'text-danger' }, [evidenceText(21 + index * 2, opts.baselineMessageText ?? 'Required')]),
+  );
+  if (opts.placeholderText) baselineChildren.push(evidenceElement(80, 'p', { id: 'promo-error', class: 'error' }));
+  const landingChildren = Array.from({ length: opts.landingMessages ?? 0 }, (_value, index) =>
+    evidenceElement(120 + index * 2, 'span', { class: 'text-danger' }, [evidenceText(121 + index * 2, opts.landingMessageText ?? 'Required')]),
+  );
+  if (opts.placeholderText) landingChildren.push(evidenceElement(180, 'p', { id: 'promo-error', class: 'error' }, [evidenceText(181, 'Try again')]));
+  const steps = [
+    evidenceStep('navigation', '/account/login', 0),
+    evidenceStep('submit', '/account/login', 1_000),
+    evidenceStep('navigation', '/account/login', 2_000),
+  ];
+  const events: unknown[] = [
+    { type: 4, timestamp: 120_000, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 120_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+      evidenceElement(3, 'input', { name: 'email', type: 'text', ...(opts.baselineInvalid ? { 'aria-invalid': 'true' } : {}) }),
+      ...baselineChildren,
+      evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Sign in')]),
+    ])]) } },
+    { type: 3, timestamp: 120_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 4, timestamp: 120_300, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 120_301, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'email', type: 'text', ...(opts.landingInvalid ? { 'aria-invalid': 'true' } : {}) }),
+      ...landingChildren,
+      evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Sign in')]),
+    ])]) } },
+  ];
+  if (opts.headerError) events.push({ type: 3, timestamp: 120_500, data: { source: 0, adds: [{
+    parentId: 11,
+    node: evidenceElement(190, 'span', { class: 'badge bg-danger' }, [evidenceText(191, 'Danger zone')]),
+  }] } });
+  events.push({ type: 3, timestamp: 121_301, data: { source: 1, x: 1, y: 1 } });
+  const session = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events), true).session;
+  return session.steps[2]?.landing;
+}
+
+function evidenceVolumeFixture(variant: 'window-count' | 'busy-window' | 'growing-live-dom', size: number): { session: NeutralSession; windows: ReplayStreamWindow[] } {
+  const events: unknown[] = [];
+  const windows: ReplayStreamWindow[] = [];
+  const steps: NeutralStep[] = [];
+  const urlFor = (index: number) => `https://app.example.test/volume/${variant.toLowerCase()}/${index}`;
+  const submitForm = (formId: number, inputId: number, buttonId: number, name: string) =>
+    evidenceElement(formId, 'form', {}, [
+      evidenceElement(inputId, 'input', { name, type: 'text', value: '' }),
+      evidenceElement(buttonId, 'button', { type: 'submit' }, [evidenceText(buttonId + 10_000, 'Continue')]),
+    ]);
+  // Steps and recording share one clock (`EVIDENCE_EPOCH_MS`): each page's
+  // navigation step sits at its recorded marker, so every page binds.
+  const pageSteps = (index: number, navigationMs = index * 2_000, submitMs = navigationMs + 1_000) => {
+    const url = urlFor(index);
+    steps.push(evidenceStep('navigation', `/volume/${variant.toLowerCase()}/${index}`, navigationMs));
+    steps.push(evidenceStep('submit', `/volume/${variant.toLowerCase()}/${index}`, submitMs));
+    return url;
+  };
+
+  if (variant === 'window-count') {
+    for (let index = 0; index < size; index += 1) {
+      const url = pageSteps(index);
+      const time = EVIDENCE_EPOCH_MS + index * 2_000;
+      const pageEvents = [
+        { type: 4, timestamp: time, data: { href: url } },
+        { type: 2, timestamp: time + 1, data: { node: evidenceElement(1, 'main', {}, [submitForm(2, 3, 4, `v1-${index}`)]) } },
+        { type: 3, timestamp: time + 2, data: { source: 2, type: 2, id: 4 } },
+      ];
+      windows.push({ window: index, events: pageEvents, hasFullSnapshot: true, firstTimestampMs: time, lastTimestampMs: time + 2 });
+    }
+  } else if (variant === 'busy-window') {
+    const url = pageSteps(0);
+    const initialNodes: unknown[] = [submitForm(2, 3, 4, 'v2-submit')];
+    for (let index = 0; index < size; index += 1) {
+      initialNodes.push(evidenceElement(100 + index, 'div', {}, [
+        evidenceElement(10_000 + index, 'p', { class: 'error' }, [evidenceText(20_000 + index, 'Temporary error')]),
+      ]));
+    }
+    events.push(
+      { type: 4, timestamp: EVIDENCE_EPOCH_MS, data: { href: url } },
+      { type: 2, timestamp: EVIDENCE_EPOCH_MS + 1, data: { node: evidenceElement(1, 'main', {}, initialNodes) } },
+      { type: 3, timestamp: EVIDENCE_EPOCH_MS + 2, data: { source: 2, type: 2, id: 4 } },
+    );
+    for (let index = 0; index < size; index += 1) {
+      events.push({
+        type: 3,
+        timestamp: EVIDENCE_EPOCH_MS + 10 + index,
+        data: {
+          source: 0,
+          removes: [{ parentId: 100 + index, id: 10_000 + index }],
+          adds: [{
+            parentId: 100 + index,
+            node: evidenceElement(30_000 + index, 'p', { class: 'error', 'aria-label': `slot-${index}` }, [evidenceText(40_000 + index, 'Temporary error')]),
+          }],
+        },
+      });
+    }
+    windows.push({ window: 0, events, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS, lastTimestampMs: EVIDENCE_EPOCH_MS + 10 + size - 1 });
+  } else {
+    const firstUrl = pageSteps(0, 0, 2);
+    events.push(
+      { type: 4, timestamp: EVIDENCE_EPOCH_MS, data: { href: firstUrl } },
+      { type: 2, timestamp: EVIDENCE_EPOCH_MS + 1, data: { node: evidenceElement(1, 'main', {}, [submitForm(2, 3, 4, 'v3-0')]) } },
+      { type: 3, timestamp: EVIDENCE_EPOCH_MS + 2, data: { source: 2, type: 2, id: 4 } },
+    );
+    // Each route change leaves a row of page content behind (the live DOM grows
+    // with N) and swaps the previous page's form for the next one, as an SPA
+    // router does; the landing watch reads every form still on the landing,
+    // so a fixture that kept N forms alive would measure N forms per landing.
+    for (let index = 1; index < size; index += 1) {
+      const url = pageSteps(index, index * 10, index * 10 + 2);
+      const base = EVIDENCE_EPOCH_MS + index * 10;
+      const formId = 100 + index * 3;
+      const inputId = formId + 1;
+      const buttonId = formId + 2;
+      const previousFormId = index === 1 ? 2 : 100 + (index - 1) * 3;
+      events.push(
+        { type: 5, timestamp: base, data: { tag: '$pageview', payload: { href: url } } },
+        { type: 3, timestamp: base + 1, data: { source: 0, removes: [{ parentId: 1, id: previousFormId }], adds: [
+          { parentId: 1, node: evidenceElement(50_000 + index, 'div', { class: 'row' }, [evidenceText(60_000 + index, `Row ${index}`)]) },
+          { parentId: 1, node: submitForm(formId, inputId, buttonId, `v3-${index}`) },
+        ] } },
+        { type: 3, timestamp: base + 2, data: { source: 2, type: 2, id: buttonId } },
+      );
+    }
+    windows.push({ window: 0, events, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS, lastTimestampMs: EVIDENCE_EPOCH_MS + (size - 1) * 10 + 2 });
+  }
+  return { session: evidenceSession(steps), windows };
+}
+
+test('recording evidence: work counter grows linearly across windows, busy mutations, and a growing live DOM', (t) => {
+  const measurements = new Map<string, number[]>();
+  for (const variant of ['window-count', 'busy-window', 'growing-live-dom'] as const) {
+    const totals: number[] = [];
+    for (const size of [256, 512, 1_024]) {
+      const fixture = evidenceVolumeFixture(variant, size);
+      const result = enrichNeutralSessionWithReplayEvidence(fixture.session, { windows: fixture.windows, malformedLinesSkipped: 0 }, true);
+      const counts = result.work;
+      totals.push(counts.total);
+      t.diagnostic(`${variant} N=${size}: total=${counts.total}, streamEvents=${counts.streamEvents}, nodeMap=${counts.nodeMapOperations}, subtree=${counts.nodeAndSubtreeIterations}, forms=${counts.liveFormIterations}, controls=${counts.controlAndNameIterations}`);
+    }
+    measurements.set(variant, totals);
+    assert.ok((totals[1] ?? 0) <= (totals[0] ?? 0) * 2.2, `${variant}: N to 2N work ratio`);
+    assert.ok((totals[2] ?? 0) <= (totals[0] ?? 0) * 4.4, `${variant}: N to 4N work ratio`);
+  }
+  assert.ok(measurements.has('window-count') && measurements.has('busy-window') && measurements.has('growing-live-dom'));
+});
+
+/** The fixture's own live node count after its last event, replayed independently of the adapter (FullSnapshot, adds, subtree removes). */
+function fixtureLiveNodeCount(events: unknown[]): number {
+  const children = new Map<number, number[]>();
+  const live = new Set<number>();
+  const addTree = (node: { id: number; childNodes?: unknown[] }, parentId?: number) => {
+    live.add(node.id);
+    if (parentId !== undefined) children.set(parentId, [...(children.get(parentId) ?? []), node.id]);
+    for (const child of node.childNodes ?? []) addTree(child as { id: number; childNodes?: unknown[] }, node.id);
+  };
+  const removeTree = (id: number) => {
+    const stack = [id];
+    while (stack.length > 0) {
+      const next = stack.pop() as number;
+      live.delete(next);
+      stack.push(...(children.get(next) ?? []));
+      children.delete(next);
+    }
+  };
+  for (const event of events as Array<{ type: number; data: { node?: { id: number }; source?: number; removes?: Array<{ id: number }>; adds?: Array<{ parentId: number; node: { id: number } }> } }>) {
+    if (event.type === 2 && event.data.node !== undefined) {
+      live.clear();
+      children.clear();
+      addTree(event.data.node);
+    }
+    if (event.type === 3 && event.data.source === 0) {
+      for (const remove of event.data.removes ?? []) removeTree(remove.id);
+      for (const add of event.data.adds ?? []) addTree(add.node, add.parentId);
+    }
+  }
+  return live.size;
+}
+
+test('recording evidence: the growing-live-dom volume variant keeps a live DOM that grows with N (2N + 3 nodes)', () => {
+  const counts = [256, 512, 1_024].map((size) => fixtureLiveNodeCount(evidenceVolumeFixture('growing-live-dom', size).windows[0]?.events ?? []));
+  assert.deepEqual(counts, [515, 1_027, 2_051], 'one content row left behind per route change: the live DOM at N, 2N and 4N');
+});
+
+test('recording evidence: a page-change keeps persistent error evidence, judges the old form before the next snapshot, and preserves click-ended evidence', () => {
+  const submit = evidenceStep('submit', '/checkout', 1_000);
+  const steps = [evidenceStep('navigation', '/checkout', 0), submit, evidenceStep('navigation', '/done', 2_000)];
+  const initial = evidenceFormSnapshot('/checkout', 10_000);
+  const anchor = { type: 3, timestamp: 10_100, data: { source: 2, type: 2, id: 4 } };
+  const addError = { type: 3, timestamp: 10_150, data: { source: 0, adds: [{ parentId: 2, node: evidenceElement(6, 'p', { class: 'flow-error' }, [evidenceText(7, 'Could not continue')]) }] } };
+  const redirect = { type: 5, timestamp: 10_400, data: { tag: '$pageview', payload: { href: 'https://app.example.test/done' } } };
+
+  const nextPage = { type: 2, timestamp: 10_401, data: { node: evidenceElement(20, 'main', {}, [evidenceText(21, 'Done')]) } };
+  const persistent = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, anchor, addError, redirect, nextPage]), true).session;
+  assert.deepEqual(persistent.steps[1]?.afterSubmit, {
+    coverage: 'covered', windowMs: 300, formStillPresent: true, fieldsMarkedInvalid: 0,
+    appeared: [{ how: 'added', tag: 'p', errorTokens: ['error'], successTokens: [] }],
+  });
+
+  const removeError = { type: 3, timestamp: 10_250, data: { source: 0, removes: [{ parentId: 2, id: 6 }] } };
+  const transient = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, anchor, addError, removeError, redirect]), true).session;
+  assert.deepEqual(transient.steps[1]?.afterSubmit, {
+    coverage: 'covered', windowMs: 300, formStillPresent: true, fieldsMarkedInvalid: 0, appeared: [], goneAtPageChange: 1,
+  });
+
+  const clickEndedSteps = [
+    evidenceStep('navigation', '/checkout', 0), submit,
+    evidenceStep('click', '/checkout', 1_300), evidenceStep('navigation', '/done', 2_000),
+  ];
+  const clickEnded = enrichNeutralSessionWithReplayEvidence(evidenceSession(clickEndedSteps), evidenceDecode([
+    ...initial, anchor, addError, removeError,
+    { type: 3, timestamp: 10_300, data: { source: 2, type: 2, id: 8 } }, redirect,
+  ]), true).session;
+  assert.deepEqual(clickEnded.steps[1]?.afterSubmit, {
+    coverage: 'covered', windowMs: 200, formStillPresent: true, fieldsMarkedInvalid: 0,
+    appeared: [{ how: 'added', tag: 'p', errorTokens: ['error'], successTokens: [] }],
+  });
+});
+
+test('recording evidence: page-change boundaries use event order, while clipped positives and SPA removals retain their own state', () => {
+  const submit = evidenceStep('submit', '/checkout', 1_000);
+  const steps = [evidenceStep('navigation', '/checkout', 0), submit, evidenceStep('navigation', '/done', 2_000)];
+  const initial = evidenceFormSnapshot('/checkout', 50_000);
+  const anchor = { type: 3, timestamp: 50_100, data: { source: 2, type: 2, id: 4 } };
+  const error = { type: 3, timestamp: 50_200, data: { source: 0, adds: [{ parentId: 1, node: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Could not continue')]) }] } };
+  const route = { type: 5, timestamp: 50_200, data: { tag: '$pageview', payload: { href: 'https://app.example.test/done' } } };
+  const before = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, anchor, error, route]), true).session;
+  assert.equal(before.steps[1]?.afterSubmit?.appeared[0]?.errorTokens[0], 'error', 'a same-time mutation before the marker is inside the window');
+  const after = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, anchor, route, error]), true).session;
+  assert.deepEqual(after.steps[1]?.afterSubmit?.appeared, [], 'the same-time mutation after the marker is outside the window');
+
+  const clippedSteps = [evidenceStep('navigation', '/checkout', 0), submit, evidenceStep('navigation', '/done', 2_000)];
+  const clipped = enrichNeutralSessionWithReplayEvidence(evidenceSession(clippedSteps), evidenceDecode([...initial, anchor, error]), true).session;
+  assert.equal(clipped.steps[1]?.afterSubmit?.coverage, 'clipped', 'the event navigation is after the recording ends');
+  assert.equal(clipped.steps[1]?.afterSubmit?.appeared[0]?.errorTokens[0], 'error', 'a positive from the recorded part survives clipping');
+
+  const removedForm = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    anchor,
+    { type: 3, timestamp: 50_150, data: { source: 0, removes: [{ parentId: 1, id: 2 }] } },
+    route,
+  ]), true).session;
+  assert.equal(removedForm.steps[1]?.afterSubmit?.formStillPresent, false, 'the SPA removed the form before its route marker');
+
+  const afterPageChange = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    anchor,
+    route,
+    { ...error, timestamp: 50_300 },
+  ]), true).session;
+  assert.deepEqual(afterPageChange.steps[1]?.afterSubmit?.appeared, [], 'an element first added after the new occurrence starts is not borrowed');
+});
+
+test('recording evidence: a success message on an auto-redirect is never an error or a gone-error count', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('navigation', '/done', 2_000)];
+  const initial = evidenceFormSnapshot('/checkout', 55_000);
+  const anchor = { type: 3, timestamp: 55_100, data: { source: 2, type: 2, id: 4 } };
+  const success = { type: 3, timestamp: 55_200, data: { source: 0, adds: [{ parentId: 2, node: evidenceElement(6, 'div', { class: 'alert-success' }, [evidenceText(7, 'Saved')]) }] } };
+  const route = { type: 5, timestamp: 55_400, data: { tag: '$pageview', payload: { href: 'https://app.example.test/done' } } };
+  const kept = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, anchor, success, route]), true).session.steps[1]?.afterSubmit;
+  assert.equal(kept?.appeared.some((entry) => entry.errorTokens.length > 0), false);
+  assert.equal(kept?.goneAtPageChange, undefined);
+  const removed = { type: 3, timestamp: 55_300, data: { source: 0, removes: [{ parentId: 2, id: 6 }] } };
+  const cleared = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, anchor, success, removed, route]), true).session.steps[1]?.afterSubmit;
+  assert.deepEqual(cleared?.appeared, []);
+  assert.equal(cleared?.goneAtPageChange, undefined, 'dropped success entries never increment the error-only count');
+});
+
+test('recording evidence: a field mark cleared before an app-driven page change contributes only to the gone count', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('navigation', '/done', 2_000)];
+  const initial = evidenceFormSnapshot('/checkout', 56_000);
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    { type: 3, timestamp: 56_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 56_150, data: { source: 0, attributes: [{ id: 3, attributes: { 'aria-invalid': 'true' } }] } },
+    { type: 3, timestamp: 56_250, data: { source: 0, attributes: [{ id: 3, attributes: { 'aria-invalid': null } }] } },
+    { type: 5, timestamp: 56_400, data: { tag: '$pageview', payload: { href: 'https://app.example.test/done' } } },
+  ]), true).session.steps[1]?.afterSubmit;
+  assert.equal(result?.fieldsMarkedInvalid, 0);
+  assert.deepEqual(result?.appeared, []);
+  assert.equal(result?.goneAtPageChange, 1);
+});
+
+test('recording evidence: a same-URL reload stops error ownership at the next submit interaction', () => {
+  const steps = [
+    evidenceStep('navigation', '/account/login', 0),
+    evidenceStep('submit', '/account/login', 1_000),
+    evidenceStep('navigation', '/account/login', 2_000),
+    evidenceStep('submit', '/account/login', 2_500),
+  ];
+  const events = [
+    ...evidenceFormSnapshot('/account/login', 60_000),
+    { type: 3, timestamp: 60_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 4, timestamp: 60_300, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 60_301, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Sign in')]),
+    ])]) } },
+    { type: 3, timestamp: 60_500, data: { source: 2, type: 2, id: 14 } },
+    { type: 3, timestamp: 60_600, data: { source: 0, adds: [{ parentId: 12, node: evidenceElement(16, 'p', { class: 'error' }, [evidenceText(17, 'Try again')]) }] } },
+  ];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events), true).session;
+  assert.equal(result.steps[2]?.landing?.rePresentsSubmittedForm, true);
+  assert.equal(result.steps[2]?.landing?.errorShown, undefined, 'the user acted before the landing error appeared');
+  assert.equal(result.steps[3]?.afterSubmit?.appeared[0]?.errorTokens[0], 'error', 'the second refusal belongs to the second submit');
+});
+
+test('recording evidence: aria-invalid and added error classes mark fields, with success cancellation applied', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const initial = [
+    { type: 4, timestamp: 70_000, data: { href: 'https://app.example.test/checkout' } },
+    { type: 2, timestamp: 70_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+      evidenceElement(5, 'div', { class: 'field-row' }, [evidenceElement(3, 'input', { name: 'email', type: 'text' })]),
+      evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(6, 'Continue')]),
+    ])]) } },
+    { type: 3, timestamp: 70_100, data: { source: 2, type: 2, id: 4 } },
+  ];
+  const aria = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    { type: 3, timestamp: 70_200, data: { source: 0, attributes: [{ id: 3, attributes: { 'aria-invalid': 'true' } }] } },
+  ]), true).session;
+  assert.equal(aria.steps[1]?.afterSubmit?.fieldsMarkedInvalid, 1);
+  const bootstrap = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    { type: 3, timestamp: 70_200, data: { source: 0, attributes: [{ id: 5, attributes: { class: 'field-row is-invalid' } }] } },
+  ]), true).session;
+  assert.equal(bootstrap.steps[1]?.afterSubmit?.fieldsMarkedInvalid, 1);
+  const successCancelled = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    { type: 3, timestamp: 70_200, data: { source: 0, attributes: [
+      { id: 5, attributes: { class: 'alert-success' } },
+      { id: 3, attributes: { 'aria-invalid': 'true' } },
+    ] } },
+  ]), true).session;
+  assert.equal(successCancelled.steps[1]?.afterSubmit?.fieldsMarkedInvalid, 0);
+});
+
+test('recording evidence: style, hidden, class, visibility, and text changes reveal only newly visible messages', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const run = (existing: unknown, change: unknown) => {
+    const initial = evidenceFormSnapshot('/checkout', 130_000);
+    const snapshot = initial[1] as { data: { node: { childNodes: Array<{ childNodes: unknown[] }> } } };
+    snapshot.data.node.childNodes[0]?.childNodes.push(existing);
+    const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+      ...initial,
+      { type: 3, timestamp: 130_100, data: { source: 2, type: 2, id: 4 } },
+      change,
+    ]), true).session;
+    return result.steps[1]?.afterSubmit?.appeared;
+  };
+  const cases: Array<{ name: string; existing: unknown; change: unknown }> = [
+    {
+      name: 'object display reveals a snapshot-hidden message',
+      existing: evidenceElement(6, 'p', { id: 'promo-error', class: 'error', style: 'display:none' }, [evidenceText(7, 'Try again')]),
+      change: { type: 3, timestamp: 130_200, data: { source: 0, attributes: [{ id: 6, attributes: { style: { display: 'block' } } }] } },
+    },
+    {
+      name: 'display false removes the hiding declaration',
+      existing: evidenceElement(6, 'p', { class: 'error', style: 'display:none' }, [evidenceText(7, 'Try again')]),
+      change: { type: 3, timestamp: 130_200, data: { source: 0, attributes: [{ id: 6, attributes: { style: { display: false } } }] } },
+    },
+    {
+      name: 'hidden null reveals a message',
+      existing: evidenceElement(6, 'p', { class: 'error', hidden: '' }, [evidenceText(7, 'Try again')]),
+      change: { type: 3, timestamp: 130_200, data: { source: 0, attributes: [{ id: 6, attributes: { hidden: null } }] } },
+    },
+    {
+      name: 'visibility toggle reveals a message',
+      existing: evidenceElement(6, 'p', { class: 'error', style: { visibility: 'hidden' } }, [evidenceText(7, 'Try again')]),
+      change: { type: 3, timestamp: 130_200, data: { source: 0, attributes: [{ id: 6, attributes: { style: { visibility: 'visible' } } }] } },
+    },
+    {
+      name: 'removing a hiding class reveals a message',
+      existing: evidenceElement(6, 'p', { class: 'error hidden' }, [evidenceText(7, 'Try again')]),
+      change: { type: 3, timestamp: 130_200, data: { source: 0, attributes: [{ id: 6, attributes: { class: 'error' } }] } },
+    },
+    {
+      name: 'setting text in an existing empty error element',
+      existing: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, '')]),
+      change: { type: 3, timestamp: 130_200, data: { source: 0, texts: [{ id: 7, value: 'Try again' }] } },
+    },
+  ];
+  for (const fixture of cases) {
+    const appeared = run(fixture.existing, fixture.change);
+    assert.equal(appeared?.[0]?.errorTokens.includes('error'), true, fixture.name);
+    assert.equal(appeared?.[0]?.how, fixture.name.startsWith('setting text') ? 'text-set' : 'shown', fixture.name);
+  }
+  const beforeAnchor = run(
+    evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Try again')]),
+    { type: 3, timestamp: 130_200, data: { source: 1, x: 1, y: 1 } },
+  );
+  assert.deepEqual(beforeAnchor, [], 'an already-visible message does not reappear');
+  const custom = run(
+    evidenceElement(6, 'div', {}),
+    { type: 3, timestamp: 130_200, data: { source: 0, adds: [{ parentId: 1, node: evidenceElement(8, 'mat-error', { role: 'alert', class: 'error' }, [evidenceText(9, 'Try again')]) }] } },
+  );
+  assert.equal(custom?.[0]?.tag, 'other', 'custom tag names map to the closed other member');
+  assert.deepEqual(custom?.[0]?.errorTokens, ['error']);
+  const roleOnly = run(
+    evidenceElement(6, 'div'),
+    { type: 3, timestamp: 130_200, data: { source: 0, adds: [{ parentId: 1, node: evidenceElement(8, 'div', { role: 'alert', 'aria-live': 'polite' }, [evidenceText(9, 'Saved')]) }] } },
+  );
+  assert.equal(roleOnly?.every((entry) => entry.errorTokens.length === 0 && entry.successTokens.length === 0), true, 'role and live values never become error or success tokens');
+  const muiSuccess = run(
+    evidenceElement(6, 'div'),
+    { type: 3, timestamp: 130_200, data: { source: 0, adds: [{ parentId: 1, node: evidenceElement(8, 'div', { class: 'MuiAlert-standardSuccess' }, [evidenceText(9, 'Saved')]) }] } },
+  );
+  assert.deepEqual(muiSuccess?.[0]?.successTokens, ['success']);
+  assert.deepEqual(muiSuccess?.[0]?.errorTokens, []);
+  const chakraSuccess = run(
+    evidenceElement(6, 'div'),
+    { type: 3, timestamp: 130_200, data: { source: 0, adds: [{ parentId: 1, node: evidenceElement(8, 'div', { 'data-status': 'success' }, [evidenceText(9, 'Saved')]) }] } },
+  );
+  assert.deepEqual(chakraSuccess?.[0]?.successTokens, ['success']);
+  const hiddenAncestor = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 131_000),
+    { type: 3, timestamp: 131_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 131_200, data: { source: 0, adds: [{ parentId: 1, node: evidenceElement(8, 'div', { style: 'display:none' }, [
+      evidenceElement(9, 'p', { class: 'error' }, [evidenceText(10, 'Try again')]),
+    ]) }] } },
+  ]), true).session;
+  assert.deepEqual(hiddenAncestor.steps[1]?.afterSubmit?.appeared, [], 'hidden ancestors suppress apparent messages');
+});
+
+test('recording evidence: landing errors compare form-scoped signatures and same-named fields at the judgement point', () => {
+  assert.equal(evidenceRerenderLanding({ baselineMessages: 3, landingMessages: 4 })?.errorShown, true, 'a fourth same-signature hint is new evidence');
+  assert.equal(evidenceRerenderLanding({ baselineMessages: 3, landingMessages: 3 })?.errorShown, false, 'static hints do not become a refusal');
+  assert.equal(evidenceRerenderLanding({ baselineInvalid: false, landingInvalid: true })?.errorShown, true, 'a same-named control newly marked invalid is positive');
+  assert.equal(evidenceRerenderLanding({ baselineMessages: 1, landingMessages: 1 })?.errorShown, false, 'a replacement or repeated identical message keeps the same count');
+  assert.equal(evidenceRerenderLanding({ baselineMessages: 1, landingMessages: 1, baselineMessageText: 'Field hint', landingMessageText: 'Server refusal' })?.errorShown, false, 'same-signature text replacement is the named undercount');
+  assert.equal(evidenceRerenderLanding({ headerError: true })?.errorShown, false, 'a danger badge outside the submitted form is excluded');
+  assert.equal(evidenceRerenderLanding({ placeholderText: true })?.errorShown, true, 'text filled into an empty error placeholder increases the count');
+  const landing = evidenceRerenderLanding({ baselineMessages: 3, landingMessages: 4 });
+  assert.equal(landing?.relatedOpenForm, 'none');
+  assert.equal(landing?.unrelatedOpenForm, 'none');
+});
+
+test('recording evidence: equivalent re-adds are suppressed and streaming caps keep the right buckets', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const runReadd = (newParentId: number) => {
+    const initial = evidenceFormSnapshot('/checkout', 140_000);
+    const snapshot = initial[1] as { data: { node: { childNodes: Array<{ childNodes: unknown[] }> } } };
+    snapshot.data.node.childNodes.push(evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Try again')]) as { childNodes: unknown[] });
+    const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+      ...initial,
+      { type: 3, timestamp: 140_100, data: { source: 2, type: 2, id: 4 } },
+      { type: 3, timestamp: 140_200, data: {
+        source: 0,
+        removes: [{ parentId: 1, id: 6 }],
+        adds: [{ parentId: newParentId, node: evidenceElement(8, 'p', { class: 'error' }, [evidenceText(9, 'Try again')]) }],
+      } },
+    ]), true).session;
+    return result.steps[1]?.afterSubmit?.appeared;
+  };
+  assert.deepEqual(runReadd(1), [], 'same tag, token set, and parent slot is an equivalent re-add');
+  assert.equal(runReadd(2)?.[0]?.errorTokens[0], 'error', 'a different parent slot is a new message');
+
+  const additions = [
+    ...Array.from({ length: 15 }, (_value, index) => ({ parentId: 1, node: evidenceElement(100 + index * 2, 'p', { class: `flow-error-${index}` }, [evidenceText(101 + index * 2, 'Error')]) })),
+    ...Array.from({ length: 10 }, (_value, index) => ({ parentId: 1, node: evidenceElement(200 + index * 2, 'span', { class: `error success-cancelled-${index}` }, [evidenceText(201 + index * 2, 'Cancelled')]) })),
+    { parentId: 1, node: evidenceElement(300, 'span', { class: 'notice' }, [evidenceText(301, 'Notice')]) },
+  ];
+  const bucketResult = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 141_000),
+    { type: 3, timestamp: 141_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 141_200, data: { source: 0, adds: additions } },
+  ]), true).session.steps[1]?.afterSubmit?.appeared ?? [];
+  assert.equal(bucketResult.length, 20);
+  assert.equal(bucketResult.slice(0, 15).every((entry) => entry.errorTokens.includes('error') && entry.successTokens.length === 0), true);
+  assert.equal(bucketResult.slice(15).every((entry) => entry.errorTokens.includes('error') && entry.successTokens.includes('success')), true);
+
+  const successThenError = [
+    ...Array.from({ length: 20 }, (_value, index) => ({ parentId: 1, node: evidenceElement(400 + index * 2, 'span', { class: `error success-${index}` }, [evidenceText(401 + index * 2, 'Cancelled')]) })),
+    { parentId: 1, node: evidenceElement(500, 'p', { class: 'server-error' }, [evidenceText(501, 'Failure')]) },
+  ];
+  const realErrorFirst = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 142_000),
+    { type: 3, timestamp: 142_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 142_200, data: { source: 0, adds: successThenError } },
+  ]), true).session.steps[1]?.afterSubmit?.appeared ?? [];
+  assert.equal(realErrorFirst.length, 20);
+  assert.deepEqual(realErrorFirst[0]?.errorTokens, ['error']);
+  assert.equal(realErrorFirst[0]?.successTokens.length, 0, 'the error at position 21 survives behind 20 success-cancelled entries');
+});
+
+test('recording evidence: a route marker without a FullSnapshot keeps the prior live node ids', () => {
+  const steps = [
+    evidenceStep('navigation', '/checkout/step/1', 0),
+    evidenceStep('submit', '/checkout/step/1', 1_000),
+    evidenceStep('navigation', '/checkout/step/2', 2_000),
+    evidenceStep('submit', '/checkout/step/2', 2_500),
+  ];
+  const events = [
+    ...evidenceFormSnapshot('/checkout/step/1', 80_000),
+    { type: 3, timestamp: 80_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 5, timestamp: 80_300, data: { tag: '$pageview', payload: { href: 'https://app.example.test/checkout/step/2' } } },
+    { type: 3, timestamp: 80_500, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 80_600, data: { source: 0, adds: [{ parentId: 2, node: evidenceElement(8, 'p', { class: 'error' }, [evidenceText(9, 'Try again')]) }] } },
+  ];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events), true).session;
+  assert.equal(result.steps[3]?.afterSubmit?.coverage, 'clipped');
+  assert.equal(result.steps[3]?.afterSubmit?.appeared[0]?.errorTokens[0], 'error', 'the later mutation still addresses the prior live form');
+});
+
+test('recording evidence: failed reads are explicit and a decode issue marks every step in its window undecodable', () => {
+  const session = evidenceSession([
+    evidenceStep('navigation', '/checkout', 0),
+    evidenceStep('submit', '/checkout', 1_000),
+    evidenceStep('navigation', '/done', 2_000),
+  ]);
+  const unavailable = enrichNeutralSessionWithReplayEvidence(session, undefined, false).session;
+  assert.equal(unavailable.steps[1]?.afterSubmit?.coverage, 'no-recording');
+  assert.equal(unavailable.steps[2]?.landing?.coverage, 'no-recording');
+  const undecodable = enrichNeutralSessionWithReplayEvidence(session, evidenceDecode([
+    { type: 4, timestamp: 110_000, data: { href: 'https://app.example.test/checkout' } },
+    { type: 4, timestamp: 110_100, data: { href: 'https://app.example.test/done' } },
+  ], ['Part of this session\'s recording could not be read. Try another recorded session of the same journey.']), true).session;
+  assert.equal(undecodable.steps[1]?.afterSubmit?.coverage, 'undecodable');
+  assert.equal(undecodable.steps[2]?.landing?.coverage, 'undecodable');
+});
+
+test('recording evidence: anchors are submit-capable clicks only; an external form button works and mismatched counts are ambiguous', () => {
+  const simpleSteps = [evidenceStep('navigation', '/account/login', 0), evidenceStep('submit', '/account/login', 1_000)];
+  const external = enrichNeutralSessionWithReplayEvidence(evidenceSession(simpleSteps), evidenceDecode([
+    { type: 4, timestamp: 90_000, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 90_001, data: { node: evidenceElement(1, 'main', {}, [
+      evidenceElement(4, 'button', { type: 'submit', form: 'login-form' }, [evidenceText(5, 'Sign in')]),
+      evidenceElement(2, 'form', { id: 'login-form' }, [evidenceElement(3, 'input', { name: 'email', type: 'text' })]),
+    ]) } },
+    { type: 3, timestamp: 90_100, data: { source: 2, type: 2, id: 4 } },
+  ]), true).session;
+  assert.equal(external.steps[1]?.afterSubmit?.coverage, 'clipped', 'the form= control is attached even when recorded before its form');
+  assert.equal(external.steps[1]?.afterSubmit?.formStillPresent, true);
+
+  const notSubmitSteps = [evidenceStep('navigation', '/account/login', 0), evidenceStep('submit', '/account/login', 1_000)];
+  const typeButton = enrichNeutralSessionWithReplayEvidence(evidenceSession(notSubmitSteps), evidenceDecode([
+    { type: 4, timestamp: 91_000, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 91_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', { id: 'login' }, [
+      evidenceElement(3, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(4, 'button', { type: 'button' }, [evidenceText(5, 'Sign in')]),
+    ])]) } },
+    { type: 3, timestamp: 91_100, data: { source: 2, type: 2, id: 4 } },
+  ]), true).session;
+  assert.equal(typeButton.steps[1]?.afterSubmit?.coverage, 'no-anchor');
+
+  const ambiguousSteps = [
+    evidenceStep('navigation', '/account/login', 0),
+    evidenceStep('submit', '/account/login', 1_000),
+    evidenceStep('submit', '/account/login', 2_000),
+    evidenceStep('navigation', '/account/login?error=1', 3_000),
+  ];
+  const ambiguous = enrichNeutralSessionWithReplayEvidence(evidenceSession(ambiguousSteps), evidenceDecode([
+    { type: 4, timestamp: 92_000, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 92_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', { id: 'login' }, [
+      evidenceElement(3, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Sign in')]),
+      evidenceElement(6, 'button', { type: 'button' }, [evidenceText(7, 'Not submit')]),
+    ])]) } },
+    { type: 3, timestamp: 92_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 92_200, data: { source: 2, type: 2, id: 6 } },
+    { type: 4, timestamp: 92_300, data: { href: 'https://app.example.test/account/login?error=1' } },
+    { type: 2, timestamp: 92_301, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'retry', type: 'text', value: '' }),
+      evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Retry')]),
+    ])]) } },
+    { type: 3, timestamp: 93_400, data: { source: 1, x: 1, y: 1 } },
+  ]), true).session;
+  assert.equal(ambiguous.steps[1]?.afterSubmit?.coverage, 'ambiguous');
+  assert.equal(ambiguous.steps[2]?.afterSubmit?.coverage, 'ambiguous');
+  assert.equal(ambiguous.steps[3]?.landing?.rePresentsSubmittedForm, undefined);
+  assert.equal(ambiguous.steps[3]?.landing?.relatedOpenForm, 'none');
+  assert.equal(ambiguous.steps[3]?.landing?.unrelatedOpenForm, 'empty');
+});
+
+test('recording evidence: an already-open dialog remains eligible, while interactive error-shaped additions are excluded', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const insideOpenDialog = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    { type: 4, timestamp: 100_000, data: { href: 'https://app.example.test/checkout' } },
+    { type: 2, timestamp: 100_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(8, 'dialog', { role: 'dialog' }, [evidenceElement(2, 'form', {}, [
+      evidenceElement(3, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Continue')]),
+    ])])]) } },
+    { type: 3, timestamp: 100_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 100_200, data: { source: 0, adds: [{ parentId: 8, node: evidenceElement(6, 'p', { class: 'server-error' }, [evidenceText(7, 'Could not continue')]) }] } },
+  ]), true).session;
+  assert.equal(insideOpenDialog.steps[1]?.afterSubmit?.appeared[0]?.errorTokens[0], 'error');
+
+  const interactive = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 101_000),
+    { type: 3, timestamp: 101_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 3, timestamp: 101_200, data: { source: 0, adds: [
+      { parentId: 1, node: evidenceElement(6, 'div', { role: 'button', class: 'danger' }, [evidenceText(7, 'Delete')]) },
+      { parentId: 1, node: evidenceElement(8, 'div', { contenteditable: 'true', class: 'error' }, [evidenceText(9, 'editable')]) },
+      { parentId: 1, node: evidenceElement(10, 'sl-button', { class: 'btn-danger' }, [evidenceText(11, 'Danger')]) },
+    ] } },
+  ]), true).session;
+  assert.deepEqual(interactive.steps[1]?.afterSubmit?.appeared, []);
+});
+
+test('recording evidence: a same-URL re-render compares visible form messages at settle and excludes hidden baseline text', () => {
+  const steps = [
+    evidenceStep('navigation', '/account/login', 0),
+    evidenceStep('submit', '/account/login', 1_000),
+    evidenceStep('navigation', '/account/login', 2_000),
+  ];
+  const initial = [
+    { type: 4, timestamp: 20_000, data: { href: 'https://app.example.test/account/login' } },
+    {
+      type: 2,
+      timestamp: 20_001,
+      data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', { id: 'login' }, [
+        evidenceElement(3, 'input', { name: 'email', type: 'text' }),
+        evidenceElement(4, 'p', { id: 'promo-error', class: 'error', style: 'display:none' }, [evidenceText(5, 'Try again')]),
+        evidenceElement(6, 'button', {}, [evidenceText(7, 'Sign in')]),
+      ])]) },
+    },
+    { type: 3, timestamp: 20_100, data: { source: 2, type: 2, id: 6 } },
+    { type: 4, timestamp: 20_300, data: { href: 'https://app.example.test/account/login' } },
+    {
+      type: 2,
+      timestamp: 20_301,
+      data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', { id: 'login' }, [
+        evidenceElement(13, 'input', { name: 'email', type: 'text' }),
+        evidenceElement(14, 'p', { id: 'promo-error', class: 'error' }, [evidenceText(15, 'Try again')]),
+        evidenceElement(16, 'button', {}, [evidenceText(17, 'Sign in')]),
+      ])]) },
+    },
+    { type: 3, timestamp: 21_300, data: { source: 1, x: 1, y: 1 } },
+  ];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(initial), true).session;
+  assert.deepEqual(result.steps[1]?.afterSubmit, {
+    coverage: 'covered', windowMs: 200, formStillPresent: true, fieldsMarkedInvalid: 0, appeared: [],
+  });
+  assert.equal(result.steps[2]?.landing?.rePresentsSubmittedForm, true);
+  assert.equal(result.steps[2]?.landing?.errorShown, true);
+  assert.equal(result.steps[2]?.landing?.relatedOpenForm, 'none');
+  assert.equal(result.steps[2]?.landing?.unrelatedOpenForm, 'none');
+});
+
+test('recording evidence: a message added during the landing settle window is compared before the user acts', () => {
+  const steps = [
+    evidenceStep('navigation', '/account/login', 0),
+    evidenceStep('submit', '/account/login', 1_000),
+    evidenceStep('navigation', '/account/login', 2_000),
+  ];
+  const events = [
+    ...evidenceFormSnapshot('/account/login', 25_000),
+    { type: 3, timestamp: 25_100, data: { source: 2, type: 2, id: 4 } },
+    { type: 4, timestamp: 25_300, data: { href: 'https://app.example.test/account/login' } },
+    { type: 2, timestamp: 25_301, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Sign in')]),
+    ])]) } },
+    { type: 3, timestamp: 25_700, data: { source: 0, adds: [{ parentId: 12, node: evidenceElement(16, 'p', { class: 'error' }, [evidenceText(17, 'Try again')]) }] } },
+    { type: 3, timestamp: 26_300, data: { source: 1, x: 1, y: 1 } },
+  ];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events), true).session;
+  assert.equal(result.steps[2]?.landing?.rePresentsSubmittedForm, true);
+  assert.equal(result.steps[2]?.landing?.errorShown, true, 'the landing error remains in the form through the settle judgement');
+});
+
+test('recording evidence: an unknown submitted form stays unidentified while its landing form counts in the URL-selected fact', () => {
+  const steps = [
+    evidenceStep('navigation', '/account/login', 0),
+    evidenceStep('submit', '/account/login', 1_000),
+    evidenceStep('navigation', '/account/login?error=1', 2_000),
+  ];
+  const events = [
+    ...evidenceFormSnapshot('/account/login', 30_000),
+    { type: 4, timestamp: 31_000, data: { href: 'https://app.example.test/account/login?error=1' } },
+    { type: 2, timestamp: 31_001, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'email', type: 'text', value: '' }),
+      evidenceElement(14, 'button', {}, [evidenceText(15, 'Sign in')]),
+    ])]) } },
+    { type: 3, timestamp: 32_000, data: { source: 1, x: 1, y: 1 } },
+  ];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events), true).session;
+  assert.equal(result.steps[1]?.afterSubmit?.coverage, 'no-anchor');
+  assert.equal(result.steps[2]?.landing?.rePresentsSubmittedForm, undefined);
+  assert.equal(result.steps[2]?.landing?.errorShown, undefined);
+  assert.equal(result.steps[2]?.landing?.relatedOpenForm, 'none');
+  assert.equal(result.steps[2]?.landing?.unrelatedOpenForm, 'empty');
+});
+
+const evidenceUrl = (path: string) => `https://app.example.test${path}`;
+const routeMarker = (timestamp: number, path: string) => ({ type: 5, timestamp, data: { tag: '$pageview', payload: { href: evidenceUrl(path) } } });
+const metaMarker = (timestamp: number, path: string) => ({ type: 4, timestamp, data: { href: evidenceUrl(path) } });
+const clickOn = (timestamp: number, id: number) => ({ type: 3, timestamp, data: { source: 2, type: 2, id } });
+const mouseMove = (timestamp: number) => ({ type: 3, timestamp, data: { source: 1, x: 1, y: 1 } });
+const mutation = (timestamp: number, data: Record<string, unknown>) => ({ type: 3, timestamp, data: { source: 0, ...data } });
+
+// Lineup-rule fixtures: recording and events on one clock on purpose
+// (`EVIDENCE_EPOCH_MS`), timestamps written as ms from it, kept raw.
+const onClock = (ms: number) => EVIDENCE_EPOCH_MS + ms;
+const lineupFormPage = (base: number) => evidenceElement(base, 'main', {}, [evidenceElement(base + 1, 'form', {}, [
+  evidenceElement(base + 2, 'input', { name: 'email', type: 'text' }),
+  evidenceElement(base + 3, 'button', { type: 'submit' }, [evidenceText(base + 4, 'Send')]),
+])]);
+const lineupTextPage = (base: number, text = 'Thanks') => evidenceElement(base, 'main', {}, [evidenceElement(base + 1, 'h1', {}, [evidenceText(base + 2, text)])]);
+const snapshotOnClock = (ms: number, node: unknown) => ({ type: 2, timestamp: onClock(ms), data: { node } });
+const lineupRun = (steps: NeutralStep[], events: unknown[]) =>
+  enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events, undefined, { clock: 'raw' }), true).session.steps;
+const lineupWindows = (steps: NeutralStep[], windows: unknown[][]) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), {
+  windows: windows.map((events, window) => {
+    const times = events.map((event) => (event as { timestamp: number }).timestamp);
+    return { window, events, hasFullSnapshot: true, firstTimestampMs: Math.min(...times), lastTimestampMs: Math.max(...times) };
+  }),
+  malformedLinesSkipped: 0,
+}, true).session.steps;
+const coverages = (steps: NeutralStep[]) => steps.map((step) => step.afterSubmit?.coverage ?? step.landing?.coverage);
+
+test('lineup rule: a page load\'s own same-URL route marker joins its Meta page only when it is the first marker, within 1 s, with nothing recorded between', () => {
+  const steps = [evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/thanks', 2_000)];
+  const run = (between: unknown[], markerMs: number | undefined, after: unknown[] = []) => coverages(lineupRun(steps, [
+    metaMarker(onClock(-200), '/form'), snapshotOnClock(-199, lineupFormPage(1)), ...between,
+    ...(markerMs === undefined ? [] : [routeMarker(onClock(markerMs), '/form')]), ...after,
+    clickOn(onClock(900), 4), metaMarker(onClock(1_800), '/thanks'), snapshotOnClock(1_801, lineupTextPage(100)), mouseMove(onClock(3_000)),
+  ]));
+  const bound = ['settled', 'covered', 'settled'];
+  const unbound = ['no-occurrence', 'no-recording', 'no-occurrence'];
+  assert.deepEqual(run([], undefined), bound, 'a Meta alone is one page');
+  assert.deepEqual(run([], -197), bound, 'the archive shape: its own marker 3 ms after the Meta is the same page');
+  assert.deepEqual(run([], 800), bound, 'exactly 1 s after the Meta: still its own marker');
+  assert.deepEqual(run([], 801), unbound, '1001 ms after: a page of its own, so the recording no longer lines up and nothing binds');
+  assert.deepEqual(run([clickOn(onClock(-150), 3)], -100), unbound, 'a recorded click between: a page of its own');
+  assert.deepEqual(run([{ type: 3, timestamp: onClock(-150), data: { source: 5, id: 3, text: '***' } }], -100), unbound, 'a recorded input between: a page of its own');
+  assert.deepEqual(run([snapshotOnClock(-150, lineupFormPage(1))], -100), unbound, 'a second FullSnapshot between: a page of its own');
+  assert.deepEqual(run([], -197, [routeMarker(onClock(-190), '/form')]), unbound, 'only the first marker is absorbed; a second same-URL marker starts a page');
+  const recordedSubmit = { type: 5, timestamp: onClock(-150), data: { tag: '$autocapture', payload: { event_type: 'submit' } } };
+  assert.deepEqual(run([recordedSubmit], -100), unbound, 'a recorded submit between: a page of its own');
+
+  // Only a marker with the Meta's URL key is absorbed: a marker for /b 500 ms after a Meta for /a is its own page.
+  const otherKey = coverages(lineupRun([evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/b', 500), evidenceStep('submit', '/b', 900), evidenceStep('navigation', '/c', 5_000)], [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupTextPage(1)), routeMarker(onClock(500), '/b'), snapshotOnClock(501, lineupFormPage(100)),
+    clickOn(onClock(850), 103), metaMarker(onClock(5_000), '/c'), snapshotOnClock(5_001, lineupTextPage(200)), mouseMove(onClock(8_000)),
+  ]));
+  assert.deepEqual(otherKey, ['clipped', 'clipped', 'covered', 'settled'], 'Meta /a + marker /b at +500 ms: three pages, each bound to its own visit');
+});
+
+test('lineup rule: recording-only pages at the head and the tail are trimmed, and the rest lines up; a visit started by a URL change lines up', () => {
+  const steps = [evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/thanks', 1_100)];
+  const body = [metaMarker(onClock(0), '/form'), snapshotOnClock(1, lineupFormPage(1)), clickOn(onClock(900), 4), metaMarker(onClock(1_050), '/thanks'), snapshotOnClock(1_051, lineupTextPage(100))];
+  const head = [metaMarker(onClock(-5_000), '/'), snapshotOnClock(-4_999, lineupTextPage(300))];
+  const tail = [metaMarker(onClock(3_000), '/bye'), snapshotOnClock(3_001, lineupTextPage(400))];
+  const unbound = ['no-occurrence', 'no-recording', 'no-occurrence'];
+  const bound = ['clipped', 'covered', 'settled'];
+  assert.deepEqual(coverages(lineupRun(steps, [...body, mouseMove(onClock(4_000))])), bound, 'control: the recording alone lines up');
+  assert.deepEqual(coverages(lineupRun(steps, [...head, ...body, mouseMove(onClock(4_000))])), bound,
+    'a head page the events never visited is trimmed: the rest binds its own visits');
+  assert.deepEqual(coverages(lineupRun(steps, [...body, ...tail, mouseMove(onClock(4_000))])), bound,
+    'a tail page the events never visited is trimmed: the rest binds its own visits');
+  assert.deepEqual(coverages(lineupRun(steps, [...head, metaMarker(onClock(-3_000), '/promo'), snapshotOnClock(-2_999, lineupTextPage(500)), ...body, ...tail, mouseMove(onClock(4_000))])), bound,
+    'a run of two head pages and a tail page, none of them in the events: all trimmed');
+
+  // A head page whose URL key the events carry elsewhere (a later /bye visit) is not trimmed: the window lines up with nothing.
+  const laterBye = [...steps, evidenceStep('navigation', '/bye', 60_000)];
+  assert.deepEqual(coverages(lineupRun(laterBye, [metaMarker(onClock(-5_000), '/bye'), snapshotOnClock(-4_999, lineupTextPage(300)), ...body, mouseMove(onClock(4_000))])),
+    [...unbound, 'no-occurrence'], 'a head page the events visit at another time is kept, so nothing binds');
+  assert.deepEqual(coverages(lineupRun(laterBye, [...head, ...body, mouseMove(onClock(4_000))])), [...bound, 'no-occurrence'],
+    'control: a head page the events never visited is trimmed and the rest binds');
+
+  // A recording-only page in the middle is a mismatch: nothing binds.
+  assert.deepEqual(coverages(lineupRun([...steps.slice(0, 2), evidenceStep('navigation', '/thanks', 2_100)], [
+    metaMarker(onClock(0), '/form'), snapshotOnClock(1, lineupFormPage(1)), clickOn(onClock(900), 4),
+    metaMarker(onClock(1_050), '/promo'), snapshotOnClock(1_051, lineupTextPage(500)),
+    metaMarker(onClock(2_050), '/thanks'), snapshotOnClock(2_051, lineupTextPage(100)), mouseMove(onClock(4_000)),
+  ])), unbound, 'a recording-only page between two pages the events know: nothing binds');
+
+  // A window of recording-only pages only: the trim leaves nothing, so nothing binds.
+  assert.deepEqual(coverages(lineupRun(steps, [...head, metaMarker(onClock(-2_000), '/promo'), snapshotOnClock(-1_999, lineupTextPage(500)), mouseMove(onClock(-1_000))])), unbound,
+    'every page trimmed: nothing binds');
+
+  // The trim leaves [/form, /thanks], and the events carry that run twice: uniqueness fails on the trimmed list, nothing binds.
+  const twice = [...steps, evidenceStep('navigation', '/form', 900_000), evidenceStep('submit', '/form', 901_000), evidenceStep('navigation', '/thanks', 901_100)];
+  assert.deepEqual(coverages(lineupRun(twice, [...head, ...body, mouseMove(onClock(4_000))])), [...unbound, ...unbound],
+    'two runs match the trimmed pages: nothing binds');
+
+  // A submit recorded on a trimmed page binds nowhere: not to the visit before the run (inside the 5 s pair veto of the
+  // trimmed page), and not to the first kept page's visit (whose page has no recorded submit of its own).
+  const before = [evidenceStep('navigation', '/pre', -10_000), evidenceStep('submit', '/pre', -4_100), ...steps];
+  const trimmedSubmit = coverages(lineupRun(before, [
+    metaMarker(onClock(-5_000), '/'), snapshotOnClock(-4_999, lineupFormPage(300)), clickOn(onClock(-4_000), 303),
+    metaMarker(onClock(0), '/form'), snapshotOnClock(1, lineupFormPage(1)), metaMarker(onClock(1_050), '/thanks'), snapshotOnClock(1_051, lineupTextPage(100)),
+    mouseMove(onClock(4_000)),
+  ]));
+  assert.deepEqual(trimmedSubmit, ['no-occurrence', 'no-recording', 'settled', 'no-anchor', 'settled'], 'the trimmed page\'s submit and landing bind nowhere');
+
+  // The span guard reads the full window, the trimmed head page's time included: a visit the run skips, started while the
+  // trimmed page was on screen, refuses the window.
+  const skipped = [evidenceStep('navigation', '/other', -3_000), ...steps];
+  assert.deepEqual(coverages(lineupRun(skipped, [...head, ...body, mouseMove(onClock(4_000))])), ['no-occurrence', ...unbound],
+    'a skipped visit inside the trimmed head page\'s time: nothing binds');
+  assert.deepEqual(coverages(lineupRun([evidenceStep('navigation', '/other', -6_000), ...steps], [...head, ...body, mouseMove(onClock(4_000))])), ['no-occurrence', ...bound],
+    'control: the same visit before the recording starts does not refuse it');
+  // The tail side: a visit the run skips starts while the trimmed tail page is on screen.
+  assert.deepEqual(coverages(lineupRun([...steps, evidenceStep('navigation', '/other', 3_500)], [...body, ...tail, mouseMove(onClock(4_000))])), [...unbound, 'no-occurrence'],
+    'a skipped visit inside the trimmed tail page\'s time: nothing binds');
+  assert.deepEqual(coverages(lineupRun([...steps, evidenceStep('navigation', '/other', 4_500)], [...body, ...tail, mouseMove(onClock(4_000))])), [...bound, 'no-occurrence'],
+    'control: the same visit after the recording ends does not refuse it');
+
+  // A page whose URL cannot be read (a Meta with no href) is never trimmed: it matches nothing, so nothing binds.
+  const noHref = (ms: number) => ({ type: 4, timestamp: onClock(ms), data: {} });
+  assert.deepEqual(coverages(lineupRun(steps, [noHref(-5_000), snapshotOnClock(-4_999, lineupTextPage(300)), ...body, mouseMove(onClock(4_000))])), unbound,
+    'an unreadable head page is kept: nothing binds');
+  assert.deepEqual(coverages(lineupRun(steps, [...body, noHref(3_000), snapshotOnClock(3_001, lineupTextPage(400)), mouseMove(onClock(4_000))])), unbound,
+    'an unreadable tail page is kept: nothing binds');
+
+  // A visit that starts with a submit at a new URL (no navigation step): it is its own event occurrence and must line up with its own page.
+  const urlChange = coverages(lineupRun([evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/b', 2_000), evidenceStep('navigation', '/c', 3_000)], [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupTextPage(1)), routeMarker(onClock(1_500), '/b'), snapshotOnClock(1_501, lineupFormPage(100)),
+    clickOn(onClock(1_990), 103), metaMarker(onClock(3_000), '/c'), snapshotOnClock(3_001, lineupTextPage(200)), mouseMove(onClock(5_000)),
+  ]));
+  assert.deepEqual(urlChange, ['settled', 'covered', 'settled'], 'the /b visit started by its submit binds the /b page');
+});
+
+test('lineup rule: a revisit of the same pages makes the alignment ambiguous, so neither visit borrows the recording', () => {
+  const steps = [
+    evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/thanks', 2_000),
+    evidenceStep('navigation', '/form', 900_000), evidenceStep('submit', '/form', 901_000), evidenceStep('navigation', '/thanks', 902_000),
+  ];
+  const visitOne = [
+    metaMarker(onClock(-200), '/form'), snapshotOnClock(-199, lineupFormPage(1)), routeMarker(onClock(-197), '/form'),
+    clickOn(onClock(900), 4), metaMarker(onClock(1_800), '/thanks'), snapshotOnClock(1_801, lineupTextPage(100)), mouseMove(onClock(3_000)),
+  ];
+  assert.deepEqual(coverages(lineupRun(steps, visitOne)), ['no-occurrence', 'no-recording', 'no-occurrence', 'no-occurrence', 'no-recording', 'no-occurrence'],
+    'two runs carry [/form, /thanks]: uniqueness is decided on URL keys alone, time never breaks the tie');
+  assert.deepEqual(coverages(lineupRun(steps.slice(0, 3), visitOne)), ['settled', 'covered', 'settled'], 'the same recording with only the visit it recorded binds');
+});
+
+test('recording evidence: a same-URL route marker after a FullSnapshot re-render, or after a click, starts its own page with its own landing', () => {
+  const steps = [evidenceStep('navigation', '/search', 0), evidenceStep('submit', '/search', 1_000), evidenceStep('navigation', '/search', 2_000)];
+  const rerendered = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/search', 30_000),
+    clickOn(30_100, 4),
+    { type: 2, timestamp: 30_200, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(14, 'p', { class: 'error' }, [evidenceText(15, 'No results')]),
+      evidenceElement(16, 'button', { type: 'submit' }, [evidenceText(17, 'Search')]),
+    ])]) } },
+    routeMarker(30_201, '/search'),
+    mouseMove(31_300),
+  ]), true).session;
+  assert.equal(rerendered.steps[2]?.landing?.coverage, 'settled', 'the re-rendered page is a new occurrence with its own landing');
+  assert.equal(rerendered.steps[2]?.landing?.rePresentsSubmittedForm, true);
+  assert.equal(rerendered.steps[2]?.landing?.errorShown, true);
+
+  const readded = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/search', 40_000),
+    clickOn(40_100, 4),
+    mutation(40_150, { removes: [{ parentId: 1, id: 2 }] }),
+    routeMarker(40_200, '/search'),
+    mutation(40_250, { adds: [{ parentId: 1, node: evidenceElement(22, 'form', {}, [
+      evidenceElement(23, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(24, 'p', { class: 'error' }, [evidenceText(25, 'No results')]),
+      evidenceElement(26, 'button', { type: 'submit' }, [evidenceText(27, 'Search')]),
+    ]) }] }),
+  ]), true).session;
+  assert.equal(readded.steps[1]?.afterSubmit?.appeared.some((entry) => entry.errorTokens.includes('error')), false, 'the marker after the click ends the reaction window: the re-added form belongs to the next page');
+  assert.equal(readded.steps[2]?.landing?.coverage, 'seen-unsettled', 'the second same-URL visit binds its own recorded page');
+  assert.equal(readded.steps[2]?.landing?.rePresentsSubmittedForm, true);
+  assert.equal(readded.steps[2]?.landing?.errorShown, true);
+});
+
+test('recording evidence: the landing watch reads forms already on screen when it starts, and drops one the router removes', () => {
+  const persistentSteps = [evidenceStep('navigation', '/account/login', 0), evidenceStep('submit', '/account/login', 1_000), evidenceStep('navigation', '/thanks', 2_000)];
+  const persistent = enrichNeutralSessionWithReplayEvidence(evidenceSession(persistentSteps), evidenceDecode([
+    metaMarker(50_000, '/account/login'),
+    { type: 2, timestamp: 50_001, data: { node: evidenceElement(1, 'main', {}, [
+      evidenceElement(2, 'form', {}, [evidenceElement(3, 'input', { name: 'email', type: 'text' }), evidenceElement(4, 'button', {}, [evidenceText(5, 'Sign in')])]),
+      evidenceElement(20, 'form', {}, [evidenceElement(21, 'input', { name: 'newsletter', type: 'email', value: '' }), evidenceElement(22, 'button', {}, [evidenceText(23, 'Join')])]),
+    ]) } },
+    clickOn(50_100, 4),
+    routeMarker(50_300, '/thanks'),
+    mutation(50_302, { removes: [{ parentId: 1, id: 2 }] }),
+    mouseMove(51_400),
+  ]), true).session;
+  assert.deepEqual(persistent.steps[2]?.landing, { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'empty', rePresentsSubmittedForm: false },
+    'an untouched main-content form left on the landing is seen; the submitted form removed after the marker is not re-presented');
+
+  const inPlaceSteps = [evidenceStep('navigation', '/search?page=1', 0), evidenceStep('submit', '/search?page=1', 1_000), evidenceStep('navigation', '/search?page=2', 2_000)];
+  const inPlace = enrichNeutralSessionWithReplayEvidence(evidenceSession(inPlaceSteps), evidenceDecode([
+    ...evidenceFormSnapshot('/search?page=1', 60_000),
+    clickOn(60_100, 4),
+    routeMarker(60_300, '/search?page=2'),
+    mouseMove(61_400),
+  ]), true).session;
+  assert.equal(inPlace.steps[2]?.landing?.rePresentsSubmittedForm, true, 'a submitted form left in place on the route is re-presented');
+  assert.equal(inPlace.steps[2]?.landing?.errorShown, false);
+});
+
+test('recording evidence: a click on a span or an icon inside a submit button anchors on the button', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const run = (target: number) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    metaMarker(70_000, '/checkout'),
+    { type: 2, timestamp: 70_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+      evidenceElement(3, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(4, 'button', { type: 'submit' }, [evidenceElement(6, 'span', { class: 'label' }, [
+        evidenceElement(7, 'i', { class: 'icon-arrow' }), evidenceText(8, 'Continue'),
+      ])]),
+    ])]) } },
+    clickOn(70_100, target),
+    mutation(70_200, { adds: [{ parentId: 2, node: evidenceElement(9, 'div', { class: 'invalid-feedback' }, [evidenceText(10, 'Required')]) }] }),
+  ]), true).session.steps[1]?.afterSubmit;
+  for (const [name, target] of [['span', 6], ['icon', 7]] as const) {
+    const afterSubmit = run(target);
+    assert.equal(afterSubmit?.coverage, 'clipped', `${name}: anchored`);
+    assert.deepEqual(afterSubmit?.appeared[0]?.errorTokens, ['invalid'], `${name}: the error is attached`);
+  }
+});
+
+test('recording evidence: a landing whose next page change comes 1 s or more after its marker, with no interaction first, settled', () => {
+  const steps = [evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/a', 1_000), evidenceStep('navigation', '/b', 2_000), evidenceStep('navigation', '/c', 3_000)];
+  const run = (gap: number) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/a', 80_000),
+    clickOn(80_100, 4),
+    metaMarker(80_300, '/b'),
+    { type: 2, timestamp: 80_301, data: { node: evidenceElement(20, 'main', {}, [evidenceText(21, 'Next')]) } },
+    metaMarker(80_300 + gap, '/c'),
+    { type: 2, timestamp: 80_301 + gap, data: { node: evidenceElement(30, 'main', {}, [evidenceText(31, 'Done')]) } },
+  ]), true).session.steps[2]?.landing?.coverage;
+  assert.equal(run(999), 'clipped', '999 ms: the settle window was not covered');
+  assert.equal(run(1_000), 'settled', 'exactly 1000 ms: the settle window was covered');
+  assert.equal(run(1_001), 'settled', '1001 ms: the settle window was covered');
+});
+
+test('recording evidence: an exception in the evidence pass marks only its window undecodable and never throws', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('navigation', '/done', 2_000)];
+  // Both windows on the events clock: the first at the /checkout visit, the second at /done.
+  const hostile: Record<string, unknown> = { type: 3, timestamp: EVIDENCE_EPOCH_MS + 200 };
+  Object.defineProperty(hostile, 'data', { enumerable: true, get() { throw new Error('hostile payload'); } });
+  const first = [...evidenceFormSnapshot('/checkout', EVIDENCE_EPOCH_MS), clickOn(EVIDENCE_EPOCH_MS + 100, 4), hostile];
+  const second = [metaMarker(EVIDENCE_EPOCH_MS + 2_000, '/done'), { type: 2, timestamp: EVIDENCE_EPOCH_MS + 2_001, data: { node: evidenceElement(1, 'main', {}, [evidenceText(2, 'Done')]) } }, mouseMove(EVIDENCE_EPOCH_MS + 3_500)];
+  const windows: ReplayStreamWindow[] = [
+    { window: 0, events: first, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS, lastTimestampMs: EVIDENCE_EPOCH_MS + 200 },
+    { window: 1, events: second, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS + 2_000, lastTimestampMs: EVIDENCE_EPOCH_MS + 3_500 },
+  ];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), { windows, malformedLinesSkipped: 0 }, true).session;
+  assert.equal(result.steps[0]?.landing?.coverage, 'undecodable');
+  assert.equal(result.steps[1]?.afterSubmit?.coverage, 'undecodable');
+  assert.equal(result.steps[2]?.landing?.coverage, 'settled', 'the next window is read normally');
+
+  // The hostile event right after the page load, where the binding pre-pass reads it: that window binds nothing, the
+  // visit its span covers reads `undecodable` (a recording existed but could not be read), and the next still binds.
+  const earlyHostile: Record<string, unknown> = { type: 3, timestamp: EVIDENCE_EPOCH_MS + 50 };
+  Object.defineProperty(earlyHostile, 'data', { enumerable: true, get() { throw new Error('hostile payload'); } });
+  const early = [...evidenceFormSnapshot('/checkout', EVIDENCE_EPOCH_MS), earlyHostile, clickOn(EVIDENCE_EPOCH_MS + 100, 4)];
+  const earlyResult = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), { windows: [
+    { window: 0, events: early, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS, lastTimestampMs: EVIDENCE_EPOCH_MS + 200 },
+    windows[1] as ReplayStreamWindow,
+  ], malformedLinesSkipped: 0 }, true).session;
+  assert.equal(earlyResult.steps[0]?.landing?.coverage, 'undecodable', 'the unreadable window\'s visit is undecodable');
+  assert.equal(earlyResult.steps[1]?.afterSubmit?.coverage, 'undecodable', 'and so is its submit; nothing attaches');
+  assert.equal(earlyResult.steps[2]?.landing?.coverage, 'settled', 'the next window is still planned and read');
+
+  // A later window lined up on a visit the unreadable window covers does not bind it: the visit stays undecodable.
+  const laterSteps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('navigation', '/done', 30_000)];
+  const later = [...evidenceFormSnapshot('/checkout', EVIDENCE_EPOCH_MS + 2_000), mouseMove(EVIDENCE_EPOCH_MS + 3_500)];
+  const laterWindows = (withEarly: boolean): ReplayStreamWindow[] => [
+    ...(withEarly ? [{ window: 0, events: early, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS, lastTimestampMs: EVIDENCE_EPOCH_MS + 200 }] : []),
+    { window: 1, events: later, hasFullSnapshot: true, firstTimestampMs: EVIDENCE_EPOCH_MS + 2_000, lastTimestampMs: EVIDENCE_EPOCH_MS + 3_500 },
+  ];
+  const laterAlone = enrichNeutralSessionWithReplayEvidence(evidenceSession(laterSteps), { windows: laterWindows(false), malformedLinesSkipped: 0 }, true).session;
+  assert.notEqual(laterAlone.steps[0]?.landing?.coverage, 'no-occurrence', 'control: the later window alone binds the /checkout visit');
+  const laterWithEarly = enrichNeutralSessionWithReplayEvidence(evidenceSession(laterSteps), { windows: laterWindows(true), malformedLinesSkipped: 0 }, true).session;
+  assert.equal(laterWithEarly.steps[0]?.landing?.coverage, 'undecodable', 'the visit the unreadable window covers stays undecodable');
+  assert.equal(laterWithEarly.steps[1]?.afterSubmit?.coverage, 'undecodable');
+});
+
+test('recording evidence: a 6,000-deep DOM is read without recursion, and an add whose parent is itself is skipped', () => {
+  const steps = [evidenceStep('navigation', '/deep', 0), evidenceStep('submit', '/deep', 1_000)];
+  let node: unknown = evidenceElement(2, 'form', {}, [
+    evidenceElement(3, 'input', { name: 'email', type: 'text' }),
+    evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Go')]),
+  ]);
+  for (let depth = 0; depth < 6_000; depth += 1) node = evidenceElement(100 + depth, 'div', {}, [node]);
+  const deep = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    metaMarker(100_000, '/deep'),
+    { type: 2, timestamp: 100_001, data: { node: evidenceElement(1, 'main', {}, [node]) } },
+    clickOn(100_100, 4),
+    mutation(100_200, { adds: [{ parentId: 2, node: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Try again')]) }] }),
+    mutation(100_300, { removes: [{ parentId: 1, id: 6_099 }] }),
+  ]), true).session;
+  assert.deepEqual(deep.steps[1]?.afterSubmit?.appeared[0]?.errorTokens, ['error']);
+  assert.equal(deep.steps[1]?.afterSubmit?.formStillPresent, false, 'the deep removal took the form with it');
+
+  const selfParent = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/deep', 110_000),
+    clickOn(110_100, 4),
+    mutation(110_200, { adds: [{ parentId: 50, node: evidenceElement(50, 'p', { class: 'error' }, [evidenceText(51, 'Loop')]) }] }),
+  ]), true).session;
+  assert.deepEqual(selfParent.steps[1]?.afterSubmit?.appeared, []);
+  assert.equal(selfParent.steps[1]?.afterSubmit?.coverage, 'clipped');
+});
+
+type ScaleVariant = 'toggle-outside' | 'toggle-inside' | 'rows-appended' | 'root-class' | 'rows-removed' | 'form-growing';
+
+function evidenceScaleFixture(variant: ScaleVariant, size: number): { session: NeutralSession; windows: ReplayStreamWindow[] } {
+  const form = evidenceElement(2, 'form', {}, [
+    evidenceElement(3, 'input', { name: 'q', type: 'text' }),
+    evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Go')]),
+  ]);
+  const rows = (count: number) => Array.from({ length: count }, (_value, index) => evidenceElement(1_000 + index * 2, 'li', {}, [evidenceText(1_001 + index * 2, `Row ${index}`)]));
+  const steps = [evidenceStep('navigation', '/scale', 0), evidenceStep('submit', '/scale', 1_000)];
+  const events: unknown[] = [metaMarker(200_000, '/scale')];
+  const at = (index: number) => 200_200 + index * 0.5;
+  if (variant === 'form-growing') {
+    steps.push(evidenceStep('navigation', '/scale', 2_000));
+    events.push({ type: 2, timestamp: 200_001, data: { node: evidenceElement(1, 'main', {}, [form]) } }, clickOn(200_100, 4), metaMarker(200_150, '/scale'));
+    events.push({ type: 2, timestamp: 200_151, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'q', type: 'text' }), evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Go')]),
+    ])]) } });
+    for (let index = 0; index < size; index += 1) {
+      // Unnamed controls: the form keeps the submitted form's name set (still re-presented) while its controls and subtree grow.
+      events.push(mutation(at(index), { adds: [{ parentId: 12, node: evidenceElement(100_000 + index, 'input', { type: 'text', value: '' }) }] }));
+    }
+    events.push(mouseMove(201_500));
+  } else {
+    const list = evidenceElement(10, 'ul', {}, variant === 'rows-appended' ? [] : rows(size));
+    const root = evidenceElement(1, 'main', {}, [form, list]);
+    events.push({ type: 2, timestamp: 200_001, data: { node: root } });
+    if (variant !== 'toggle-outside') events.push(clickOn(200_100, 4));
+    for (let index = 0; index < size; index += 1) {
+      if (variant === 'toggle-outside' || variant === 'toggle-inside') {
+        events.push(mutation(at(index), { attributes: [{ id: 10, attributes: { class: index % 2 === 0 ? 'theme-a' : 'theme-b' } }] }));
+      } else if (variant === 'root-class') {
+        events.push(mutation(at(index), { attributes: [{ id: 1, attributes: { class: index % 2 === 0 ? 'scroll-lock' : '' } }] }));
+      } else if (variant === 'rows-appended') {
+        events.push(mutation(at(index), { adds: [{ parentId: 10, node: evidenceElement(1_000 + index * 2, 'li', {}, [evidenceText(1_001 + index * 2, `Row ${index}`)]) }] }));
+      } else {
+        const last = size - 1 - index;
+        events.push(mutation(at(index), { removes: [{ parentId: 10, id: 1_000 + last * 2 }] }));
+      }
+    }
+  }
+  const times = events.map((event) => (event as { timestamp: number }).timestamp);
+  return {
+    session: evidenceSession(steps),
+    windows: [{ window: 0, events, hasFullSnapshot: true, firstTimestampMs: Math.min(...times), lastTimestampMs: Math.max(...times) }],
+  };
+}
+
+test('recording evidence: work stays linear on large-subtree class toggles, one-parent appends and removals, root class changes and a growing landing form', (t) => {
+  const variants: ScaleVariant[] = ['toggle-outside', 'toggle-inside', 'rows-appended', 'root-class', 'rows-removed', 'form-growing'];
+  const overBudget: string[] = [];
+  for (const variant of variants) {
+    const totals: number[] = [];
+    for (const size of [256, 512, 1_024]) {
+      const fixture = evidenceScaleFixture(variant, size);
+      const counts = enrichNeutralSessionWithReplayEvidence(fixture.session, { windows: fixture.windows, malformedLinesSkipped: 0 }, true).work;
+      totals.push(counts.total);
+      t.diagnostic(`${variant} N=${size}: total=${counts.total}, streamEvents=${counts.streamEvents}, nodeMap=${counts.nodeMapOperations}, subtree=${counts.nodeAndSubtreeIterations}, forms=${counts.liveFormIterations}, controls=${counts.controlAndNameIterations}`);
+    }
+    const [n = 0, twoN = 0, fourN = 0] = totals;
+    if (twoN > n * 2.2) overBudget.push(`${variant} 2N/N=${(twoN / n).toFixed(2)}`);
+    if (fourN > n * 4.4) overBudget.push(`${variant} 4N/N=${(fourN / n).toFixed(2)}`);
+  }
+  assert.deepEqual(overBudget, [], 'every variant grows at most 2.2x at 2N and 4.4x at 4N');
+});
+
+test('recording evidence: the reaction window caps at 10 s, and more recorded anchors than submits is ambiguous', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const errorAt = (offset: number) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 150_000),
+    clickOn(150_100, 4),
+    mutation(150_100 + offset, { adds: [{ parentId: 2, node: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Late')]) }] }),
+    mouseMove(150_100 + 12_000),
+  ]), true).session.steps[1]?.afterSubmit;
+  const late = errorAt(10_500);
+  assert.equal(late?.coverage, 'covered');
+  assert.equal(late?.windowMs, 10_000);
+  assert.deepEqual(late?.appeared, [], 'an error at 10.5 s is outside the window');
+  assert.equal(errorAt(9_900)?.appeared.length, 1, 'an error at 9.9 s is inside it');
+
+  const extraAnchor = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 160_000),
+    clickOn(160_100, 4),
+    clickOn(160_400, 4),
+    mutation(160_500, { adds: [{ parentId: 2, node: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Refused')]) }] }),
+  ]), true).session.steps[1]?.afterSubmit;
+  assert.equal(extraAnchor?.coverage, 'ambiguous', 'a click the browser blocked plus the real one: two anchors for one submit never attach');
+  assert.deepEqual(extraAnchor?.appeared, []);
+});
+
+test('recording evidence: anchors join submits by order when the recording clock leads the events by about 200 ms', () => {
+  const base = Date.UTC(2026, 0, 15, 10, 0, 0);
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('submit', '/checkout', 1_300)];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', base - 200),
+    clickOn(base + 800, 4),
+    clickOn(base + 1_100, 4),
+    mutation(base + 1_150, { adds: [{ parentId: 2, node: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Refused')]) }] }),
+  ], undefined, { clock: 'raw' }), true).session;
+  // Written on the events clock already: kept raw, so the recording's Meta really sits 200 ms before the visit.
+  assert.equal(result.steps[0]?.landing?.coverage, 'settled', 'the visit binds its page, which starts 200 ms before it');
+  assert.deepEqual(result.steps[1]?.afterSubmit?.appeared, [], 'the first click\'s window ended at the second click');
+  assert.equal(result.steps[1]?.afterSubmit?.windowMs, 300);
+  assert.deepEqual(result.steps[2]?.afterSubmit?.appeared[0]?.errorTokens, ['error'], 'the second click is the second submit');
+});
+
+test('recording evidence: the gone-at-page-change drop also covers an error hidden or emptied before an app-driven redirect', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('navigation', '/done', 2_000)];
+  const run = (clear: Record<string, unknown>) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/checkout', 170_000),
+    clickOn(170_100, 4),
+    mutation(170_150, { adds: [{ parentId: 2, node: evidenceElement(6, 'p', { class: 'error' }, [evidenceText(7, 'Could not continue')]) }] }),
+    mutation(170_250, clear),
+    routeMarker(170_400, '/done'),
+  ]), true).session.steps[1]?.afterSubmit;
+  for (const [name, clear] of [
+    ['hidden', { attributes: [{ id: 6, attributes: { style: 'display:none' } }] }],
+    ['text emptied', { texts: [{ id: 7, value: '' }] }],
+  ] as const) {
+    const afterSubmit = run(clear);
+    assert.deepEqual(afterSubmit?.appeared, [], `${name}: no entry leaves the adapter`);
+    assert.equal(afterSubmit?.goneAtPageChange, 1, `${name}: counted as gone`);
+  }
+});
+
+test('recording evidence: a confirm dialog added in the window is the subject, not an error, while the submitted form stays', () => {
+  const steps = [evidenceStep('navigation', '/customers', 0), evidenceStep('submit', '/customers', 1_000)];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/customers', 180_000),
+    clickOn(180_100, 4),
+    mutation(180_200, { adds: [{ parentId: 1, node: evidenceElement(30, 'div', { role: 'dialog', class: 'modal' }, [
+      evidenceElement(31, 'p', { class: 'text-danger' }, [evidenceText(32, 'This cannot be undone')]),
+      evidenceElement(33, 'button', { type: 'button' }, [evidenceText(34, 'Delete')]),
+      evidenceElement(35, 'button', { type: 'button' }, [evidenceText(36, 'Cancel')]),
+    ]) }] }),
+  ]), true).session.steps[1]?.afterSubmit;
+  assert.equal(result?.formStillPresent, true);
+  assert.deepEqual(result?.appeared, [], 'the danger copy inside the new dialog is excluded with it');
+
+  const initial = evidenceFormSnapshot('/customers', 185_000);
+  (initial[1] as { data: { node: { childNodes: unknown[] } } }).data.node.childNodes.push(
+    evidenceElement(40, 'div', { role: 'dialog', class: 'danger-zone', style: 'display:none' }, [
+      evidenceElement(41, 'p', {}, [evidenceText(42, 'Delete this customer?')]),
+      evidenceElement(43, 'button', { type: 'button' }, [evidenceText(44, 'Delete')]),
+    ]),
+  );
+  const shown = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...initial,
+    clickOn(185_100, 4),
+    mutation(185_200, { attributes: [{ id: 40, attributes: { style: { display: 'block' } } }] }),
+  ]), true).session.steps[1]?.afterSubmit;
+  assert.deepEqual(shown?.appeared, [], 'a dialog made visible in the window excludes itself, as an added one does');
+});
+
+test('recording evidence: the route announcer, an error-boundary wrapper and a toast after an in-place success are not refusals', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const run = (extra: unknown[], existing?: unknown) => {
+    const initial = evidenceFormSnapshot('/checkout', 190_000);
+    if (existing !== undefined) (initial[1] as { data: { node: { childNodes: unknown[] } } }).data.node.childNodes.push(existing);
+    return enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...initial, clickOn(190_100, 4), ...extra]), true).session.steps[1]?.afterSubmit;
+  };
+  const announcer = run([mutation(190_200, { adds: [{ parentId: 1, node: evidenceElement(40, 'next-route-announcer', {}, [
+    evidenceElement(41, 'p', { id: '__next-route-announcer__', role: 'alert', 'aria-live': 'assertive' }, [evidenceText(42, 'Checkout')]),
+  ]) }] })]);
+  assert.equal(announcer?.appeared.length, 1);
+  assert.deepEqual(announcer?.appeared[0], { how: 'added', tag: 'p', role: 'alert', live: 'assertive', errorTokens: [], successTokens: [] }, 'carried for debug, never an error');
+
+  const boundary = run(
+    [mutation(190_200, { adds: [{ parentId: 50, node: evidenceElement(52, 'p', {}, [evidenceText(53, 'Loaded')]) }] })],
+    evidenceElement(50, 'div', { class: 'error-boundary' }, [evidenceText(51, 'Content')]),
+  );
+  assert.deepEqual(boundary?.appeared.map((entry) => entry.errorTokens), [[]], 'an error-boundary ancestor never lends its tokens');
+
+  const toast = run([
+    mutation(190_200, { removes: [{ parentId: 1, id: 2 }], adds: [{ parentId: 1, node: evidenceElement(60, 'div', { class: 'alert-success' }, [evidenceText(61, 'Saved')]) }] }),
+    mutation(190_400, { adds: [{ parentId: 1, node: evidenceElement(62, 'div', { class: 'toast toast-error' }, [evidenceText(63, 'Sync delayed')]) }] }),
+  ]);
+  assert.equal(toast?.formStillPresent, false, 'the success replaced the form: an unrelated toast cannot read as a refusal of a form that is gone');
+});
+
+test('recording evidence: d-none reveals, Mui-error and ant-form marks, and a multipart add assembled in one event', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  const base = () => [
+    metaMarker(200_000, '/checkout'),
+    { type: 2, timestamp: 200_001, data: { node: evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+      evidenceElement(5, 'div', { class: 'form-group' }, [evidenceElement(3, 'input', { name: 'email', type: 'text' })]),
+      evidenceElement(8, 'p', { class: 'error d-none' }, [evidenceText(9, 'Try again')]),
+      evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(6, 'Continue')]),
+    ])]) } },
+    clickOn(200_100, 4),
+  ];
+  const run = (change: unknown) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([...base(), change]), true).session.steps[1]?.afterSubmit;
+  const reveal = run(mutation(200_200, { attributes: [{ id: 8, attributes: { class: 'error' } }] }));
+  assert.deepEqual(reveal?.appeared.map((entry) => [entry.how, entry.errorTokens]), [['shown', ['error']]], 'removing d-none reveals the message');
+  assert.equal(run(mutation(200_200, { attributes: [{ id: 5, attributes: { class: 'form-group Mui-error' } }] }))?.fieldsMarkedInvalid, 1, 'Mui-error on the wrapper');
+  assert.equal(run(mutation(200_200, { attributes: [{ id: 5, attributes: { class: 'form-group ant-form-item-has-error' } }] }))?.fieldsMarkedInvalid, 1, 'ant-form-item-has-error on the wrapper');
+  const multipart = run(mutation(200_200, { adds: [
+    { parentId: 2, node: evidenceElement(70, 'x-alert', { role: 'alert', class: 'flow-error' }) },
+    { parentId: 70, node: evidenceText(71, 'Could not continue') },
+  ] }));
+  assert.deepEqual(multipart?.appeared.map((entry) => [entry.tag, entry.errorTokens]), [['other', ['error']]], 'the container gets its text from a second add record in the same event');
+});
+
+test('recording evidence: a wrapper class mark finds its fields from either side (a small subtree is walked, a large one checks the form\'s fields)', () => {
+  const steps = [evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000)];
+  // Three fields; wrapper 5 holds field 3 alone (2 nodes, fewer than the 3 fields), wrapper 50 holds field 30 and 10 spans.
+  const page = evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+    evidenceElement(5, 'div', { class: 'form-group' }, [evidenceElement(3, 'input', { name: 'email', type: 'text' })]),
+    evidenceElement(50, 'div', { class: 'form-group' }, [
+      ...Array.from({ length: 10 }, (_value, index) => evidenceElement(60 + index, 'span')),
+      evidenceElement(30, 'input', { name: 'phone', type: 'text' }),
+    ]),
+    evidenceElement(40, 'input', { name: 'name', type: 'text' }),
+    evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(6, 'Continue')]),
+  ])]);
+  const run = (wrapperId: number) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    metaMarker(200_000, '/checkout'), { type: 2, timestamp: 200_001, data: { node: page } }, clickOn(200_100, 4),
+    mutation(200_200, { attributes: [{ id: wrapperId, attributes: { class: 'form-group has-error' } }] }),
+  ]), true).session.steps[1]?.afterSubmit?.fieldsMarkedInvalid;
+  assert.equal(run(5), 1, 'the small wrapper: its subtree is walked and its one field is marked');
+  assert.equal(run(50), 1, 'the large wrapper: the form\'s fields are checked for ancestry, and only its own field is marked');
+});
+
+test('recording evidence: an MPA re-render on a different URL with .invalid-feedback re-presents the form with an error', () => {
+  const steps = [evidenceStep('navigation', '/signup', 0), evidenceStep('submit', '/signup', 1_000), evidenceStep('navigation', '/signup/create', 2_000)];
+  const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/signup', 210_000),
+    clickOn(210_100, 4),
+    metaMarker(210_300, '/signup/create'),
+    { type: 2, timestamp: 210_301, data: { node: evidenceElement(11, 'main', {}, [evidenceElement(12, 'form', {}, [
+      evidenceElement(13, 'input', { name: 'email', type: 'text' }),
+      evidenceElement(16, 'div', { class: 'invalid-feedback' }, [evidenceText(17, 'Email taken')]),
+      evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Sign up')]),
+    ])]) } },
+    mouseMove(211_400),
+  ]), true).session.steps[2]?.landing;
+  assert.deepEqual(result, { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: true, errorShown: true });
+});
+
+test('recording evidence: a client-rendered landing form seen at 0.6 s or at 1.4 s is presence; one after the first interaction is not observed', () => {
+  const steps = [evidenceStep('navigation', '/signup/step/1', 0), evidenceStep('submit', '/signup/step/1', 1_000), evidenceStep('navigation', '/signup/step/2', 2_000)];
+  const run = (offset: number, before: unknown[] = []) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/signup/step/1', 220_000),
+    clickOn(220_100, 4),
+    routeMarker(220_300, '/signup/step/2'),
+    mutation(220_302, { removes: [{ parentId: 1, id: 2 }] }),
+    ...before,
+    mutation(220_300 + offset, { adds: [{ parentId: 1, node: evidenceElement(30, 'form', {}, [
+      evidenceElement(31, 'input', { name: 'address', type: 'text', value: '' }),
+      evidenceElement(32, 'button', { type: 'submit' }, [evidenceText(33, 'Next')]),
+    ]) }] }),
+    mouseMove(222_000),
+  ]), true).session.steps[2]?.landing;
+  assert.deepEqual(run(600), { coverage: 'settled', relatedOpenForm: 'empty', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false });
+  assert.deepEqual(run(1_400), { coverage: 'settled', relatedOpenForm: 'empty', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false },
+    'presence counts as soon as it is seen in the occurrence: the settle window only decides whether none is an absence');
+  assert.deepEqual(run(1_400, [mouseMove(221_500)]), { coverage: 'settled', relatedOpenForm: 'empty', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false },
+    'an event past the settle window (1.2 s), before the form, does not end the watch');
+  assert.deepEqual(run(1_400, [clickOn(221_200, 1)]), { coverage: 'clipped', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false },
+    'a click at 0.9 s is the judgement point before the settle window: the later form is not observed');
+  assert.deepEqual(run(1_400, [clickOn(221_500, 1)]), { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false },
+    'a form first seen after the first interaction is not observed (the watch ends at the judgement point)');
+});
+
+test('lineup rule: same-URL SPA routes, reloads and late recorder starts bind only the visit the recording lines up with', () => {
+  const tick = (ms: number) => ({ type: 3, timestamp: onClock(ms), data: { source: 1, positions: [] } });
+  // An Enter-key first submit (no click) shows an error; a same-URL $pageview at 5 s; a click on the second submit; /thanks.
+  const enterThenClickSteps = [evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 3_000), evidenceStep('navigation', '/form', 5_000), evidenceStep('submit', '/form', 8_000), evidenceStep('navigation', '/thanks', 8_100)];
+  const enterThenClick = lineupRun(enterThenClickSteps, [
+    metaMarker(onClock(10), '/form'), snapshotOnClock(11, lineupFormPage(1)), routeMarker(onClock(12), '/form'),
+    mutation(onClock(3_010), { adds: [{ parentId: 2, nextId: null, node: evidenceElement(50, 'p', { class: 'error' }, [evidenceText(51, 'Email is invalid')]) }] }),
+    routeMarker(onClock(5_005), '/form'), mutation(onClock(5_010), { removes: [{ parentId: 2, id: 50 }] }),
+    clickOn(onClock(7_990), 4), metaMarker(onClock(8_090), '/thanks'), snapshotOnClock(8_091, lineupTextPage(100)), tick(12_000),
+  ]);
+  assert.equal(enterThenClick[1]?.afterSubmit?.coverage, 'no-anchor', 'the Enter-key submit never borrows the later click');
+  assert.equal(enterThenClick[3]?.afterSubmit?.coverage, 'covered', 'the click-submit keeps its own reaction');
+  assert.equal(enterThenClick[3]?.afterSubmit?.windowMs, 100);
+
+  // The same, with the click-submit succeeding in place.
+  const inPlaceSuccess = lineupRun(enterThenClickSteps.slice(0, 4), [
+    metaMarker(onClock(10), '/form'), snapshotOnClock(11, lineupFormPage(1)), routeMarker(onClock(12), '/form'),
+    mutation(onClock(3_010), { adds: [{ parentId: 2, nextId: null, node: evidenceElement(50, 'p', { class: 'error' }, [evidenceText(51, 'Email is invalid')]) }] }),
+    routeMarker(onClock(5_005), '/form'), mutation(onClock(5_010), { removes: [{ parentId: 2, id: 50 }] }),
+    clickOn(onClock(7_990), 4),
+    mutation(onClock(8_050), { removes: [{ parentId: 1, id: 2 }], adds: [{ parentId: 1, nextId: null, node: evidenceElement(60, 'div', { class: 'alert-success' }, [evidenceText(61, 'Thanks')]) }] }),
+    tick(20_000),
+  ]);
+  assert.deepEqual(inPlaceSuccess[1]?.afterSubmit, { coverage: 'no-anchor', fieldsMarkedInvalid: 0, appeared: [] }, 'no borrowed success for the Enter-key submit');
+  assert.equal(inPlaceSuccess[3]?.afterSubmit?.coverage, 'covered');
+  assert.equal(inPlaceSuccess[3]?.afterSubmit?.formStillPresent, false, 'the success belongs to the click-submit');
+
+  // A same-URL SPA route at 2 s, then a reload of /form 10 min later with a submit.
+  const reload = lineupRun([
+    evidenceStep('navigation', '/form', 0), evidenceStep('navigation', '/form', 2_000), evidenceStep('navigation', '/form', 600_000),
+    evidenceStep('submit', '/form', 601_000), evidenceStep('navigation', '/thanks', 601_100),
+  ], [
+    metaMarker(onClock(10), '/form'), snapshotOnClock(11, lineupFormPage(1)), routeMarker(onClock(12), '/form'), routeMarker(onClock(2_005), '/form'),
+    metaMarker(onClock(600_010), '/form'), snapshotOnClock(600_011, lineupFormPage(1)), routeMarker(onClock(600_012), '/form'),
+    clickOn(onClock(600_990), 4), metaMarker(onClock(601_090), '/thanks'), snapshotOnClock(601_091, lineupTextPage(100)), tick(605_000),
+  ]);
+  assert.equal(reload[3]?.afterSubmit?.coverage, 'covered', 'the reload binds its own visit');
+  assert.equal(reload[3]?.afterSubmit?.windowMs, 100);
+  assert.notEqual(reload[2]?.landing?.coverage, 'no-occurrence', 'and its own landing');
+
+  // The recorder starts late into the first visit (no further events on it); /form revisited 10 min after the recording ended.
+  const lateStart = (lateMs: number) => coverages(lineupRun([
+    evidenceStep('navigation', '/form', 0), evidenceStep('navigation', '/other', 20_000), evidenceStep('navigation', '/form', 600_000),
+    evidenceStep('submit', '/form', 600_500), evidenceStep('navigation', '/thanks', 600_600),
+  ], [
+    metaMarker(onClock(lateMs), '/form'), snapshotOnClock(lateMs + 1, lineupTextPage(1)), routeMarker(onClock(lateMs + 2), '/form'),
+    metaMarker(onClock(20_010), '/other'), snapshotOnClock(20_011, lineupTextPage(10)), routeMarker(onClock(20_012), '/other'), tick(30_000),
+  ]));
+  assert.deepEqual(lateStart(8_000), ['no-occurrence', 'settled', 'no-occurrence', 'no-recording', 'no-occurrence'],
+    'the late-started first page is vetoed on time (8 s), /other keeps its own binding, the unrecorded revisit is never bound');
+  assert.deepEqual(lateStart(2_000), ['settled', 'settled', 'no-occurrence', 'no-recording', 'no-occurrence'], 'control: a 2 s start binds the first visit');
+});
+
+test('lineup rule: SPA form swaps, hash routers and late recorders bind nothing they do not line up with (2FA swap, hash wizard, late recorder)', () => {
+  const swapToCode = (ms: number) => mutation(onClock(ms), { removes: [{ parentId: 1, id: 2 }], adds: [{ parentId: 1, node: evidenceElement(12, 'form', {}, [
+    evidenceElement(13, 'input', { name: 'code', type: 'text' }), evidenceElement(14, 'button', { type: 'submit' }, [evidenceText(15, 'Verify')]),
+  ]) }] });
+  // Two-step sign-in: email form submitted by Enter, a same-URL marker swaps in the code form, the code submit is refused.
+  const twoFactor = lineupRun([
+    evidenceStep('navigation', '/login', 0), evidenceStep('submit', '/login', 1_000), evidenceStep('navigation', '/login', 2_000),
+    evidenceStep('submit', '/login', 3_000), evidenceStep('navigation', '/home', 4_000),
+  ], [
+    metaMarker(onClock(-200), '/login'), snapshotOnClock(-199, lineupFormPage(1)), routeMarker(onClock(-197), '/login'),
+    routeMarker(onClock(1_800), '/login'), swapToCode(1_802), clickOn(onClock(2_800), 14),
+    mutation(onClock(2_900), { adds: [{ parentId: 12, node: evidenceElement(20, 'p', { class: 'error' }, [evidenceText(21, 'Wrong code')]) }] }),
+    // The recording ends before /home: a recording still running at the /home visit without its page fails the span guard.
+    mouseMove(onClock(3_500)),
+  ]);
+  assert.deepEqual(twoFactor[1]?.afterSubmit, { coverage: 'no-anchor', fieldsMarkedInvalid: 0, appeared: [] }, '2FA: the email submit never carries the code form\'s error');
+  assert.equal(twoFactor[3]?.afterSubmit?.coverage, 'clipped');
+  assert.deepEqual(twoFactor[3]?.afterSubmit?.appeared.map((entry) => entry.errorTokens), [['error']], '2FA: the code submit carries its own error');
+  // The same, where the code form's click is blocked by native validation (no events submit).
+  const blocked = lineupRun([evidenceStep('navigation', '/login', 0), evidenceStep('submit', '/login', 1_000), evidenceStep('navigation', '/login', 2_000)], [
+    metaMarker(onClock(-200), '/login'), snapshotOnClock(-199, lineupFormPage(1)), routeMarker(onClock(1_800), '/login'), swapToCode(1_802),
+    clickOn(onClock(2_800), 14), mouseMove(onClock(5_000)),
+  ]);
+  assert.equal(blocked[1]?.afterSubmit?.coverage, 'no-anchor', '2FA blocked: the code form\'s click never reads as the email submit\'s window');
+
+  // Hash-routed wizard: every route shares one URL key, so the recording lines up with two runs.
+  const wizard = lineupRun([
+    evidenceStep('navigation', '/app', 0), evidenceStep('submit', '/app', 1_000), evidenceStep('navigation', '/app', 2_000),
+    evidenceStep('submit', '/app', 3_000), evidenceStep('navigation', '/app', 4_000),
+  ], [
+    metaMarker(onClock(-200), '/app'), snapshotOnClock(-199, lineupFormPage(1)), clickOn(onClock(800), 4), routeMarker(onClock(1_000), '/app'),
+    swapToCode(1_002), clickOn(onClock(2_800), 14), mouseMove(onClock(5_000)),
+  ]);
+  assert.deepEqual(coverages(wizard), ['no-occurrence', 'no-recording', 'no-occurrence', 'no-recording', 'no-occurrence'], 'hash wizard: ambiguous, nothing binds');
+
+  // Late recorder: a recording of visit 1 only, on clocks shifted against the events; visit 2 has the same URL.
+  const lateSteps = [
+    evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/home', 2_000),
+    evidenceStep('navigation', '/form', 60_000), evidenceStep('submit', '/form', 61_000),
+  ];
+  const visitOne = (shiftMs: number) => [
+    metaMarker(onClock(-200 + shiftMs), '/form'), snapshotOnClock(-199 + shiftMs, lineupFormPage(1)), clickOn(onClock(800 + shiftMs), 4), mouseMove(onClock(12_000 + shiftMs)),
+  ];
+  for (const shiftMs of [0, 4_000, 6_300, 30_000, -30_000]) {
+    const late = lineupRun(lateSteps, visitOne(shiftMs));
+    assert.equal(late[4]?.afterSubmit?.coverage, 'no-recording', `late recorder ${shiftMs} ms: the unrecorded visit 2 is never bound`);
+    assert.equal(late[3]?.landing?.coverage, 'no-occurrence');
+  }
+  const hourLater = lineupRun([evidenceStep('navigation', '/home', 0), evidenceStep('navigation', '/form', 3_600_000), evidenceStep('submit', '/form', 3_601_000)], visitOne(0));
+  assert.deepEqual(coverages(hourLater), ['no-occurrence', 'no-occurrence', 'no-recording'], 'the only /form visit, an hour after the recording, is vetoed on time');
+});
+
+test('lineup rule: a late recorder start, a late start then a reload, and two tabs interleaved in one session never bind the wrong visit', () => {
+  const tick = (ms: number) => ({ type: 3, timestamp: onClock(ms), data: { source: 1, positions: [] } });
+  // The recorder starts at 60 s on /result (the real landing was at 2 s); the user moves to /other at 62 s.
+  const lateFirst = lineupRun([
+    evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/result', 2_000), evidenceStep('navigation', '/other', 62_000),
+  ], [
+    metaMarker(onClock(60_000), '/result'), snapshotOnClock(60_001, lineupTextPage(1)), routeMarker(onClock(60_002), '/result'), tick(61_500),
+    metaMarker(onClock(62_010), '/other'), snapshotOnClock(62_011, lineupTextPage(100)), routeMarker(onClock(62_012), '/other'), tick(64_000),
+  ]);
+  assert.deepEqual(coverages(lateFirst), ['no-occurrence', 'no-recording', 'no-occurrence', 'settled'],
+    'the /result page recorded 58 s after its landing is unbound alone; /other keeps its binding');
+
+  // /form at 0 with no further events; the recorder runs 8-15 s; /form is reloaded at 17 s with a submit.
+  const lateThenReload = lineupRun([evidenceStep('navigation', '/form', 0), evidenceStep('navigation', '/form', 17_000), evidenceStep('submit', '/form', 17_500)], [
+    metaMarker(onClock(8_000), '/form'), snapshotOnClock(8_001, lineupFormPage(1)), routeMarker(onClock(8_002), '/form'), tick(15_000),
+  ]);
+  assert.deepEqual(coverages(lateThenReload), ['no-occurrence', 'no-occurrence', 'no-recording'], 'two /form runs: nothing binds, the reload never reads the 8-15 s recording');
+  // The same with the reload 4 s after the recorder started (it ran 8-9 s): time would pick the reload; uniqueness refuses.
+  const tightReload = lineupRun([evidenceStep('navigation', '/form', 0), evidenceStep('navigation', '/form', 12_000), evidenceStep('submit', '/form', 12_500)], [
+    metaMarker(onClock(8_000), '/form'), snapshotOnClock(8_001, lineupFormPage(1)), routeMarker(onClock(8_002), '/form'), tick(9_000),
+  ]);
+  assert.deepEqual(coverages(tightReload), ['no-occurrence', 'no-occurrence', 'no-recording'], 'time never breaks the tie between the two /form runs');
+
+  // Two tabs: tab 1 on /a at 0, tab 2 opens /b at 1 s, tab 1 goes to /b at 3 s; one merged events list.
+  const tabOne = [metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupTextPage(1, 'A')), metaMarker(onClock(3_000), '/b'), snapshotOnClock(3_001, lineupTextPage(10, 'B')), tick(4_000)];
+  const tabTwo = [metaMarker(onClock(1_000), '/b'), snapshotOnClock(1_001, lineupTextPage(20, 'B')), tick(5_000)];
+  const tabSteps = [evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/b', 1_000), evidenceStep('navigation', '/b', 3_000)];
+  assert.deepEqual(coverages(lineupWindows(tabSteps, [tabOne, tabTwo])), ['no-occurrence', 'no-occurrence', 'no-occurrence'],
+    'overlapping windows bind nothing: tab 1\'s /b never binds tab 2\'s visit');
+  // Control: the same windows one after the other, against events whose second /b visit comes after window 1 ended.
+  const sequentialSteps = [evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/b', 3_000), evidenceStep('navigation', '/b', 5_500)];
+  assert.deepEqual(coverages(lineupWindows(sequentialSteps, [tabOne, tabTwo.map((event) => ({ ...event, timestamp: (event as { timestamp: number }).timestamp + 4_500 }))]))[0], 'settled',
+    'control: the same windows one after the other are read');
+});
+
+test('lineup rule: the time veto unbinds a pair whose starts differ by more than 5 s, at 5 s exactly it binds', () => {
+  const steps = [evidenceStep('navigation', '/pay', 0), evidenceStep('submit', '/pay', 500)];
+  const run = (offsetMs: number) => lineupRun(steps, [
+    metaMarker(onClock(offsetMs), '/pay'), snapshotOnClock(offsetMs + 1, lineupFormPage(1)), clickOn(onClock(offsetMs + 500), 4), mouseMove(onClock(offsetMs + 12_000)),
+  ])[1]?.afterSubmit?.coverage;
+  assert.equal(run(5_000), 'covered', 'recording 5 s late: bound');
+  assert.equal(run(5_001), 'no-recording', 'recording 5.001 s late: unbound');
+  assert.equal(run(-5_000), 'covered', 'recording 5 s early: bound');
+  assert.equal(run(-5_001), 'no-recording', 'recording 5.001 s early: unbound');
+});
+
+test('lineup rule: two windows that line up with the same event visit bind it in neither', () => {
+  const steps = [evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/a', 1_000), evidenceStep('navigation', '/b', 10_000)];
+  const first = [metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupFormPage(1)), mouseMove(onClock(2_000))];
+  const second = [metaMarker(onClock(3_000), '/a'), snapshotOnClock(3_001, lineupFormPage(1)), clickOn(onClock(3_500), 4), mouseMove(onClock(5_000))];
+  assert.deepEqual(coverages(lineupWindows(steps, [first, second])), ['no-occurrence', 'no-recording', 'no-occurrence'], 'both windows claim /a: neither binds it');
+  assert.deepEqual(coverages(lineupWindows(steps, [second])), ['clipped', 'clipped', 'no-occurrence'], 'control: the second window alone binds and anchors the submit');
+});
+
+test('lineup rule: the span guard binds nothing when a visit the aligned run skips starts inside the recording (an unrecorded tab, a lost page)', () => {
+  const unbound = (steps: NeutralStep[]) => coverages(steps).filter((value) => value !== 'no-occurrence' && value !== 'no-recording');
+  // Each shape on one clock, and with the recording's clock 300 ms ahead of the events.
+  for (const skew of [0, -300]) {
+    const at = (ms: number) => onClock(ms + skew);
+    const snap = (ms: number, node: unknown) => ({ type: 2, timestamp: at(ms), data: { node } });
+    const shapes: Array<[string, NeutralStep[], unknown[]]> = [
+      // Tab 1 on /a, an unrecorded tab 2 opens /b at 1 s, tab 1 goes to /b at 3 s: tab 1's /b would bind tab 2's visit.
+      ['two tabs, only tab 1 recorded', [evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/b', 1_000), evidenceStep('navigation', '/b', 3_000)],
+        [metaMarker(at(0), '/a'), snap(1, lineupTextPage(1, 'A')), metaMarker(at(3_000), '/b'), snap(3_001, lineupTextPage(10, 'B')), mouseMove(at(4_500))]],
+      // One checkout in both tabs; only tab 1 recorded, its run broken by a tab-2 page, so the run lines up with tab 2.
+      ['the same checkout in two tabs, only tab 1 recorded', [
+        evidenceStep('navigation', '/checkout', 0), evidenceStep('submit', '/checkout', 1_000), evidenceStep('navigation', '/help', 1_500),
+        evidenceStep('navigation', '/done', 2_000), evidenceStep('navigation', '/checkout', 3_000), evidenceStep('submit', '/checkout', 3_500),
+        evidenceStep('navigation', '/done', 4_000),
+      ], [metaMarker(at(0), '/checkout'), snap(1, lineupFormPage(1)), clickOn(at(990), 4), metaMarker(at(2_000), '/done'), snap(2_001, lineupTextPage(100)), mouseMove(at(5_000))]],
+      // The events lost a /thanks pageview; the user came back 3 s later; the recording stopped after visit 1.
+      ['a lost pageview, a quick revisit, the recording stops', [
+        evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/form', 3_000),
+        evidenceStep('submit', '/form', 3_800), evidenceStep('navigation', '/thanks', 4_500),
+      ], [metaMarker(at(0), '/form'), snap(1, lineupFormPage(1)), clickOn(at(990), 4), metaMarker(at(1_500), '/thanks'), snap(1_501, lineupTextPage(100)), mouseMove(at(2_900))]],
+      // A login loop where an unrecorded second tab opened /login at 1 s and its submit failed there.
+      ['a login loop with an unrecorded /login visit', [
+        evidenceStep('navigation', '/login', 0), evidenceStep('submit', '/login', 500), evidenceStep('navigation', '/login', 1_000), evidenceStep('submit', '/login', 1_200),
+        evidenceStep('navigation', '/login', 1_500), evidenceStep('submit', '/login', 2_000), evidenceStep('navigation', '/home', 4_000),
+      ], [
+        metaMarker(at(0), '/login'), snap(1, lineupFormPage(1)), routeMarker(at(3), '/login'), clickOn(at(450), 4),
+        metaMarker(at(1_500), '/login'), snap(1_501, lineupFormPage(1)), routeMarker(at(1_503), '/login'), clickOn(at(1_950), 4),
+        metaMarker(at(4_000), '/home'), snap(4_001, lineupTextPage(100)), mouseMove(at(7_000)),
+      ]],
+      // One tab; the recording lost the middle /form page, so visit 1's page would bind visit 2 and carry visit 1's error.
+      ['one tab, the recording lost its middle page', [
+        evidenceStep('navigation', '/form', 0), evidenceStep('submit', '/form', 500), evidenceStep('navigation', '/form', 2_000),
+        evidenceStep('submit', '/form', 2_500), evidenceStep('navigation', '/thanks', 4_000),
+      ], [
+        metaMarker(at(0), '/form'), snap(1, lineupFormPage(1)), routeMarker(at(3), '/form'), clickOn(at(450), 4),
+        mutation(at(500), { adds: [{ parentId: 2, nextId: null, node: evidenceElement(50, 'p', { class: 'error' }, [evidenceText(51, 'Email is invalid')]) }] }),
+        metaMarker(at(4_000), '/thanks'), snap(4_001, lineupTextPage(100)), mouseMove(at(7_000)),
+      ]],
+    ];
+    for (const [name, steps, events] of shapes) {
+      assert.deepEqual(unbound(lineupRun(steps, events)), [], `${name}, recording clock ${skew} ms against the events: nothing binds`);
+    }
+  }
+});
+
+test('lineup rule: the span guard\'s span is the recording\'s first to last event, inclusive, with no widening', () => {
+  // The recording covers /a from 0 to 1 s; the next visit, /b, starts `gapMs` after the recording's last event.
+  const run = (gapMs: number) => coverages(lineupRun([evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/a', 500), evidenceStep('navigation', '/b', 1_000 + gapMs)], [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupFormPage(1)), clickOn(onClock(490), 4), mouseMove(onClock(1_000)),
+  ]));
+  assert.deepEqual(run(0), ['no-occurrence', 'no-recording', 'no-occurrence'], 'a visit at the recording\'s last event counts as inside it');
+  assert.deepEqual(run(1), ['clipped', 'clipped', 'no-occurrence'], '1 ms after: the recording binds its own visit');
+  // The same on the other side: the visit before starts `gapMs` before the recording's first event.
+  const before = (gapMs: number) => coverages(lineupRun([evidenceStep('navigation', '/z', -gapMs), evidenceStep('navigation', '/a', 1), evidenceStep('submit', '/a', 500)], [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupFormPage(1)), clickOn(onClock(490), 4), mouseMove(onClock(1_000)),
+  ]));
+  assert.deepEqual(before(1), ['no-occurrence', 'clipped', 'clipped'], '1 ms before the recording starts: the recording binds its own visit');
+  assert.deepEqual(before(0), ['no-occurrence', 'no-occurrence', 'no-recording'], 'a visit at the recording\'s first event counts as inside it');
+
+  // A visit outside the run whose time does not parse could be anywhere: nothing binds.
+  const untimed = coverages(lineupRun([evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/a', 500), { ...evidenceStep('navigation', '/b', 60_000), at: 'not a time' }], [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupFormPage(1)), clickOn(onClock(490), 4), mouseMove(onClock(1_000)),
+  ]));
+  assert.deepEqual(untimed, ['no-occurrence', 'no-recording', 'no-occurrence'], 'an untimed visit outside the run: nothing binds');
+
+  // A window the span guard refuses still claims its run: a later window lined up on one of its visits does not bind it.
+  const refusedSteps = [evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/b', 1_000), evidenceStep('navigation', '/c', 2_000), evidenceStep('navigation', '/d', 30_000)];
+  const refused = [metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupTextPage(1)), metaMarker(onClock(1_000), '/b'), snapshotOnClock(1_001, lineupTextPage(10)), mouseMove(onClock(2_500))];
+  const later = [metaMarker(onClock(5_000), '/b'), snapshotOnClock(5_001, lineupTextPage(20)), mouseMove(onClock(6_000))];
+  assert.notEqual(coverages(lineupWindows(refusedSteps, [later]))[1], 'no-occurrence', 'control: the later window alone binds /b');
+  assert.equal(coverages(lineupWindows(refusedSteps, [refused, later]))[1], 'no-occurrence', 'with the refused window, /b is claimed twice and binds in neither');
+});
+
+// Collects every mismatch, so one run shows each pin a mutation turns red, not only the first.
+const softDeepEqual = (wrong: string[]) => (actual: unknown, expected: unknown, label: string): void => {
+  if (!isDeepStrictEqual(actual, expected)) wrong.push(`${label} -> ${JSON.stringify(actual)}`);
+};
+
+test('lineup rule: the early-visit guard refuses a whole window when a page after its first lines up with a visit that started before the recording', () => {
+  const wrong: string[] = [];
+  const expectSame = softDeepEqual(wrong);
+  const unbound = ['no-occurrence', 'no-recording', 'no-occurrence'];
+  const errorAdd = (timestamp: number) => mutation(timestamp, { adds: [{ parentId: 2, nextId: null, node: evidenceElement(50, 'p', { class: 'error' }, [evidenceText(51, 'Email is invalid')]) }] });
+  // The same flow ran 3 s before the recording; the later run's events were all lost, so its pages line up with the earlier run.
+  const flowA = [evidenceStep('navigation', '/form', -3_000), evidenceStep('submit', '/form', -2_500), evidenceStep('navigation', '/thanks', -2_000)];
+  for (const skew of [0, -300, 300]) {
+    const at = (ms: number) => onClock(ms + skew);
+    const snap = (ms: number, node: unknown) => ({ type: 2, timestamp: at(ms), data: { node } });
+    const label = `recording clock ${skew} ms against the events`;
+    const laterRun = (head: unknown[]) => [...head, metaMarker(at(100), '/form'), snap(101, lineupFormPage(1)), clickOn(at(600), 4), errorAdd(at(650)),
+      metaMarker(at(1_000), '/thanks'), snap(1_001, lineupTextPage(100)), mouseMove(at(2_500))];
+    const redirect = [metaMarker(at(0), '/go'), snap(1, lineupTextPage(300))];
+    expectSame(coverages(lineupRun(flowA,laterRun(redirect))), unbound, `a trimmed redirect head, then the lost run (${label}): nothing binds`);
+    expectSame(coverages(lineupRun(flowA,laterRun([metaMarker(at(-50), '/r1'), snap(-49, lineupTextPage(300)), metaMarker(at(0), '/r2'), snap(1, lineupTextPage(400))]))), unbound,
+      `two trimmed head pages, then the lost run (${label}): nothing binds`);
+    // The recording ends on /form: the one kept page is not the window's first page (the trimmed head is), so it is checked.
+    expectSame(coverages(lineupRun(flowA,[...redirect, metaMarker(at(100), '/form'), snap(101, lineupFormPage(1)), clickOn(at(600), 4), errorAdd(at(650)), mouseMove(at(2_500))])), unbound,
+      `a trimmed head page is the first page: the one kept page after it is checked (${label}): nothing binds`);
+    // Window-level: the recording opens on the lost run itself; its first page is exempt, but /thanks is early, so the first page drops too.
+    expectSame(coverages(lineupRun(flowA,laterRun([]))), unbound, `the recording opens on the lost run (${label}): nothing binds, the exempt first page included`);
+    expectSame(coverages(lineupRun(flowA,[metaMarker(at(0), '/form'), snap(1, lineupFormPage(1)), clickOn(at(300), 4), errorAdd(at(350)),
+      metaMarker(at(700), '/thanks'), snap(701, lineupTextPage(100)), mouseMove(at(3_000))])), unbound, `an untrimmed first page on the lost run (${label}): nothing binds`);
+    // The earlier flow only 400 ms before the recording: with the recording 300 ms ahead, only the first kept page's visit is early.
+    expectSame(coverages(lineupRun([evidenceStep('navigation', '/form', -400), evidenceStep('submit', '/form', -300), evidenceStep('navigation', '/thanks', -200)], laterRun(redirect))),
+      unbound, `the earlier flow 400 ms before (${label}): nothing binds`);
+    // The redirect is in the events too, so it is kept as the exempt first page; the window still binds nothing.
+    expectSame(coverages(lineupRun([evidenceStep('navigation', '/go', -3_100), ...flowA], laterRun(redirect))), ['no-occurrence', ...unbound],
+      `the redirect kept as the first page (${label}): nothing binds, the redirect included`);
+    // An unrecorded second tab ran a three-page flow across the recording's start (its first page before, the rest after); tab 1's own events were lost.
+    expectSame(coverages(lineupRun([
+      evidenceStep('navigation', '/form', -1_000), evidenceStep('submit', '/form', -800), evidenceStep('navigation', '/otp', 500), evidenceStep('submit', '/otp', 900), evidenceStep('navigation', '/thanks', 1_200),
+    ], [
+      metaMarker(at(0), '/r'), snap(1, lineupTextPage(300)), metaMarker(at(100), '/form'), snap(101, lineupFormPage(1)), clickOn(at(300), 4), errorAdd(at(350)),
+      metaMarker(at(600), '/otp'), snap(601, lineupFormPage(201)), clickOn(at(1_000), 204), metaMarker(at(1_300), '/thanks'), snap(1_301, lineupTextPage(400)), mouseMove(at(3_000)),
+    ])), [...unbound, 'no-recording', 'no-occurrence'], `a second tab's flow straddles the recording's start (${label}): nothing binds, its later pages included`);
+    // A recorded event before the first page marker does not lower the reference.
+    expectSame(coverages(lineupRun(flowA,[mouseMove(at(-4_000)), ...laterRun(redirect)])), unbound, `a stray event 4 s before the first marker (${label}): nothing binds`);
+    // A window the guard refuses still claims its run: the window that really recorded the earlier flow collides with it, and neither binds.
+    const recordedA = [metaMarker(at(-3_000), '/form'), snap(-2_999, lineupFormPage(1)), clickOn(at(-2_510), 4), metaMarker(at(-2_000), '/thanks'), snap(-1_999, lineupTextPage(100)), mouseMove(at(-1_000))];
+    if (isDeepStrictEqual(coverages(lineupWindows(flowA, [recordedA])), unbound)) wrong.push(`control (${label}): the earlier flow's own window alone binds`);
+    expectSame(coverages(lineupWindows(flowA, [recordedA,laterRun(redirect)])), unbound, `the refused window still claims the run (${label}): neither window binds`);
+  }
+  for (const skew of [0, -300]) {
+    const at = (ms: number) => onClock(ms + skew);
+    const snap = (ms: number, node: unknown) => ({ type: 2, timestamp: at(ms), data: { node } });
+    // A recorder that starts 4.9 s into the first visit: the first page is exempt, so both pages bind.
+    expectSame(coverages(lineupRun([
+      evidenceStep('navigation', '/form', 0), evidenceStep('navigation', '/other', 9_000), evidenceStep('navigation', '/form', 600_000), evidenceStep('submit', '/form', 601_000),
+    ], [metaMarker(at(4_900), '/form'), snap(4_901, lineupFormPage(1)), metaMarker(at(9_000), '/other'), snap(9_001, lineupTextPage(100)), mouseMove(at(11_000))])),
+    ['settled', 'settled', 'no-occurrence', 'no-recording'], `a late recorder's first page binds (recording clock ${skew} ms)`);
+  }
+  assert.deepEqual(wrong, [], 'every early-visit shape binds as pinned');
+});
+
+test('lineup rule: the early-visit guard compares strictly against the first page marker, with no tolerance; it fails closed on unreadable times and on clock skew', () => {
+  // The guard's tolerance is 0 by construction: raising it fails open.
+  const wrong: string[] = [];
+  const expectSame = softDeepEqual(wrong);
+  if (!/\nconst RECORDING_EARLY_VISIT_TOLERANCE_MS = 0;\n/.test(readSourceFile(path.resolve('src/providers/posthog-adapter.ts')))) {
+    wrong.push('the early-visit tolerance constant reads exactly 0');
+  }
+  const unboundTriple = ['no-occurrence', 'no-occurrence', 'no-recording'];
+  // The recording opens on /a at 0 (a late recorder, so the /a visit began 3 s before); /b's visit starts at `bMs`.
+  const boundary = (bMs: number) => coverages(lineupRun([evidenceStep('navigation', '/a', -3_000), evidenceStep('navigation', '/b', bMs), evidenceStep('submit', '/b', bMs + 500)], [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupTextPage(300)), metaMarker(onClock(100), '/b'), snapshotOnClock(101, lineupFormPage(1)), clickOn(onClock(bMs + 490), 4), mouseMove(onClock(2_000)),
+  ]));
+  expectSame(boundary(0), ['clipped', 'clipped', 'clipped'], 'a later page\'s visit starting exactly at the first marker binds');
+  expectSame(boundary(-1), unboundTriple, '1 ms earlier: nothing binds');
+  // A first marker whose time is not a number: every comparison fails, so nothing binds (the later page included).
+  expectSame(coverages(lineupRun([evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/b', 1_000), evidenceStep('submit', '/b', 1_500)], [
+    { type: 4, data: { href: evidenceUrl('/a') } }, snapshotOnClock(1, lineupTextPage(300)), metaMarker(onClock(1_000), '/b'), snapshotOnClock(1_001, lineupFormPage(1)),
+    clickOn(onClock(1_490), 4), mouseMove(onClock(3_000)),
+  ])), unboundTriple, 'an unreadable first-marker time: nothing binds');
+  // A later page's visit with no readable start could be anywhere: nothing binds. At the exempt first page it unbinds that pair only.
+  const twoPages = [metaMarker(onClock(0), '/a'), snapshotOnClock(1, lineupTextPage(300)), metaMarker(onClock(1_000), '/b'), snapshotOnClock(1_001, lineupFormPage(1)),
+    clickOn(onClock(1_490), 4), mouseMove(onClock(3_000))];
+  expectSame(coverages(lineupRun([evidenceStep('navigation', '/a', 0), { ...evidenceStep('navigation', '/b', 1_000), at: 'not a time' }, evidenceStep('submit', '/b', 1_500)], twoPages)),
+    unboundTriple, 'an untimed visit at a later page: nothing binds');
+  expectSame(coverages(lineupRun([{ ...evidenceStep('navigation', '/a', 0), at: 'not a time' }, evidenceStep('navigation', '/b', 1_000), evidenceStep('submit', '/b', 1_500)], twoPages)),
+    ['no-occurrence', 'clipped', 'clipped'], 'control: an untimed visit at the first page unbinds that pair only');
+  // Clock skew fails closed: page 1 on screen 100 ms, the recording 300 ms behind the events, so the genuine /form visit reads as early.
+  const skewed = (skew: number) => coverages(lineupRun([
+    evidenceStep('navigation', '/a', 0), evidenceStep('navigation', '/form', 100), evidenceStep('submit', '/form', 1_000), evidenceStep('navigation', '/thanks', 1_100),
+  ], [
+    metaMarker(onClock(skew), '/a'), snapshotOnClock(skew + 1, lineupTextPage(300)), metaMarker(onClock(skew + 100), '/form'), snapshotOnClock(skew + 101, lineupFormPage(1)),
+    clickOn(onClock(skew + 900), 4), metaMarker(onClock(skew + 1_050), '/thanks'), snapshotOnClock(skew + 1_051, lineupTextPage(100)), mouseMove(onClock(skew + 3_000)),
+  ]));
+  expectSame(skewed(0), ['clipped', 'clipped', 'covered', 'settled'], 'control: the same genuine session on one clock binds');
+  expectSame(skewed(300), ['no-occurrence', 'no-occurrence', 'no-recording', 'no-occurrence'], 'the recording 300 ms behind: nothing binds, never a wrong binding');
+  assert.deepEqual(wrong, [], 'every boundary, unreadable-time and skew shape binds as pinned');
+});
+
+test('lineup rule: the run search stays linear on long runs of one URL key (N identical keys, doubling)', (t) => {
+  const fixture = (size: number) => {
+    // The first N visits come a minute before the recording, so the span guard does not see them.
+    const at = (index: number) => index * 10 + (index >= size ? 60_000 : 0);
+    const steps: NeutralStep[] = [];
+    for (let index = 0; index < 2 * size; index += 1) steps.push(evidenceStep('navigation', '/same', at(index)));
+    steps.push(evidenceStep('navigation', '/end', at(2 * size)));
+    const events: unknown[] = [];
+    for (let index = 0; index < size; index += 1) events.push(metaMarker(onClock(at(size + index)), '/same'));
+    events.push(metaMarker(onClock(at(2 * size)), '/end'), mouseMove(onClock(at(2 * size) + 2_000)));
+    return { steps, events };
+  };
+  const totals: number[] = [];
+  for (const size of [256, 512, 1_024]) {
+    const { steps, events } = fixture(size);
+    const result = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events, undefined, { clock: 'raw' }), true);
+    const covered = coverages(result.session.steps);
+    assert.equal(covered[size - 1], 'no-occurrence', `N=${size}: the visits before the aligned run stay unbound`);
+    assert.notEqual(covered[size], 'no-occurrence', `N=${size}: the one aligned run [N x /same, /end] binds`);
+    assert.equal(covered[2 * size], 'settled', `N=${size}: the last page binds`);
+    const allSame = enrichNeutralSessionWithReplayEvidence(evidenceSession(steps.slice(0, 2 * size)), evidenceDecode(events.slice(0, size), undefined, { clock: 'raw' }), true);
+    assert.ok(coverages(allSame.session.steps).every((value) => value === 'no-occurrence'), `N=${size}: N identical pages against 2N identical visits is ambiguous`);
+    totals.push(result.work.total + allSame.work.total);
+    t.diagnostic(`N=${size}: total=${result.work.total + allSame.work.total}`);
+  }
+  assert.ok((totals[1] ?? 0) <= (totals[0] ?? 0) * 2.2, 'N to 2N work ratio');
+  assert.ok((totals[2] ?? 0) <= (totals[0] ?? 0) * 4.4, 'N to 4N work ratio');
+});
+
+test('recording evidence: wrapper class toggles read only their own controls and the landing seed runs only with a source submit (linear at N, 2N, 4N)', (t) => {
+  const ratios = (label: string, generate: (size: number) => { steps: NeutralStep[]; events: unknown[] }) => {
+    const totals = [256, 512, 1_024].map((size) => {
+      const { steps, events } = generate(size);
+      return enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode(events, undefined, { clock: 'raw' }), true).work.total;
+    });
+    t.diagnostic(`${label}: ${totals.join(' / ')}`);
+    assert.ok((totals[1] ?? 0) <= (totals[0] ?? 0) * 2.2, `${label}: N to 2N work ratio`);
+    assert.ok((totals[2] ?? 0) <= (totals[0] ?? 0) * 4.4, `${label}: N to 4N work ratio`);
+  };
+  // N wrappers of one control each in the submitted form; N wrapper class toggles inside the reaction window.
+  ratios('wrapper class toggles', (size) => ({
+    steps: [evidenceStep('navigation', '/s', 0), evidenceStep('submit', '/s', 1_000)],
+    events: [
+      metaMarker(onClock(-200), '/s'),
+      snapshotOnClock(-199, evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+        ...Array.from({ length: size }, (_value, index) => evidenceElement(1_000 + index * 3, 'div', { class: 'form-group' }, [evidenceElement(1_001 + index * 3, 'input', { name: `f${index}`, type: 'text' })])),
+        evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Go')]),
+      ])])),
+      clickOn(onClock(100), 4),
+      ...Array.from({ length: size }, (_value, index) => mutation(onClock(200 + index * 0.5), { attributes: [{ id: 1_000 + index * 3, attributes: { class: 'form-group is-focused' } }] })),
+    ],
+  }));
+  // N/8 forms stay on screen across N route markers, with no submit anywhere: no landing reads forms, so none is seeded.
+  ratios('persistent forms x route markers without a source submit', (size) => {
+    const forms = Array.from({ length: size / 8 }, (_value, index) => evidenceElement(10_000 + index * 3, 'form', {}, [
+      evidenceElement(10_001 + index * 3, 'input', { name: `q${index}`, type: 'text' }), evidenceElement(10_002 + index * 3, 'button', { type: 'submit' }),
+    ]));
+    const steps = [evidenceStep('navigation', '/p/0', 0)];
+    const events: unknown[] = [metaMarker(onClock(0), '/p/0'), snapshotOnClock(1, evidenceElement(1, 'main', {}, forms))];
+    for (let index = 1; index < size; index += 1) {
+      steps.push(evidenceStep('navigation', `/p/${index}`, index * 10));
+      events.push(routeMarker(onClock(index * 10), `/p/${index}`));
+    }
+    return { steps, events };
+  });
+  // The same N route markers after one submit: only the first landing after it is seeded.
+  ratios('persistent forms x route markers after one submit', (size) => {
+    const forms = Array.from({ length: size / 8 }, (_value, index) => evidenceElement(10_000 + index * 3, 'form', {}, [
+      evidenceElement(10_001 + index * 3, 'input', { name: `q${index}`, type: 'text' }), evidenceElement(10_002 + index * 3, 'button', { type: 'submit' }),
+    ]));
+    const steps = [evidenceStep('navigation', '/p/0', 0), evidenceStep('submit', '/p/0', 5)];
+    const events: unknown[] = [metaMarker(onClock(0), '/p/0'), snapshotOnClock(1, evidenceElement(1, 'main', {}, forms)), clickOn(onClock(4), 10_002)];
+    for (let index = 1; index < size; index += 1) {
+      steps.push(evidenceStep('navigation', `/p/${index}`, index * 10));
+      events.push(routeMarker(onClock(index * 10), `/p/${index}`));
+    }
+    return { steps, events };
+  });
+  // One wrapper holding N non-field nodes and the form's one field, its class toggled N times inside the reaction window.
+  ratios('large wrapper class toggles', (size) => ({
+    steps: [evidenceStep('navigation', '/s', 0), evidenceStep('submit', '/s', 1_000)],
+    events: [
+      metaMarker(onClock(-200), '/s'),
+      snapshotOnClock(-199, evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [
+        evidenceElement(3, 'div', { class: 'form-group' }, [
+          ...Array.from({ length: size }, (_value, index) => evidenceElement(100_000 + index, 'span')),
+          evidenceElement(6, 'input', { name: 'f', type: 'text' }),
+        ]),
+        evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Go')]),
+      ])])),
+      clickOn(onClock(100), 4),
+      ...Array.from({ length: size }, (_value, index) => mutation(onClock(200 + index * 0.5), { attributes: [{ id: 3, attributes: { class: index % 2 === 0 ? 'form-group is-focused' : 'form-group' } }] })),
+    ],
+  }));
+});
+
+test('recording evidence: a later landing of the same submit, with forms already on screen it did not read, is never settled', () => {
+  // /a holds the submitted form and a second form that stays on screen; two SPA routes follow the one submit.
+  const page = evidenceElement(1, 'main', {}, [
+    evidenceElement(2, 'form', {}, [evidenceElement(3, 'input', { name: 'email', type: 'text' }), evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Send')])]),
+    evidenceElement(20, 'form', {}, [evidenceElement(21, 'input', { name: 'newsletter', type: 'text', value: '' }), evidenceElement(22, 'button', { type: 'submit' }, [evidenceText(23, 'Join')])]),
+  ]);
+  const steps = [evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/a', 500), evidenceStep('navigation', '/b', 1_000), evidenceStep('navigation', '/c', 3_000)];
+  const landings = lineupRun(steps, [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, page), clickOn(onClock(490), 4),
+    routeMarker(onClock(1_000), '/b'), mutation(onClock(1_002), { removes: [{ parentId: 1, id: 2 }] }),
+    routeMarker(onClock(3_000), '/c'), mouseMove(onClock(6_000)),
+  ]).filter((step) => step.kind === 'navigation').slice(1).map((step) => step.landing);
+  assert.equal(landings[0]?.coverage, 'settled', 'the first landing after the submit is seeded: it reads the form on screen');
+  assert.equal(landings[0]?.unrelatedOpenForm, 'empty');
+  assert.equal(landings[1]?.coverage, 'clipped', 'the next landing did not read that form, so it never claims an absence');
+  assert.equal(landings[1]?.unrelatedOpenForm, 'none');
+});
+
+test('recording evidence: a later landing whose page load replaces the screen with a FullSnapshot reads every form in it, so it may settle', () => {
+  // /a holds the submitted form; /b (the first landing after the submit) shows a newsletter form; /c is a page load
+  // (Meta + FullSnapshot) while /b's form is still on screen at /c's first marker: the archive's shape.
+  const formA = evidenceElement(1, 'main', {}, [evidenceElement(2, 'form', {}, [evidenceElement(3, 'input', { name: 'email', type: 'text' }), evidenceElement(4, 'button', { type: 'submit' }, [evidenceText(5, 'Send')])])]);
+  const newsletter = (base: number) => evidenceElement(base, 'main', {}, [evidenceElement(base + 1, 'form', {}, [
+    evidenceElement(base + 2, 'input', { name: 'newsletter', type: 'text', value: '' }), evidenceElement(base + 3, 'button', { type: 'submit' }, [evidenceText(base + 4, 'Join')]),
+  ])]);
+  const steps = [evidenceStep('navigation', '/a', 0), evidenceStep('submit', '/a', 500), evidenceStep('navigation', '/b', 1_000), evidenceStep('navigation', '/c', 3_000)];
+  const run = (cPage: unknown) => lineupRun(steps, [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, formA), clickOn(onClock(490), 4),
+    metaMarker(onClock(1_000), '/b'), snapshotOnClock(1_001, newsletter(10)),
+    metaMarker(onClock(3_000), '/c'), snapshotOnClock(3_001, cPage), mouseMove(onClock(6_000)),
+  ]).filter((step) => step.kind === 'navigation').map((step) => step.landing);
+  const noForm = run(lineupTextPage(30));
+  assert.equal(noForm[1]?.coverage, 'settled', 'control: the first landing after the submit settles');
+  assert.equal(noForm[2]?.coverage, 'settled', 'the previous page\'s form is gone once /c\'s snapshot replaces the screen: /c may settle');
+  assert.equal(noForm[2]?.unrelatedOpenForm, 'none');
+  assert.equal(noForm[2]?.relatedOpenForm, 'none');
+  const withForm = run(newsletter(30));
+  assert.equal(withForm[2]?.unrelatedOpenForm, 'empty', '/c\'s own snapshot holds an open form: it is read, never claimed absent');
+  assert.equal(withForm[2]?.coverage, 'settled', 'and read as presence, so settling claims no absence');
+  // A snapshot whose root cannot be read shows nothing: /b's form may still be on screen, so /c never settles.
+  const unreadable = run('not a node');
+  assert.notEqual(unreadable[2]?.coverage, 'settled', 'an unreadable snapshot root does not lift the downgrade');
+  assert.equal(unreadable[2]?.coverage, 'clipped');
+  // A blank but valid document is a read root: /c may settle, as with any readable page.
+  const blank = run({ type: 0, id: 30, childNodes: [] });
+  assert.equal(blank[2]?.coverage, 'settled', 'a blank but valid document lifts the downgrade');
+  assert.equal(blank[2]?.unrelatedOpenForm, 'none');
+  // The first landing after the submit (/b), on a snapshot whose root cannot be read: the screen is unknown, never settled.
+  const firstUnreadable = lineupRun(steps, [
+    metaMarker(onClock(0), '/a'), snapshotOnClock(1, formA), clickOn(onClock(490), 4),
+    metaMarker(onClock(1_000), '/b'), snapshotOnClock(1_001, 'not a node'),
+    metaMarker(onClock(3_000), '/c'), snapshotOnClock(3_001, lineupTextPage(30)), mouseMove(onClock(6_000)),
+  ]).filter((step) => step.kind === 'navigation').map((step) => step.landing);
+  assert.equal(firstUnreadable[1]?.coverage, 'clipped', 'the first landing after a submit on an unreadable root is never settled');
+  assert.equal(firstUnreadable[2]?.coverage, 'settled', 'control: the next page load, read, settles');
+});
+
+// The pass runs in a worker that is stopped after 30 s: an unbounded climb is a synchronous loop no test
+// timeout can interrupt, so a hang fails this test instead of stalling the run.
+test('recording evidence: two adds that parent each other end their window as undecodable instead of hanging', async () => {
+  const steps = [evidenceStep('navigation', '/s', 0), evidenceStep('submit', '/s', 1_000)];
+  const decode = evidenceDecode([
+    metaMarker(onClock(-200), '/s'), snapshotOnClock(-199, lineupFormPage(1)), clickOn(onClock(100), 4),
+    mutation(onClock(150), { adds: [{ parentId: 8_001, node: evidenceElement(8_000, 'div') }, { parentId: 8_000, node: evidenceElement(8_001, 'div') }] }),
+  ], undefined, { clock: 'raw' });
+  // An eval worker does not inherit the tsx loader hooks, so it registers them before loading the adapter.
+  const worker = new Worker(`
+    const { parentPort, workerData } = require('node:worker_threads');
+    import('tsx/esm/api').then((tsx) => {
+      tsx.register();
+      return import(workerData.adapterUrl);
+    }).then((adapter) => {
+      const steps = adapter.enrichNeutralSessionWithReplayEvidence(workerData.session, workerData.decode, true).session.steps;
+      parentPort.postMessage(steps.map((step) => step.afterSubmit?.coverage ?? step.landing?.coverage));
+    });
+  `, { eval: true, workerData: { adapterUrl: new URL('./posthog-adapter.ts', import.meta.url).href, session: evidenceSession(steps), decode } });
+  const cycle = await new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      void worker.terminate();
+      reject(new Error('the evidence pass hung on a parent cycle: no answer within 30 s'));
+    }, 30_000);
+    worker.once('message', (message) => {
+      clearTimeout(timer);
+      void worker.terminate();
+      resolve(message);
+    });
+    worker.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+  assert.deepEqual(cycle, ['undecodable', 'undecodable']);
+});
+
+test('recording evidence: a re-presented form first seen after the settle window is presence, with its error not established', () => {
+  const steps = [evidenceStep('navigation', '/account/login', 0), evidenceStep('submit', '/account/login', 1_000), evidenceStep('navigation', '/account/login/retry', 2_000)];
+  const run = (offset: number, withError: boolean) => enrichNeutralSessionWithReplayEvidence(evidenceSession(steps), evidenceDecode([
+    ...evidenceFormSnapshot('/account/login', 225_000),
+    clickOn(225_100, 4),
+    routeMarker(225_300, '/account/login/retry'),
+    mutation(225_302, { removes: [{ parentId: 1, id: 2 }] }),
+    mutation(225_300 + offset, { adds: [{ parentId: 1, node: evidenceElement(30, 'form', {}, [
+      evidenceElement(31, 'input', { name: 'email', type: 'text' }),
+      ...(withError ? [evidenceElement(34, 'p', { class: 'error' }, [evidenceText(35, 'Try again')])] : []),
+      evidenceElement(32, 'button', { type: 'submit' }, [evidenceText(33, 'Sign in')]),
+    ]) }] }),
+    mouseMove(227_000),
+  ]), true).session.steps[2]?.landing;
+  assert.deepEqual(run(600, true), { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: true, errorShown: true });
+  assert.deepEqual(run(600, false), { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: true, errorShown: false });
+  assert.deepEqual(run(1_400, true), { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: true },
+    'seen at 1.4 s: re-presented (presence), never false; its error was not on screen at the judgement point, so errorShown is absent');
+  assert.deepEqual(run(1_400, false), { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: true },
+    'and never errorShown: false for a form that was not there when the page settled');
 });
 
 // ---------------------------------------------------------------------------

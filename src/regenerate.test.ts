@@ -2,11 +2,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { segmentJourneys } from './journeys.js';
+import { SEGMENTATION_VERSION, segmentJourneys } from './journeys.js';
+import { eventsPlannableIndex } from './journey-index.js';
+import { journeySignature } from './selection.js';
 import type { NeutralSession, NeutralStep, NeutralTarget } from './neutral-session.js';
 import { createArchiveFetchers } from './providers/archive-adapter.js';
 import { type CapMetadata, type CoarseSession } from './providers/posthog-adapter.js';
-import { annotateFidelityRegressions, crossOriginWithheldMessage, formatRegenerateJson, formatRegenerateRefusalJson, regeneratePlan, buildSuccessorObservations } from './regenerate.js';
+import { annotateFidelityRegressions, crossOriginWithheldMessage, formatRegenerateJson, formatRegenerateRefusalJson, regeneratePlan, buildSuccessorObservations, renderRegenerateResult } from './regenerate.js';
 import { NO_SUCCESSOR_OBSERVATIONS_AT_DEPTH, renderSuccessorObservations, retirementEvidenceStatus, SUCCESSOR_OBSERVATION_DEPTH_DISCLOSURE, RETIREMENT_EVIDENCE_MIN_ENTRIES, RETIREMENT_EVIDENCE_MIN_WINDOW_HOURS, trailMentionSentence, type RetirementEvidenceStatus } from './retirement-evidence.js';
 import { DEFAULT_SESSION_SCAN_HOURS } from './session-scan-defaults.js';
 import { buildSidecar, renderPlanMarkdown, renderScaffoldSpec, SIGNATURE_SEMANTICS_VERSION, type Sidecar, type SidecarEmptySearch, type SidecarHealthySearch } from './sidecar.js';
@@ -101,6 +103,7 @@ function sidecarFor(source: NeutralSession): Sidecar {
     sessionId: source.id,
     journeyIndex: 0,
     signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
     wizardStepParamNames: [],
   });
 }
@@ -186,6 +189,13 @@ test('regeneratePlan: a same-signature fresh session takes Tier A and is marked 
   assert.equal(result.kind, 'regenerated');
   assert.equal(result.kind === 'regenerated' && result.tier, 'same-signature');
   assert.equal(result.kind === 'regenerated' && result.sidecar.source.regeneration?.tier, 'same-signature');
+  if (result.kind === 'regenerated') {
+    const allJourneys = segmentJourneys(fresh);
+    const targetJourney = allJourneys.find((journey) => journeySignature(journey) === result.candidate.signature);
+    assert.notEqual(targetJourney, undefined);
+    assert.equal(result.sidecar.source.journeyIndex, eventsPlannableIndex(fresh, allJourneys, targetJourney!));
+    assert.equal(result.sidecar.source.segmentationVersion, SEGMENTATION_VERSION);
+  }
   // The consent diff is computed AFTER `source.regeneration`
   // is stamped, so the marker the reviewer needs is actually in the diff. When
   // the stamp ran after the diff (the shipped ordering bug), this is silent.
@@ -584,8 +594,349 @@ test('regeneratePlan: stale signature semantics skip Tier A and disclose the kin
     fetchers: fetchers([coarse(successor)], { [successor.id]: successor }),
   });
   assert.equal(result.kind, 'regenerated');
-  assert.equal(result.kind === 'regenerated' && result.search.staleSignature, 'signature predates current rules — matching by journey kinship instead');
+  assert.equal(result.kind === 'regenerated' && result.search.staleSignature, 'Signature predates current rules — matching by similar journeys instead');
   assert.equal(result.kind === 'regenerated' && result.search.tierA.candidates, 0);
+});
+
+test('regeneratePlan: the note on a plan stale on both markers is one plain sentence pair that opens with a capital letter', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const successor = session('successor-session', 'new-user', successorSteps('2002', true));
+  const legacy = sidecarFor(old);
+  legacy.source.signatureSemanticsVersion = 0;
+  delete legacy.source.segmentationVersion;
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(successor)], { [old.id]: old, [successor.id]: successor }),
+  });
+  assert.equal(result.kind, 'regenerated');
+  if (result.kind !== 'regenerated') return;
+  assert.equal(
+    result.search.staleSignature,
+    'Signature predates current rules — matching by similar journeys instead. This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended',
+  );
+  const rendered = renderRegenerateResult(result);
+  assert.ok(rendered.includes('ⓘ Signature predates current rules — matching by similar journeys instead. This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended'), rendered);
+  assert.doesNotMatch(rendered, /kinship|ⓘ [a-z]/);
+});
+
+test('regeneratePlan: a plan without the segmentation marker keeps Tier A onto fresh traffic that still holds its exact journey, with the review note', async () => {
+  // Every plan built by an earlier version of replaytest carries
+  // no `segmentationVersion`. Its signature semantics are current, so a fresh
+  // session holding the exact journey is still found by Tier A.
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const fresh = session('fresh-session', 'fresh-user', recordedSteps('1002'));
+  const legacy = sidecarFor(old);
+  delete legacy.source.segmentationVersion;
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(fresh)], { [old.id]: old, [fresh.id]: fresh }),
+  });
+  assert.equal(result.kind, 'regenerated');
+  if (result.kind !== 'regenerated') return;
+  assert.equal(result.tier, 'same-signature');
+  assert.equal(result.search.tierA.candidates, 1);
+  assert.equal(result.sidecar.source.segmentationVersion, SEGMENTATION_VERSION, 'the regenerated proposal carries the current marker');
+  assert.equal(result.search.staleSignature, 'This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended');
+  const rendered = renderRegenerateResult(result);
+  assert.ok(rendered.includes('ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended.'));
+  assert.doesNotMatch(rendered, /kinship/i);
+});
+
+test('regeneratePlan: a plan without the segmentation marker and no matching traffic says re-plan, not that Tier A was skipped', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const unrelated = session('fresh-session', 'fresh-user', [
+    navigation(`${BASE}/help`, 0),
+    action('click', `${BASE}/help`, 1, { tag: 'a', text: 'Contact us' }),
+    navigation(`${BASE}/help/contact`, 2, 'Contact us'),
+  ]);
+  const legacy = sidecarFor(old);
+  delete legacy.source.segmentationVersion;
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(unrelated)], { [old.id]: old, [unrelated.id]: unrelated }),
+  });
+  assert.equal(result.kind, 'refusal');
+  if (result.kind !== 'refusal') return;
+  assert.equal(result.code, 'no-candidates');
+  assert.ok(result.message.includes('ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended. Re-plan this path with `replaytest plan old-user --session old-session`.'));
+  assert.doesNotMatch(result.message, /skipped/i);
+});
+
+test('regeneratePlan: a stale-segmentation Tier B search tries the next candidate after one whose deep load splits the path', async () => {
+  // Same coarse path as the usable successor, but the deep load splits it: a
+  // submit on the order page lands on review, then a plain navigation to the
+  // confirmation opens a new journey, so no journey carries the variant path.
+  const splitSuccessorSteps = (orderId: string): NeutralStep[] => {
+    const dashboard = `${BASE}/dashboard`;
+    const order = `${BASE}/orders/${orderId}`;
+    const review = `${BASE}/orders/${orderId}/review`;
+    return [
+      navigation(dashboard, 0),
+      action('click', dashboard, 1, { tag: 'a', text: 'View order' }),
+      navigation(order, 2),
+      action('input', order, 3, { tag: 'input', labelText: 'Note', attributes: { type: 'text' } }),
+      action('submit', order, 4, { tag: 'button', text: 'Save note' }),
+      navigation(review, 5),
+      navigation(`${BASE}/orders/${orderId}/confirmation`, 7, 'Order confirmed'),
+    ];
+  };
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const legacy = sidecarFor(old);
+  legacy.source.segmentationVersion = 0;
+  const split = session('split-newest', 'split-user', splitSuccessorSteps('2002'));
+  const usable = session('usable-older', 'usable-user', successorSteps('2003', true));
+  const usableSignature = journeySignature(segmentJourneys(usable)[0]!);
+  assert.ok(!segmentJourneys(split).some((journey) => journeySignature(journey) === usableSignature), 'the split session holds no journey with the variant path');
+
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([{ ...coarse(split), lastTs: at(90) }, { ...coarse(usable), lastTs: at(80) }], { [split.id]: split, [usable.id]: usable }),
+  });
+  assert.equal(result.kind, 'regenerated', 'the older usable successor must still be found');
+  if (result.kind !== 'regenerated') return;
+  assert.equal(result.candidate.sessionId, 'usable-older');
+  assert.equal(result.search.tierB.attempted, 2);
+});
+
+test('regeneratePlan: a plan without the segmentation marker tries the next Tier A candidate after one whose deep load splits the journey', async () => {
+  // Same coarse path as the recorded journey, but a submit on the order page
+  // splits it in the deep load, so no single journey carries the signature.
+  const splitRecordedSteps = (orderId: string): NeutralStep[] => {
+    const dashboard = `${BASE}/dashboard`;
+    const order = `${BASE}/orders/${orderId}`;
+    const pay = `${BASE}/orders/${orderId}/pay`;
+    return [
+      navigation(dashboard, 0),
+      action('click', dashboard, 1, { tag: 'a', text: 'View order' }),
+      navigation(order, 2),
+      action('input', order, 3, { tag: 'input', labelText: 'Note', attributes: { type: 'text' } }),
+      action('submit', order, 4, { tag: 'button', text: 'Save note' }),
+      navigation(pay, 5),
+      navigation(`${BASE}/orders/${orderId}/confirmation`, 7, 'Order confirmed'),
+    ];
+  };
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const legacy = sidecarFor(old);
+  delete legacy.source.segmentationVersion;
+  const signature = legacy.source.signature ?? '';
+  const split = session('split-newest', 'split-user', splitRecordedSteps('2002'));
+  const usable = session('usable-older', 'usable-user', recordedSteps('2003'));
+  assert.ok(!segmentJourneys(split).some((journey) => journeySignature(journey) === signature), 'the split session holds no journey with the recorded signature');
+
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([{ ...coarse(split), lastTs: at(90) }, { ...coarse(usable), lastTs: at(80) }], { [old.id]: old, [split.id]: split, [usable.id]: usable }),
+  });
+  assert.equal(result.kind, 'regenerated', 'the older candidate holding the exact journey must still be found');
+  if (result.kind !== 'regenerated') return;
+  assert.equal(result.tier, 'same-signature');
+  assert.equal(result.candidate.sessionId, 'usable-older');
+  assert.equal(result.search.tierA.attempted, 2);
+});
+
+test('regeneratePlan: a stale segmentation marker reports segmentation-changed only after every candidate misses, naming the old signature', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const coarseVariant = session('fresh-session', 'fresh-user', successorSteps('2002', true));
+  const detailedDifferent = session('fresh-session', 'fresh-user', recordedSteps('2002'));
+  const legacy = sidecarFor(old);
+  legacy.source.segmentationVersion = 0;
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(coarseVariant)], { [detailedDifferent.id]: detailedDifferent }),
+  });
+  assert.equal(result.kind, 'refusal');
+  if (result.kind !== 'refusal') return;
+  assert.equal(result.code, 'segmentation-changed');
+  assert.ok(result.message.includes(legacy.source.signature ?? ''), 'the refusal names the signature from the older plan');
+  assert.notEqual(result.code, 'no-candidates');
+});
+
+/** Same coarse path as `recordedSteps`, but a submit on the order page splits the journey in the deep load. */
+function splitRecordedSteps(orderId: string): NeutralStep[] {
+  const dashboard = `${BASE}/dashboard`;
+  const order = `${BASE}/orders/${orderId}`;
+  const pay = `${BASE}/orders/${orderId}/pay`;
+  return [
+    navigation(dashboard, 0),
+    action('click', dashboard, 1, { tag: 'a', text: 'View order' }),
+    navigation(order, 2),
+    action('input', order, 3, { tag: 'input', labelText: 'Note', attributes: { type: 'text' } }),
+    action('submit', order, 4, { tag: 'button', text: 'Save note' }),
+    navigation(pay, 5),
+    navigation(`${BASE}/orders/${orderId}/confirmation`, 7, 'Order confirmed'),
+  ];
+}
+
+test('regeneratePlan: a withheld cross-origin candidate holding the journey plus a deep-load miss is a disclosed no-candidates refusal, not segmentation-changed', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const legacy = sidecarFor(old);
+  delete legacy.source.segmentationVersion;
+  const foreign = session('foreign-newest', 'foreign-user', recordedSteps('601').map((step) => ({ ...step, url: step.url.replace(BASE, 'https://other.example') })));
+  const split = session('split-older', 'split-user', splitRecordedSteps('602'));
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([{ ...coarse(foreign), lastTs: at(90) }, { ...coarse(split), lastTs: at(80) }], { [old.id]: old, [foreign.id]: foreign, [split.id]: split }),
+  });
+  assert.equal(result.kind, 'refusal');
+  if (result.kind !== 'refusal') return;
+  assert.equal(result.search?.tierA.attempted, 2, 'both candidates were tried');
+  assert.equal(result.code, 'no-candidates');
+  assert.match(result.message, /1 candidate\(s\) from https:\/\/other\.example were withheld/);
+  assert.ok(result.message.includes('ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended.'), result.message);
+  assert.doesNotMatch(result.message, /none of the fresh sessions checked holds/i);
+});
+
+test('regeneratePlan: a candidate holding the journey that is not plannable plus a deep-load miss is a no-candidates refusal, not segmentation-changed', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const legacy = sidecarFor(old);
+  delete legacy.source.segmentationVersion;
+  const signature = legacy.source.signature ?? '';
+  // The same pages as the recorded journey, but typed into on three pages with
+  // no submit: the journey is there, and it cannot be planned.
+  const dashboard = `${BASE}/dashboard`;
+  const unplannable = session('unplannable-newest', 'unplannable-user', [
+    navigation(dashboard, 0),
+    action('input', dashboard, 1, { tag: 'input', labelText: 'Search', attributes: { type: 'text' } }),
+    navigation(`${BASE}/orders/701`, 2),
+    action('input', `${BASE}/orders/701`, 3, { tag: 'input', labelText: 'Note', attributes: { type: 'text' } }),
+    navigation(`${BASE}/orders/701/pay`, 4),
+    action('input', `${BASE}/orders/701/pay`, 5, { tag: 'input', labelText: 'Email', attributes: { type: 'email' } }),
+    navigation(`${BASE}/orders/701/confirmation`, 7, 'Order confirmed'),
+  ]);
+  const held = segmentJourneys(unplannable).filter((journey) => journeySignature(journey) === signature);
+  assert.equal(held.length, 1, 'the unplannable session holds the recorded journey');
+  assert.equal(held[0]!.status, 'navigated');
+  const split = session('split-older', 'split-user', splitRecordedSteps('702'));
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([{ ...coarse(unplannable), lastTs: at(90) }, { ...coarse(split), lastTs: at(80) }], { [old.id]: old, [unplannable.id]: unplannable, [split.id]: split }),
+  });
+  assert.equal(result.kind, 'refusal');
+  if (result.kind !== 'refusal') return;
+  assert.equal(result.search?.tierA.attempted, 2, 'both candidates were tried');
+  assert.equal(result.code, 'no-candidates');
+  assert.match(result.message, /^No plannable fresh candidate was found\./);
+  assert.ok(result.message.includes('ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently, so its journey may have been split or extended.'), result.message);
+});
+
+test('regeneratePlan: a step/2 to step/4 signature change is re-resolved deeply before reporting segmentation-changed', async () => {
+  // A query-step test double makes the old and new wizard positions distinct
+  // to the current signature rules; path-style numeric ordinals canonicalize
+  // to one pattern, while the boundary change here mirrors step/2 → step/4.
+  const step1 = `${BASE}/flows/search-2?step=1`;
+  const step2 = `${BASE}/flows/search-2?step=2`;
+  const step4 = `${BASE}/flows/search-2?step=4`;
+  const old = session('old-wizard', 'old-wizard-user', [
+    navigation(step1, 0),
+    action('click', step1, 1, { tag: 'button', text: 'Continue' }),
+    navigation(step2, 2),
+  ]);
+  const changed = session('fresh-wizard', 'fresh-wizard-user', [
+    navigation(step1, 10),
+    action('click', step1, 11, { tag: 'button', text: 'Continue' }),
+    navigation(step2, 12),
+    action('input', step2, 13, { tag: 'input', labelText: 'Search' }),
+    navigation(step4, 14),
+  ]);
+  const legacy = sidecarFor(old);
+  legacy.source.segmentationVersion = 0;
+  legacy.source.wizardStepParamNames = ['step'];
+  legacy.source.signature = journeySignature(segmentJourneys(old)[0]!, ['step']);
+  const oldSignature = legacy.source.signature;
+  assert.ok(oldSignature?.includes('?step=2'));
+  assert.notEqual(journeySignature(segmentJourneys(changed)[0]!, ['step']), oldSignature);
+  const coarseStep4 = { ...coarse(changed), navPath: [step1, step4] };
+
+  const result = await regeneratePlan({
+    slug: 'search-wizard', sidecar: legacy, sinceHours: 720, paramNames: ['step'],
+    fetchers: fetchers([coarseStep4], { [changed.id]: changed }),
+  });
+
+  assert.equal(result.kind, 'refusal');
+  if (result.kind !== 'refusal') return;
+  assert.equal(result.code, 'segmentation-changed');
+  assert.ok(result.message.includes(oldSignature ?? ''), 'the refusal keeps the old signature visible for review');
+  assert.equal(result.search?.tierB.variants, 1, 'the step/4 coarse candidate was deeply re-resolved');
+});
+
+test('regeneratePlan: an unchanged signature still resolves when the retained session contains two visits', async () => {
+  const firstVisit = recordedSteps('1001');
+  const secondVisit = recordedSteps('1001').map((step, index) => ({ ...step, at: at(20 + index) }));
+  const old = session('two-wizard-visits', 'old-wizard-user', [...firstVisit, ...secondVisit]);
+  const visits = segmentJourneys(old);
+  assert.equal(visits.length, 2);
+  const signature = journeySignature(visits[0]!);
+  assert.equal(journeySignature(visits[1]!), signature, 'both visits retain the same journey signature');
+
+  const legacy = sidecarFor(old);
+  legacy.source.journeyIndex = 1;
+  delete legacy.source.origin;
+  legacy.start = '/orders/1001/pay';
+  const fresh = session('fresh-session', 'fresh-user', recordedSteps('1002'));
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(fresh)], { [old.id]: old, [fresh.id]: fresh }),
+  });
+
+  assert.equal(result.kind, 'regenerated');
+  if (result.kind === 'regenerated') assert.equal(result.candidate.origin, 'https://shop.example');
+});
+
+test('regeneratePlan: originalJourneyOrigin refuses an index-only origin after an old segmentation marker', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const fresh = session('fresh-session', 'fresh-user', recordedSteps('1002'));
+  const legacy = sidecarFor(old);
+  delete legacy.source.origin;
+  legacy.start = '/orders/1001/pay';
+  delete legacy.source.segmentationVersion;
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(fresh)], { [old.id]: old, [fresh.id]: fresh }),
+  });
+  assert.equal(result.kind, 'refusal');
+  assert.equal(result.kind === 'refusal' && result.code, 'origin-unrecorded');
+});
+
+test('regeneratePlan: originalJourneyOrigin fails closed when a recorded signature differs from its in-range index', async () => {
+  const old = session('old-session', 'old-user', recordedSteps('1001'));
+  const otherJourney = session('old-session', 'old-user', unrelatedSteps('4004'));
+  const fresh = session('fresh-session', 'fresh-user', recordedSteps('1002'));
+  const mismatched = sidecarFor(old);
+  delete mismatched.source.origin;
+  mismatched.start = '/orders/1001/pay';
+  mismatched.source.signature = '/different > /journey';
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: mismatched, sinceHours: 720, paramNames: [],
+    fetchers: fetchers([coarse(fresh)], { [old.id]: otherJourney, [fresh.id]: fresh }),
+  });
+  assert.equal(result.kind, 'refusal');
+  assert.equal(result.kind === 'refusal' && result.code, 'origin-unrecorded');
+});
+
+test('regeneratePlan: originalJourneyOrigin resolves a matching signature with the sidecar configured parameter names', async () => {
+  const withPhase = (orderId: string): NeutralSession => {
+    const steps = recordedSteps(orderId).map((step) => {
+      if (step.kind !== 'navigation') return step;
+      const phase = step.url.endsWith('/pay') ? 2 : step.url.endsWith('/confirmation') ? 4 : undefined;
+      return phase === undefined ? step : { ...step, url: `${step.url}?phase=${phase}` };
+    });
+    return session(`wizard-${orderId}`, `wizard-user-${orderId}`, steps);
+  };
+  const old = withPhase('1001');
+  const fresh = withPhase('1002');
+  const oldJourney = segmentJourneys(old)[0]!;
+  const signature = journeySignature(oldJourney, ['phase']);
+  const legacy = sidecarFor(old);
+  delete legacy.source.origin;
+  legacy.start = '/dashboard';
+  legacy.source.signature = signature;
+  legacy.source.wizardStepParamNames = ['phase'];
+  const result = await regeneratePlan({
+    slug: 'order-confirmation', sidecar: legacy, sinceHours: 720, paramNames: ['phase'],
+    fetchers: fetchers([coarse(fresh)], { [old.id]: old, [fresh.id]: fresh }),
+  });
+  assert.equal(result.kind, 'regenerated');
+  if (result.kind === 'regenerated') assert.equal(result.candidate.origin, 'https://shop.example');
 });
 
 test('regeneratePlan: fresh cross-origin successor candidates are refused unless the caller explicitly overrides the property boundary', async () => {
@@ -821,7 +1172,7 @@ test('regeneratePlan: stale no-candidate refusal explains the skipped Tier A and
     slug: 'order-confirmation', sidecar: stale, sinceHours: 720, paramNames: [], fetchers: fetchers([], {}),
   });
   assert.equal(result.kind, 'refusal');
-  assert.match(result.kind === 'refusal' ? result.message : '', /signature predates current rules/);
+  assert.match(result.kind === 'refusal' ? result.message : '', /Signature predates current rules/);
   assert.match(result.kind === 'refusal' ? result.message : '', /replaytest plan old-user --session old-session/);
   assert.doesNotMatch(result.kind === 'refusal' ? result.message : '', /Widen --since-hours/);
 });
@@ -1133,7 +1484,7 @@ test('bar copy: the stale-signature branch keeps its re-plan pointer and never m
     slug: 'order-confirmation', sidecar: stale, sinceHours: 720, paramNames: [], fetchers: fetchers([], {}),
   });
   const message = result.kind === 'refusal' ? result.message : '';
-  assert.match(message, /signature predates current rules/);
+  assert.match(message, /Signature predates current rules/);
   assert.match(message, /replaytest plan old-user --session old-session/);
   assert.doesNotMatch(message, /Widen --since-hours/);
   assert.doesNotMatch(message, /Recorded this empty search/);

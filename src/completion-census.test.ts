@@ -32,6 +32,8 @@ const counts = {
   abandoned: 4,
   submitThenNav: 2,
   commitThenNewRoute: 1,
+  abandonedMidFlow: 0,
+  errorAfterSubmit: 0,
 };
 
 function censusEntry(scannedAt: string, app?: string): CompletionCensusEntry {
@@ -93,8 +95,15 @@ test('completion census routes through the sessions state lease and protects rea
   });
   assert.equal(acquiredVerb, 'sessions', 'the census writer publishes the sessions holder verb while it owns the lease');
   assert.equal(written.latest.scannedAt, '2026-08-01T00:00:00.000Z');
-  const persisted: { latest: { scannedAt: string } } = JSON.parse(fs.readFileSync(path.join(root, COMPLETION_CENSUS_PATH), 'utf8')) as { latest: { scannedAt: string } };
+  const persisted = JSON.parse(fs.readFileSync(path.join(root, COMPLETION_CENSUS_PATH), 'utf8')) as {
+    version: number;
+    latest: { scannedAt: string; counts: Record<string, unknown> };
+  };
   assert.equal(persisted.latest.scannedAt, written.latest.scannedAt);
+  assert.equal(persisted.version, 2);
+  assert.equal(persisted.latest.counts.abandonedMidFlow, 0);
+  assert.equal(persisted.latest.counts.errorAfterSubmit, 0);
+  assert.equal('completedWitnessed' in persisted.latest.counts, false, 'the census is an events-only count');
 });
 
 test('completion census validates its schema and retains bounded newest-first history', (t: TestContext) => {
@@ -116,6 +125,7 @@ test('completion census validates its schema and retains bounded newest-first hi
     counts: { ...counts, navigated: 2, commitThenNewRoute: 2 },
   }, { historyLimit: 2 });
   const census = readCompletionCensus(root);
+  assert.equal(census?.version, 2);
   assert.equal(census?.latest.scannedAt, '2026-08-08T00:00:00.000Z');
   assert.deepEqual(census?.history.map((entry) => entry.scannedAt), ['2026-08-08T00:00:00.000Z', '2026-08-07T00:00:00.000Z']);
   assert.deepEqual(census?.latest.window.appScope, {
@@ -376,7 +386,11 @@ test('labelled live census stamps matching app provenance and raw scan coverage'
       corpus: { app: 'twenty', wave: 2 },
       appScope: { app: 'twenty', prefixes: ['https://twenty.example'], excludedSessions: 1 },
     },
-    counts: { completed: 0, navigated: 0, submitted: 0, abandoned: 0, submitThenNav: 0, commitThenNewRoute: 0 },
+    counts: {
+      completed: 0, navigated: 0, submitted: 0, abandoned: 0, submitThenNav: 0, commitThenNewRoute: 0,
+      // An events-only scan: the recording-only error-after-submit count is left out, never 0.
+      abandonedMidFlow: 0,
+    },
   });
 });
 

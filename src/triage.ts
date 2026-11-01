@@ -19,12 +19,15 @@ import { DEFAULT_SESSION_SCAN_HOURS } from './session-scan-defaults.js';
 import { appScopeDisclosure, scopeSessionsByWitnessedUrls, type AppScope, type AppScopeDisclosure } from './app-scope.js';
 import { NAVIGATED_MULTI_CREATE_REFUSAL } from './completion-evidence.js';
 import {
+  assertNeverJourneyStatus,
   isMergedMultiCreateJourney,
   isPlannableJourney,
   segmentJourneys,
+  SEGMENTATION_VERSION,
   type Journey,
   type JourneyStatus,
 } from './journeys.js';
+import { eventsPlannableIndex, JourneyIndexError } from './journey-index.js';
 import type { NeutralSession } from './neutral-session.js';
 import type { StateLockWarning } from './state-writes.js';
 import { extractPathname, type WizardStepParamNames } from './canonical-url.js';
@@ -36,6 +39,7 @@ import {
 } from './selection.js';
 import {
   buildSidecar,
+  needsSegmentationReview,
   renderPlanMarkdown,
   SIGNATURE_SEMANTICS_VERSION,
   HEALTHY_SEARCH_TRAIL_CAP,
@@ -92,15 +96,11 @@ export interface TriageFetchers {
   fetchNeutralSessionsLight: (distinctId: string, sessionId?: string) => NeutralSession[];
   fetchNeutralSessionsWithDomEnrichment: (distinctId: string, sessionId?: string) => Promise<NeutralSession[]>;
   /**
-   * Async twin of `fetchNeutralSessionsLight`, used only by the
-   * confirm loop's bounded-concurrency pool (`confirmSignatureCandidates`
-   * below) so several candidates can be in flight at once. Optional so a
-   * caller supplying only the sync fetcher (every fetchers override written
-   * before, including every existing test double) never silently regains
-   * the REAL network-backed default underneath its own fake — see
-   * `resolveFetchers`, which fills this in as a trivial async wrapper around
-   * whatever `fetchNeutralSessionsLight` it was given, unless this field is
-   * ALSO explicitly overridden.
+   * Async twin of `fetchNeutralSessionsLight`. Triage confirmation no longer
+   * calls it: each sampled candidate is confirmed by ONE recording read
+   * through `fetchNeutralSessionsWithDomEnrichment`. Kept because the triage
+   * and heal verbs still wire it; `resolveFetchers` still wraps a caller's own
+   * sync fetcher so no real network default hides under a fake.
    */
   fetchNeutralSessionsLightAsync?: (distinctId: string, sessionId?: string) => Promise<NeutralSession[]>;
 }
@@ -149,6 +149,12 @@ export interface TriageRunOptions {
   stealScanLock?: boolean;
   /** Consumer label for the shared coarse-store lock; direct triage defaults to triage. */
   lockConsumer?: string;
+  /**
+   * Progress channel. Before the confirmation reads start, triage states how
+   * many recordings it will read and the expected wait, so a long run is
+   * never silent.
+   */
+  progress?: (line: string) => void;
 }
 
 export interface SignatureResolution {
@@ -185,19 +191,31 @@ export interface ScanDegradation {
 }
 
 export interface StatusEvidence {
-  // Sidecars are completed-only by construction in src/cli/verbs/plan.ts/runPlan, so the
-  // baseline status is implicit and no sidecar schema field is needed.
+  // `completed` is retained for compatibility; this baseline means the plan's final page was reached.
   baseline: 'completed';
+  /**
+   * The plan's own recorded outcome when it is not a completed journey (a
+   * Stopped mid-flow plan). Absent for a completed plan. It decides which fresh
+   * statuses count as reaching the plan's final page: `completed` always does;
+   * `abandoned-mid-flow` does only for a mid-flow plan.
+   */
+  planOutcome?: 'abandoned-mid-flow';
   completed: number;
   /** Optional in TypeScript only so pre-expansion test fixtures can model an old envelope; persisted validation requires it. */
   navigated?: number;
   submitted: number;
   abandoned: number;
+  /** Subset of `completed` whose final page was checked; triage fresh-instance evidence reads the recording. */
+  completedWitnessed?: number;
+  /** Journeys that stopped part-way through a multi-step flow. */
+  abandonedMidFlow?: number;
+  /** Journeys where an error appeared after the submit. */
+  errorAfterSubmit?: number;
   nonCompleted: Array<{
     sessionId: string;
     distinctId: string;
-    /** Regression logic is deliberately limited to submit/abandon outcomes. */
-    status: 'submitted' | 'abandoned';
+    /** Regression logic includes unanswered submits, abandoned journeys, and visible submit errors. */
+    status: 'submitted' | 'abandoned' | 'error-after-submit';
     at: string;
   }>;
 }
@@ -566,8 +584,13 @@ interface ResolvedFetchers extends TriageFetchers {
   fetchNeutralSessionsLightAsync: NonNullable<TriageFetchers['fetchNeutralSessionsLightAsync']>;
 }
 
+/** A confirmed match plus the recording-read session it came from, so later steps never re-read it. */
+export interface ConfirmedRecordingEvidence extends ConfirmedJourneyEvidence {
+  session: NeutralSession;
+}
+
 interface ExactConfirmation {
-  confirmed: ConfirmedJourneyEvidence[];
+  confirmed: ConfirmedRecordingEvidence[];
   fetchFailures: number;
 }
 
@@ -662,6 +685,8 @@ export async function collectTriageReport(opts: TriageRunOptions): Promise<Triag
     paramNames,
   });
   let sampled = candidates.slice(0, sample);
+  const progress = opts.progress ?? (() => undefined);
+  if (sampled.length > 0) progress(triageRecordingReadsAnnouncement(sampled.length, false));
   let exact = await confirmSignatureCandidates(sampled, signature, fetchers, paramNames);
 
   // When the caller relied on the default sample and it confirmed zero
@@ -671,6 +696,7 @@ export async function collectTriageReport(opts: TriageRunOptions): Promise<Triag
   if (!requestedProvided && exact.confirmed.length === 0 && sample < MAX_TRIAGE_SAMPLE && candidates.length > sample) {
     widenedFrom = sample;
     const extra = candidates.slice(sample, MAX_TRIAGE_SAMPLE);
+    progress(triageRecordingReadsAnnouncement(extra.length, true));
     const extraConfirm = await confirmSignatureCandidates(extra, signature, fetchers, paramNames);
     exact = {
       confirmed: [...exact.confirmed, ...extraConfirm.confirmed],
@@ -680,11 +706,9 @@ export async function collectTriageReport(opts: TriageRunOptions): Promise<Triag
     sampled = candidates.slice(0, sample);
   }
 
-  const selectorFreshness = await collectSelectorFreshness(
+  const selectorFreshness = collectSelectorFreshness(
     opts.sidecar,
-    signature,
     exact.confirmed,
-    fetchers,
     opts.failingLocator,
   );
   const flowVariants = findFlowVariants(scoped.sessions, signature, paramNames);
@@ -701,7 +725,7 @@ export async function collectTriageReport(opts: TriageRunOptions): Promise<Triag
       fetchFailures: exact.fetchFailures,
       ...(scanDegraded === undefined ? {} : { scanDegraded }),
     },
-    statusDistribution: buildStatusEvidence(exact.confirmed),
+    statusDistribution: buildStatusEvidence(exact.confirmed, opts.sidecar.source.outcome),
     selectorFreshness,
     flowVariants,
   };
@@ -843,6 +867,13 @@ export function resolveSidecarSignature(
     return { signature: recorded, source: 'sidecar' };
   }
 
+  // Without the current marker an old index may point at a different journey
+  // after visits or wizard steps split the session differently. Decided before
+  // any fetch: the reason is the plan's age, not the session's availability.
+  if (needsSegmentationReview(sidecar.source)) {
+    return buildUnresolvableSignatureRefusal('built-before-segmentation');
+  }
+
   let sessions: NeutralSession[];
   try {
     sessions = fetchers.fetchNeutralSessionsLight(sidecar.source.distinctId, sidecar.source.sessionId);
@@ -915,7 +946,8 @@ export interface TriageClassification {
  * The one healthy-confirmed-sessions predicate. This deliberately matches the
  * old `secondaryFindings` healthy condition verbatim: confirmed matches must
  * exist, at least one must have a resolved completion/failure outcome, and
- * completed outcomes may tie (or exceed) non-completed ones. The resolved
+ * journeys reaching the plan's final page may tie (or exceed) failure
+ * outcomes. The resolved
  * outcome clause is load-bearing: an all-navigated sample is not evidence that
  * the recorded route still completes.
  *
@@ -927,7 +959,7 @@ export function confirmedSessionsLookHealthy(evidence: Pick<TriageEvidence, 'pre
   return (
     evidence.presence.confirmed > 0 &&
     resolvedRegressionOutcomeCount(evidence.statusDistribution) > 0 &&
-    evidence.statusDistribution.completed >= nonCompleted
+    reachedPlanFinalPageCount(evidence.statusDistribution) >= nonCompleted
   );
 }
 
@@ -999,7 +1031,7 @@ export function classifyTriageEvidenceWithFlowShiftWatch(evidence: TriageEvidenc
   }
 
   const nonCompleted = regressionFailureCount(evidence.statusDistribution);
-  if (nonCompleted > evidence.statusDistribution.completed) {
+  if (nonCompleted > reachedPlanFinalPageCount(evidence.statusDistribution)) {
     return { verdict: 'regression-evidence', ...(flowShiftWatch === undefined ? {} : { flowShiftWatch }) };
   }
 
@@ -1174,9 +1206,8 @@ export async function buildTriageProposal(input: ProposalBuildInput): Promise<
 
   const paramNames = input.sidecar.source.wizardStepParamNames;
   const allJourneys = segmentJourneys(session);
-  // Same shared predicate as `plan`/`resolveSidecarSignature` — the
-  // `completed.indexOf(journey)` below becomes the proposed sidecar's
-  // `journeyIndex`, so it must index the identical list.
+  // The proposal persists an index into the events-only plannable list, even
+  // though `journey` came from this recording-read segmentation.
   const completed = allJourneys.filter(isPlannableJourney);
   const journey = completed.find((candidate) => journeySignature(candidate, paramNames) === representative.signature);
   if (journey === undefined) {
@@ -1193,7 +1224,20 @@ export async function buildTriageProposal(input: ProposalBuildInput): Promise<
     };
   }
 
-  const journeyIndex = completed.indexOf(journey);
+  let journeyIndex: number;
+  try {
+    journeyIndex = eventsPlannableIndex(session, allJourneys, journey);
+  } catch (error) {
+    if (!(error instanceof JourneyIndexError)) throw error;
+    return {
+      kind: 'skipped',
+      reason: withRegenerateRecovery(
+        'No proposal for this journey: where it starts or ends differs between the session\'s event log and its recording, so it cannot be matched to one place in the session.',
+        input.slug,
+        input.sidecar,
+      ),
+    };
+  }
   const proposed = buildSidecar(journey, {
     distinctId: session.distinctId,
     sessionId: session.id,
@@ -1202,6 +1246,7 @@ export async function buildTriageProposal(input: ProposalBuildInput): Promise<
     witnessedConsole: session.witnessedConsole,
     witnessedExceptions: session.witnessedExceptions,
     signatureSemanticsVersion: SIGNATURE_SEMANTICS_VERSION,
+    segmentationVersion: SEGMENTATION_VERSION,
     ...(paramNames === undefined ? {} : { wizardStepParamNames: paramNames }),
   });
 
@@ -1417,6 +1462,24 @@ function renderHeuristicPriority(priority: readonly TriageVerdict[]): string {
   return `Heuristic priority: ${describedPriority}; insufficient-evidence is returned when fresh evidence is too thin.`;
 }
 
+/**
+ * The E2 counts line. The finish-checked, Stopped mid-flow and Error after
+ * submit counts print only when the report measured them: a report saved
+ * before those counts existed lacks the keys, and printing 0 would claim a
+ * check that never ran.
+ */
+function renderFreshStatusCounts(status: StatusEvidence): string {
+  const parts = [
+    `completed ${status.completed}${status.completedWitnessed === undefined ? '' : ` (${status.completedWitnessed} with the finish checked)`}`,
+    ...(status.abandonedMidFlow === undefined ? [] : [`stopped mid-flow ${status.abandonedMidFlow}`]),
+    `navigated ${status.navigated}`,
+    `submitted ${status.submitted}`,
+    ...(status.errorAfterSubmit === undefined ? [] : [`error after submit ${status.errorAfterSubmit}`]),
+    `abandoned ${status.abandoned}`,
+  ];
+  return parts.join(', ');
+}
+
 export function renderTriageReport(report: TriageReport): string {
   const degraded = report.evidence.presence.scanDegraded;
   const flowShiftWatchLine = renderFlowShiftWatchLine(report);
@@ -1477,13 +1540,15 @@ export function renderTriageReport(report: TriageReport): string {
     `- Skipped fetch/non-match failures: ${report.evidence.presence.fetchFailures}`,
     '',
     'E2 - Status distribution',
-    '- Baseline: the sidecar was generated from a completed journey.',
-    `- Fresh confirmed: completed ${report.evidence.statusDistribution.completed}, navigated ${report.evidence.statusDistribution.navigated}, submitted ${report.evidence.statusDistribution.submitted}, abandoned ${report.evidence.statusDistribution.abandoned}`,
+    report.evidence.statusDistribution.planOutcome === 'abandoned-mid-flow'
+      ? '- Baseline: the recorded journey stopped mid-flow at the plan\'s final page.'
+      : '- Baseline: the recorded journey reached the plan\'s final page.',
+    `- Fresh confirmed: ${renderFreshStatusCounts(report.evidence.statusDistribution)}`,
   );
 
   if (report.evidence.statusDistribution.nonCompleted.length > 0) {
     for (const item of report.evidence.statusDistribution.nonCompleted) {
-      lines.push(`- Non-completed witness: ${item.sessionId} (${item.status}) at ${item.at}`);
+      lines.push(`- Non-completed witness: ${item.sessionId} (${item.status === 'error-after-submit' ? 'error after submit' : item.status}) at ${item.at}`);
     }
   }
 
@@ -2301,6 +2366,10 @@ function isPlausibleTriageReport(value: unknown): value is TriageReport {
     typeof statusDistribution.navigated !== 'number' ||
     typeof statusDistribution.submitted !== 'number' ||
     typeof statusDistribution.abandoned !== 'number' ||
+    (statusDistribution.completedWitnessed !== undefined && typeof statusDistribution.completedWitnessed !== 'number') ||
+    (statusDistribution.abandonedMidFlow !== undefined && typeof statusDistribution.abandonedMidFlow !== 'number') ||
+    (statusDistribution.errorAfterSubmit !== undefined && typeof statusDistribution.errorAfterSubmit !== 'number') ||
+    (statusDistribution.planOutcome !== undefined && statusDistribution.planOutcome !== 'abandoned-mid-flow') ||
     !Array.isArray(statusDistribution.nonCompleted)
   ) {
     return false;
@@ -2321,13 +2390,20 @@ function isPlausibleTriageReport(value: unknown): value is TriageReport {
   return true;
 }
 
+/**
+ * The report-cache version written by the triage verb and required by
+ * `parseTriageReportCacheEntry`. Version 4 includes the degradation gate and
+ * the flow-shift watch/verdict semantics. Version 5 classifies fresh matches
+ * under the current journey boundaries (visits, wizard steps, Stopped mid-flow
+ * and Error after submit). Earlier caches are deliberately regenerated so
+ * --reuse-evidence never serves a report classified under the old boundary.
+ */
+export const TRIAGE_REPORT_CACHE_VERSION = 5;
+
 /** Structural parser for `--reuse-evidence`'s report-cache file: unknown/corrupt cache is never trusted — `undefined` sends the caller to a live run instead. */
 export function parseTriageReportCacheEntry(value: unknown): TriageReportCacheEntry | undefined {
   if (!isRecord(value)) return undefined;
-  // Version 4 includes the degradation gate, the flow-shift
-  // watch/verdict semantics. Earlier caches are deliberately regenerated so
-  // --reuse-evidence never serves a report classified under the old boundary.
-  if (value.kind !== 'triage-report-cache' || value.version !== 4) return undefined;
+  if (value.kind !== 'triage-report-cache' || value.version !== TRIAGE_REPORT_CACHE_VERSION) return undefined;
   if (typeof value.generatedAt !== 'string') return undefined;
   if (!isPlausibleTriageReport(value.report)) return undefined;
   return { generatedAt: value.generatedAt, report: value.report };
@@ -2360,19 +2436,23 @@ function resolveFetchers(fetchers: Partial<TriageFetchers> | undefined): Resolve
 }
 
 /**
- * `cause` distinguishes three genuinely different situations that used to
+ * `cause` distinguishes four genuinely different situations that used to
  * share one sentence. Only `session-unavailable` may claim the session is
- * gone; the other two are reached with the session in hand, and the
- * `navigated` case declines a merged multi-create journey, not a missing artifact.
+ * gone; `no-completed-journey` and `navigated` are reached with the session in
+ * hand, and the `navigated` case declines a merged multi-create journey, not a
+ * missing artifact. `built-before-segmentation` is decided from the plan alone:
+ * its saved journey position predates the current journey boundaries.
  */
 function buildUnresolvableSignatureRefusal(
-  cause: 'session-unavailable' | 'no-completed-journey' | 'navigated' = 'session-unavailable',
+  cause: 'session-unavailable' | 'no-completed-journey' | 'navigated' | 'built-before-segmentation' = 'session-unavailable',
 ): TriageRefusal {
   const message = cause === 'navigated'
     ? `Cannot triage: the recorded journey is now ${NAVIGATED_MULTI_CREATE_REFUSAL} Nothing is wrong with the session — regenerate the plan from a session whose create stands alone.`
-    : cause === 'no-completed-journey'
-      ? 'Cannot triage: the original session no longer contains the recorded completed journey and this plan has no recorded signature - regenerate the plan.'
-      : 'Cannot triage: the original session is no longer available and this plan has no recorded signature - regenerate the plan.';
+    : cause === 'built-before-segmentation'
+      ? 'Cannot triage: this plan was built by an earlier version of replaytest and has no recorded signature, so its saved journey position may now point at a different journey - re-plan it from its retained session.'
+      : cause === 'no-completed-journey'
+        ? 'Cannot triage: the original session no longer contains the recorded journey and this plan has no recorded signature - regenerate the plan.'
+        : 'Cannot triage: the original session is no longer available and this plan has no recorded signature - regenerate the plan.';
   return { kind: 'refusal', code: 'signature-unresolvable', message, exitCode: 1 };
 }
 
@@ -2391,26 +2471,45 @@ function matchingNavigatedNote(
 }
 
 /**
- * How many candidates' `fetchNeutralSessionsLightAsync` calls may
- * be in flight at once. Named so it's a single tunable knob, not a magic
- * number sprinkled through the pool below.
+ * How many candidates' recording-reading confirmation calls may be in flight
+ * at once. Named so it's a single tunable knob, not a magic number sprinkled
+ * through the pool below.
  */
 export const TRIAGE_CONFIRM_CONCURRENCY = 4;
 
+/**
+ * A pragmatic expected-case cost of one recording read (events plus the
+ * recording), used only for the up-front wait estimate — not a deadline and
+ * not a measured bound. Decoding a read from the local archive measured 86 ms
+ * median (8 reads, 4 at a time), but that is local decoding only: live triage
+ * reads go to the provider over the network, so the estimate stays at 5 s.
+ */
+export const TRIAGE_RECORDING_READ_EXPECTED_SECONDS = 5;
+
+/** The up-front disclosure of the confirmation reads: how many, how many at a time, and the expected wait. */
+export function triageRecordingReadsAnnouncement(reads: number, widening: boolean): string {
+  const seconds = Math.ceil(reads / TRIAGE_CONFIRM_CONCURRENCY) * TRIAGE_RECORDING_READ_EXPECTED_SECONDS;
+  const what = `${reads}${widening ? ' more' : ''} fresh recording${reads === 1 ? '' : 's'}`;
+  return `Triage: reading ${what} to confirm matches${widening ? ' because the first sample had none' : ''} (one read per session, up to ${TRIAGE_CONFIRM_CONCURRENCY} at a time; expect about ${seconds}s).`;
+}
+
 interface OneCandidateConfirmation {
-  confirmed: ConfirmedJourneyEvidence[];
+  confirmed: ConfirmedRecordingEvidence[];
   fetchFailures: number;
 }
 
 async function confirmOneCandidate(
   candidate: SignatureCandidate,
   signature: string,
-  fetchers: Pick<ResolvedFetchers, 'fetchNeutralSessionsLightAsync'>,
+  fetchers: Pick<TriageFetchers, 'fetchNeutralSessionsWithDomEnrichment'>,
   paramNames?: WizardStepParamNames,
 ): Promise<OneCandidateConfirmation> {
+  // ONE provider read per sampled candidate: the recording-reading load gives
+  // both the signature match and the statuses only the recording can witness
+  // (a finish checked, an error after the submit). No lighter preflight runs first.
   let sessions: NeutralSession[];
   try {
-    sessions = await fetchers.fetchNeutralSessionsLightAsync(candidate.distinctId, candidate.sessionId);
+    sessions = await fetchers.fetchNeutralSessionsWithDomEnrichment(candidate.distinctId, candidate.sessionId);
   } catch {
     return { confirmed: [], fetchFailures: 1 };
   }
@@ -2433,6 +2532,7 @@ async function confirmOneCandidate(
       sessionId: candidate.sessionId,
       lastTs: candidate.lastTs,
       journey,
+      session,
     })),
     fetchFailures: 0,
   };
@@ -2466,32 +2566,34 @@ async function runBoundedConcurrent<T, R>(
 }
 
 /**
- * Up to `sample` (default 8, max 20) candidates each need one live
- * PostHog round-trip to confirm the signature match. Previously serial (one
- * `fetchNeutralSessionsLight` call at a time) — run 6's real tool-native
+ * Up to `sample` (default 8, max 20) candidates each need exactly one live
+ * recording read (`fetchNeutralSessionsWithDomEnrichment`) to confirm the
+ * signature match and read the statuses; `collectTriageReport` announces the
+ * read count and an expected wait before the first read starts.
+ * Previously serial — run 6's real tool-native
  * user found the resulting wall time (compounding with the coarse-store
  * backfill) too slow for a CI "just tell me what broke" loop. Now runs up to
- * `TRIAGE_CONFIRM_CONCURRENCY` candidates concurrently via
- * `fetchNeutralSessionsLightAsync`; `runBoundedConcurrent` guarantees the
+ * `TRIAGE_CONFIRM_CONCURRENCY` candidates concurrently through the
+ * recording loader; `runBoundedConcurrent` guarantees the
  * merged `confirmed` list still reflects candidate INPUT order (the order
  * `findSignatureCandidates` ranked them in), not completion order — this
- * matters because `collectSelectorFreshness` picks the FIRST completed entry
- * in `confirmed` as "newest" only after filtering out abandoned journeys;
- * their legitimately missing fill/submit steps must not look like selector aging,
- * and that pick must stay deterministic no matter which live fetch happens to
- * return first.
+ * matters because `collectSelectorFreshness` picks the FIRST match that reached
+ * the planned final page without an error as "newest", after excluding earlier
+ * stops and error outcomes. Those matches can have different step sets, and the
+ * selected instance must stay deterministic no matter which live fetch returns
+ * first.
  */
 async function confirmSignatureCandidates(
   sampled: SignatureCandidate[],
   signature: string,
-  fetchers: Pick<ResolvedFetchers, 'fetchNeutralSessionsLightAsync'>,
+  fetchers: Pick<TriageFetchers, 'fetchNeutralSessionsWithDomEnrichment'>,
   paramNames?: WizardStepParamNames,
 ): Promise<ExactConfirmation> {
   const perCandidate = await runBoundedConcurrent(sampled, TRIAGE_CONFIRM_CONCURRENCY, (candidate) =>
     confirmOneCandidate(candidate, signature, fetchers, paramNames),
   );
 
-  const confirmed: ConfirmedJourneyEvidence[] = [];
+  const confirmed: ConfirmedRecordingEvidence[] = [];
   let fetchFailures = 0;
   for (const result of perCandidate) {
     confirmed.push(...result.confirmed);
@@ -2500,25 +2602,23 @@ async function confirmSignatureCandidates(
   return { confirmed, fetchFailures };
 }
 
-async function collectSelectorFreshness(
+export function collectSelectorFreshness(
   sidecar: Sidecar,
-  signature: string,
-  confirmed: ConfirmedJourneyEvidence[],
-  fetchers: Pick<TriageFetchers, 'fetchNeutralSessionsWithDomEnrichment'>,
+  confirmed: ConfirmedRecordingEvidence[],
   failingLocator?: string,
-): Promise<SelectorFreshnessEvidence> {
-  // Compare selectors ONLY against a completed fresh instance: an abandoned/
-  // submitted journey of the same signature legitimately lacks the later
-  // fill/submit steps, so comparing against it would report flow-shape
-  // truncation as selector aging (a false selector-aged result).
-  const newest = confirmed.find((entry) => entry.journey.status === 'completed');
+): SelectorFreshnessEvidence {
+  // Compare selectors only against a fresh instance that reached the plan's
+  // final page without an error. Earlier stops and refused submits can have a
+  // different step set, so they cannot establish selector freshness.
+  const planOutcome = sidecar.source.outcome;
+  const newest = confirmed.find((entry) => reachedPlanFinalPage(entry.journey.status, planOutcome));
   if (newest === undefined) {
     return {
       checked: false,
       reason:
         confirmed.length === 0
           ? 'no confirmed fresh match'
-          : 'no fresh completed instance to compare selectors against (all confirmed matches were non-completed)',
+          : 'no fresh match reached the plan\'s final page without an error, so there is nothing to compare selectors against',
       matches: [],
       changed: [],
       unmatchedSidecar: [],
@@ -2526,18 +2626,7 @@ async function collectSelectorFreshness(
     };
   }
 
-  const fresh = await fetchFreshSidecarSteps(newest, signature, fetchers, sidecar.source.wizardStepParamNames);
-  if (fresh === undefined) {
-    return {
-      checked: false,
-      reason: 'the newest confirmed match could not be DOM-enriched',
-      matches: [],
-      changed: [],
-      unmatchedSidecar: [],
-      unmatchedFresh: [],
-    };
-  }
-
+  const fresh = buildFreshSidecarSteps(newest);
   return {
     ...stepMatchReport(sidecar.steps, fresh.sidecar.steps, failingLocator),
     sessionId: fresh.session.id,
@@ -2545,33 +2634,22 @@ async function collectSelectorFreshness(
   };
 }
 
-async function fetchFreshSidecarSteps(
-  confirmed: ConfirmedJourneyEvidence,
-  signature: string,
-  fetchers: Pick<TriageFetchers, 'fetchNeutralSessionsWithDomEnrichment'>,
-  paramNames?: WizardStepParamNames,
-): Promise<SidecarStepsForFreshJourney | undefined> {
-  let sessions: NeutralSession[];
-  try {
-    sessions = await fetchers.fetchNeutralSessionsWithDomEnrichment(confirmed.distinctId, confirmed.sessionId);
-  } catch {
-    return undefined;
-  }
-
-  const session = sessions.find((item) => item.id === confirmed.sessionId);
-  if (session === undefined) return undefined;
-
-  const journeys = segmentJourneys(session);
-  const journey = journeys.find(
-    (candidate) => candidate.status === 'completed' && journeySignature(candidate, paramNames) === signature,
-  );
-  if (journey === undefined) return undefined;
-
-  const sameStatus = journeys.filter((candidate) => candidate.status === journey.status);
+/**
+ * Rebuilds the newest final-page match's steps from the recording-read session
+ * the confirmation loop already loaded, so the selector check costs no second
+ * provider read.
+ */
+function buildFreshSidecarSteps(confirmed: ConfirmedRecordingEvidence): SidecarStepsForFreshJourney {
+  // The confirmed journey already matched the signature (confirmation) and
+  // reached the plan's final page (the caller's pick), so it is used as is.
+  const { session, journey } = confirmed;
+  // This sidecar stays in memory for step matching only (which reads steps,
+  // never the index); its placeholder index must never be copied into a
+  // persisted plan's events-only journeyIndex.
   const sidecar = buildSidecar(journey, {
     distinctId: session.distinctId,
     sessionId: session.id,
-    journeyIndex: sameStatus.indexOf(journey),
+    journeyIndex: 0,
     viewport: session.viewport,
     witnessedConsole: session.witnessedConsole,
     witnessedExceptions: session.witnessedExceptions,
@@ -2580,13 +2658,31 @@ async function fetchFreshSidecarSteps(
   return { session, journey, sidecar };
 }
 
-function buildStatusEvidence(confirmed: ConfirmedJourneyEvidence[]): StatusEvidence {
+/**
+ * Whether a fresh match reached the plan's final page, judged against the
+ * plan's own recorded outcome. A `completed` match always does. A Stopped
+ * mid-flow match does only for a Stopped mid-flow plan: for a completed plan
+ * it is neither a success nor a failure (it reached the page but not the
+ * finish the plan recorded).
+ */
+export function reachedPlanFinalPage(status: Journey['status'], planOutcome: StatusEvidence['planOutcome']): boolean {
+  return status === 'completed' || (status === 'abandoned-mid-flow' && planOutcome === 'abandoned-mid-flow');
+}
+
+export function buildStatusEvidence(
+  confirmed: ConfirmedJourneyEvidence[],
+  planOutcome?: StatusEvidence['planOutcome'],
+): StatusEvidence {
   const statusDistribution: StatusEvidence = {
     baseline: 'completed',
+    ...(planOutcome === undefined ? {} : { planOutcome }),
     completed: 0,
     navigated: 0,
     submitted: 0,
     abandoned: 0,
+    completedWitnessed: 0,
+    abandonedMidFlow: 0,
+    errorAfterSubmit: 0,
     nonCompleted: [],
   };
 
@@ -2594,9 +2690,13 @@ function buildStatusEvidence(confirmed: ConfirmedJourneyEvidence[]): StatusEvide
     switch (match.journey.status) {
       case 'completed':
         statusDistribution.completed += 1;
+        if (match.journey.finality === 'witnessed') statusDistribution.completedWitnessed = (statusDistribution.completedWitnessed ?? 0) + 1;
+        break;
+      case 'abandoned-mid-flow':
+        statusDistribution.abandonedMidFlow = (statusDistribution.abandonedMidFlow ?? 0) + 1;
         break;
       case 'navigated':
-      statusDistribution.navigated = (statusDistribution.navigated ?? 0) + 1;
+        statusDistribution.navigated = (statusDistribution.navigated ?? 0) + 1;
         break;
       case 'submitted':
         statusDistribution.submitted += 1;
@@ -2609,13 +2709,24 @@ function buildStatusEvidence(confirmed: ConfirmedJourneyEvidence[]): StatusEvide
         break;
       case 'abandoned':
         statusDistribution.abandoned += 1;
-      statusDistribution.nonCompleted.push({
-        distinctId: match.distinctId,
-        sessionId: match.sessionId,
-        status: match.journey.status,
-        at: match.lastTs,
-      });
+        statusDistribution.nonCompleted.push({
+          distinctId: match.distinctId,
+          sessionId: match.sessionId,
+          status: match.journey.status,
+          at: match.lastTs,
+        });
         break;
+      case 'error-after-submit':
+        statusDistribution.errorAfterSubmit = (statusDistribution.errorAfterSubmit ?? 0) + 1;
+        statusDistribution.nonCompleted.push({
+          distinctId: match.distinctId,
+          sessionId: match.sessionId,
+          status: match.journey.status,
+          at: match.lastTs,
+        });
+        break;
+      default:
+        return assertNeverJourneyStatus(match.journey.status, 'triage status counts');
     }
   }
 
@@ -2680,7 +2791,7 @@ export function findFlowVariants(
 function secondaryFindings(evidence: TriageEvidence, verdict: TriageVerdict, suppressHealthy = false): TriageVerdict[] {
   const findings: TriageVerdict[] = [];
   const nonCompleted = regressionFailureCount(evidence.statusDistribution);
-  if (nonCompleted > evidence.statusDistribution.completed) findings.push('regression-evidence');
+  if (nonCompleted > reachedPlanFinalPageCount(evidence.statusDistribution)) findings.push('regression-evidence');
   if (hasActionableSelectorDrift(evidence.selectorFreshness)) {
     findings.push('selector-aged');
   }
@@ -2692,11 +2803,16 @@ function secondaryFindings(evidence: TriageEvidence, verdict: TriageVerdict, sup
 
 /** Navigated is observed separately; it is not treated as a pass or failure by regression triage. */
 function regressionFailureCount(status: StatusEvidence): number {
-  return status.submitted + status.abandoned;
+  return status.submitted + status.abandoned + (status.errorAfterSubmit ?? 0);
+}
+
+/** Counted with the same plan-outcome rule as `reachedPlanFinalPage`. */
+function reachedPlanFinalPageCount(status: StatusEvidence): number {
+  return status.completed + (status.planOutcome === 'abandoned-mid-flow' ? status.abandonedMidFlow ?? 0 : 0);
 }
 
 function resolvedRegressionOutcomeCount(status: StatusEvidence): number {
-  return status.completed + regressionFailureCount(status);
+  return reachedPlanFinalPageCount(status) + regressionFailureCount(status);
 }
 
 function buildSelectorMatch(

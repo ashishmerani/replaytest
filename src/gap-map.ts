@@ -71,6 +71,9 @@ export interface GapMapAction {
   kind:
     | 'review-and-plan'
     | 'review-navigated'
+    | 'review-stopped-mid-flow'
+    | 'review-error-after-submit'
+    | 'review-not-plannable'
     | 'analyze-representative-exactly'
     | 'inspect-suite-candidate'
     | 'review-linked-plan'
@@ -157,6 +160,20 @@ const FORM_SUBMIT_WARNING =
 
 const INLINE_COMMIT_WRITE_WARNING =
   'This test creates a real record when it runs — the journey committed an edit rather than submitting a form, and there is no cleanup step, so every run leaves another one behind. Point it at a staging site or seeded test data — never at production.';
+
+/** Every plan command this module offers starts with this; the write warnings key on it. */
+const PLAN_COMMAND_PREFIX = 'replaytest plan ';
+
+/**
+ * The dashboard's status refusal (`OTHER_UNPLANNABLE_TITLE` in
+ * dashboard/index.html, a governed copy row), reused here
+ * word for word. gap-map.test.ts pins the two to the same text, so a reword
+ * of the anchored dashboard string must be made here too.
+ */
+const SUBMITTED_ABANDONED_UNPLANNABLE_LABEL = 'Submitted and Abandoned journeys cannot be planned.';
+
+const ERROR_AFTER_SUBMIT_UNPLANNABLE_LABEL =
+  'The recording showed an error after this submit, so this journey cannot be planned. Watch one session to see what happened.';
 
 const DEFAULT_SUITE_HEURISTIC_SCOPE =
   'How we find your own tests: we scan Playwright files for literal page addresses (page.goto / toHaveURL). Tests that build URLs dynamically won\'t be found.';
@@ -402,6 +419,7 @@ function actionFor(
 ): GapMapAction {
   const resumeCommand = gapsCommand(shape, actionContext);
   const planCommand = representativePlanCommand(journey);
+  const canPlan = journeyMayBePlanned(journey);
   let action: GapMapAction;
 
   if (linkState === 'possible-suite-match') {
@@ -413,9 +431,16 @@ function actionFor(
       ...(candidateReference === undefined ? {} : { reference: candidateReference }),
     };
   } else if (linkState === 'linked-plan-needs-review') {
+    // A plan already exists here, so the row keeps its kind, its label and its
+    // Open plan button whatever the example session's status. The re-plan
+    // command targets the plan's OWN source session (see `needsReview` in
+    // local-coverage.ts), which `plan` already accepted once — the example
+    // session's status says nothing about it. Only the fallback, used when no
+    // re-plan command exists, goes through the plannability check:
+    // `planCommand` is undefined for a refused example session.
     action = {
       kind: 'replan-link',
-      label: 'Review the linked test plan — the journey may have changed since it was generated.',
+      label: 'Review this plan before re-running it.',
       command: journey.needsReview?.replanCommand ?? planCommand ?? resumeCommand,
       resumeCommand,
     };
@@ -446,36 +471,41 @@ function actionFor(
     action = journey.plannable === true
       ? {
           kind: 'review-navigated',
-          label: `Recognized as navigated — typed input then landing witnessed, with no form submit. A test plan is generated with one SYNTHESIZED step (the committing keystroke, which no recording captures) — review it before running.${statusMixSuffix(journey)}`,
+          label: `Recognized as navigated — typed input then a landing, with no submit seen. A test plan is generated with one SYNTHESIZED step (the committing keystroke, which no recording captures) — review it before running.${statusMixSuffix(journey)}`,
           command: planCommand ?? resumeCommand,
           resumeCommand,
         }
       : {
           kind: 'review-navigated',
-          label: `Recognized as navigated — typed input then landing witnessed, with no form submit. This one merges more than one create into a single journey, so a plan would name the test after the last record while its steps create the first; it is skipped rather than planned wrongly.${statusMixSuffix(journey)}`,
+          label: nonPlannableJourneyLabel(journey),
           command: resumeCommand,
           resumeCommand,
         };
+  } else if (linkState === 'no-known-link' && journey.status === 'abandoned-mid-flow') {
+    // Accepted by status alone, as `isPlannableJourney` does; the ranking's
+    // `plannable` flag is redundant here and may be missing on older rows.
+    action = {
+      kind: 'review-stopped-mid-flow',
+      label: `We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.${statusMixSuffix(journey)}`,
+      command: planCommand ?? resumeCommand,
+      resumeCommand,
+    };
+  } else if (linkState === 'no-known-link' && journey.status === 'error-after-submit') {
+    action = {
+      kind: 'review-error-after-submit',
+      label: nonPlannableJourneyLabel(journey),
+      command: resumeCommand,
+      resumeCommand,
+    };
+  } else if (linkState === 'no-known-link' && journey.provenance === 'exact' && !canPlan) {
+    action = refusedPlanAction(journey, resumeCommand);
   } else if (linkState === 'no-known-link' && journey.provenance === 'exact' && planCommand !== undefined) {
-    // ANY directly-seen row with a watchable session gets a watch-first
-    // action: the detailed-scan label below would falsely claim direct
-    // evidence is missing; this branch requires watching before
-    // interpreting completion. Submit-ending rows keep the
-    // hedged sentence (the deliberate write-flow completion floor); every
-    // other status — completed, abandoned, unknown — gets the plain
-    // watch-and-judge sentence, which claims nothing about completion.
-    //
-    // The submit-specific sentence is withheld from a MIXED row: it describes
-    // what happened after a submit, and on a mixed row most sessions may never
-    // have submitted at all (the representative is the strongest single
-    // instance, not the typical one). Such a row gets the neutral sentence
-    // plus an explicit breakdown instead of a claim that is false for the
-    // majority of its sessions.
+    // This is an exact row with a watchable session whose shared ranking
+    // projection says its representative can be planned. Rows refused by that
+    // projection have already taken the refusal action above.
     action = {
       kind: 'review-and-plan',
-      label: journey.status === 'submitted' && journey.statusMix === undefined
-        ? 'We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.'
-        : `Watch one of these sessions, then generate a test plan from it if it looks right.${statusMixSuffix(journey)}`,
+      label: `Watch one of these sessions, then generate a test plan from it if it looks right.${statusMixSuffix(journey)}`,
       command: planCommand,
       resumeCommand,
     };
@@ -495,6 +525,10 @@ function actionFor(
     };
   }
 
+  // The write warnings describe what a generated test does when it runs, so
+  // they attach only when this action offers a plan command. A refused row
+  // (or any row whose command is the gaps re-run) produces no test to warn about.
+  if (!action.command.startsWith(PLAN_COMMAND_PREFIX)) return action;
   if (shape === 'form-submit-signal') return { ...action, warning: FORM_SUBMIT_WARNING };
   // An inline-commit create writes a real record while submitting no form, so
   // `classifyFormSubmitSignal` correctly excludes it from the form-submit
@@ -507,8 +541,8 @@ function actionFor(
 /**
  * The clause a mixed row appends to whatever action it gets.
  *
- * A collapsed row's status is its strongest single instance. Without this,
- * nine navigated sessions behind one submitted outlier are invisible: the row
+ * A collapsed row's status is its highest-ranked single instance. Without this,
+ * nine abandoned sessions behind one submitted outlier are invisible: the row
  * reads "Submitted", the sentence describes a submit, and the session offered
  * for watching is the atypical one. Empty string for a uniform row, so no
  * existing single-status wording changes.
@@ -516,12 +550,50 @@ function actionFor(
 function statusMixSuffix(journey: RankedJourney): string {
   if (journey.statusMix === undefined) return '';
   return ` Not every session here ended the same way (${formatStatusMix(journey.statusMix)}) — ` +
-    `the example session is the ${journey.status ?? 'strongest'} one.`;
+    'the example session is ranked most testable (completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned), and that is the session to watch.';
 }
 
 function representativePlanCommand(journey: RankedJourney): string | undefined {
-  if (journey.representativeSessionId === undefined) return undefined;
-  return `replaytest plan ${journey.representativeDistinctId} --session ${journey.representativeSessionId}`;
+  if (!journeyMayBePlanned(journey) || journey.representativeSessionId === undefined) return undefined;
+  return `${PLAN_COMMAND_PREFIX}${journey.representativeDistinctId} --session ${journey.representativeSessionId}`;
+}
+
+/**
+ * `RankedJourney` is the compact carrier used here: it deliberately omits the
+ * original steps needed by `isPlannableJourney`. That predicate accepts
+ * `completed` and `abandoned-mid-flow` by status alone, so this rule does too,
+ * with or without the ranking's flag. Only `navigated` needs the steps (a
+ * single create is accepted, a merged multi-create one refused); ranking
+ * records that answer as `plannable: true`. Quick-scan rows have no exact
+ * journey to judge, so they keep their plan command to obtain an exact answer.
+ */
+function journeyMayBePlanned(journey: RankedJourney): boolean {
+  return journey.provenance === 'coarse'
+    || journey.status === 'completed'
+    || journey.status === 'abandoned-mid-flow'
+    || journey.plannable === true;
+}
+
+function nonPlannableJourneyLabel(journey: RankedJourney): string {
+  if (journey.status === 'submitted' || journey.status === 'abandoned') {
+    return `${SUBMITTED_ABANDONED_UNPLANNABLE_LABEL}${statusMixSuffix(journey)}`;
+  }
+  if (journey.status === 'error-after-submit') {
+    return `${ERROR_AFTER_SUBMIT_UNPLANNABLE_LABEL}${statusMixSuffix(journey)}`;
+  }
+  if (journey.status === 'navigated') {
+    return `Recognized as navigated — typed input then a landing, with no submit seen. This one merges more than one create into a single journey, so a plan would name the test after the last record while its steps create the first; it is skipped rather than planned wrongly.${statusMixSuffix(journey)}`;
+  }
+  return 'This journey cannot be planned.';
+}
+
+function refusedPlanAction(journey: RankedJourney, resumeCommand: string): GapMapAction {
+  return {
+    kind: 'review-not-plannable',
+    label: nonPlannableJourneyLabel(journey),
+    command: resumeCommand,
+    resumeCommand,
+  };
 }
 
 function gapsCommand(shape: CoreShapeName, context: GapMapActionContext): string {

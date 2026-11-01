@@ -8,8 +8,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildFamiliesRefreshNotApplicableMessage, buildSessionsLimitNudge, buildStatusFilterNote, buildExceptionFilterCoarseMessage, buildNoShapeMatchesFoundMessage, buildShapeUsageError, buildNoExceptionsFoundMessage, buildNoSessionsFoundMessage, buildNoStatusMatchesFoundMessage, buildVerbHelpText, buildWizardStepConfigRefusal, appendSessionsCoverage, appendSessionsReplayContract, buildUnconfiguredHint, deriveSessionsReplayAvailabilityRequest, filterByExceptions, filterDiscovery, filterFamilyEntries, filterFamilyEntriesByMatchedSignatures, filterByStatus, filterByShapes, formatCoarseScanNote, formatExceptionSessionsTable, formatFamiliesJson, formatFamiliesTable, formatRowOrigins, formatSessionsJson, formatSessionsTable, formatShapeFilterSummary, runSessions, shouldRenderOriginColumn, runSessionsWatch, resolveWatchInterval, describeWatchTick, sessionsWatchCheckFunction, WATCH_REFUSAL, WATCH_INTERVAL_FLOOR_MS, SESSIONS_LIMIT_REFUSAL, SESSIONS_REPLAY_NOTE, SESSIONS_REPLAY_AVAILABILITY_REQUIRES_JSON, SESSIONS_REPLAY_ARCHIVE_SUPPRESSED_NOTE, SESSIONS_SUITE_MATCH_NOTE } from '../../cli.js';
-import { formatLocalTimeWithUtc } from '../terminal-format.js';
+import { buildFamiliesRefreshNotApplicableMessage, buildSessionsLimitNudge, buildStatusFilterNote, buildExceptionFilterCoarseMessage, buildNoShapeMatchesFoundMessage, buildShapeUsageError, buildNoExceptionsFoundMessage, buildNoSessionsFoundMessage, buildNoStatusMatchesFoundMessage, buildVerbHelpText, buildWizardStepConfigRefusal, appendSessionsCoverage, appendSessionsReplayContract, buildUnconfiguredHint, deriveSessionsReplayAvailabilityRequest, filterByExceptions, filterDiscovery, filterFamilyEntries, filterFamilyEntriesByMatchedSignatures, filterByStatus, filterByShapes, formatCoarseScanNote, formatCompletionPrevalence, formatExceptionSessionsTable, formatFamiliesJson, formatFamiliesTable, formatRowOrigins, formatSessionsJson, formatSessionsTable, formatShapeFilterSummary, runSessions, shouldRenderOriginColumn, runSessionsWatch, resolveWatchInterval, describeWatchTick, sessionsWatchCheckFunction, WATCH_REFUSAL, WATCH_INTERVAL_FLOOR_MS, SESSIONS_LIMIT_REFUSAL, SESSIONS_REPLAY_NOTE, SESSIONS_REPLAY_AVAILABILITY_REQUIRES_JSON, SESSIONS_REPLAY_ARCHIVE_SUPPRESSED_NOTE, SESSIONS_SUITE_MATCH_NOTE } from '../../cli.js';
+import { formatJourneyStatusToken, formatLocalTimeWithUtc } from '../terminal-format.js';
 import { formatUsageErrorJson } from '../args.js';
 import { NAVIGATED_PREVALENCE_FLOOR_NOTE } from '../../completion-evidence.js';
 import { DashboardLocalStore } from '../../dashboard/local-store.js';
@@ -17,7 +17,7 @@ import { filterGapsOnly } from '../../dashboard/view-model.js';
 import { formatLocalTime } from '../../local-time.js';
 import { rankDiscoveryJourneys } from '../../selection.js';
 import type { ExactScanCapMetadata, RankedJourney } from '../../selection.js';
-import type { TopLevelEntry } from '../../families.js';
+import { statusRank, type TopLevelEntry } from '../../families.js';
 import type { NeutralSession } from '../../neutral-session.js';
 import { rankedJourney, coarseRankedJourney, coarseMeta, expectedSignalAssessability, discovery, orderConfirmationSteps, neutralSessionFromSteps, completedRow, navigatedRow, submittedRow, allThree, mkPlanReviewDir, writeOldPlanForReview, writeSupersessionTrio, gapsNoteCoverage, emptyGapsCoverage, coarseWatchMeta, CONFIGURED_STATUS, LOCAL_TSX_LOADER } from './test-support.js';
 
@@ -89,6 +89,17 @@ function assertStacklessEnvironmentRefusal(result: ReturnType<typeof runEnvironm
   return combined;
 }
 
+test('formatJourneyStatusToken: all six statuses have customer-facing labels', () => {
+  assert.deepEqual(
+    (['completed', 'navigated', 'submitted', 'abandoned', 'abandoned-mid-flow', 'error-after-submit', undefined] as const)
+      .map((status) => formatJourneyStatusToken(status)),
+    ['Completed · finish not checked', 'Navigated', 'Submitted', 'Abandoned', 'Stopped mid-flow', 'Error after submit', ''],
+  );
+  assert.equal(formatJourneyStatusToken('completed', 'witnessed'), 'Completed · finish checked');
+  assert.equal(formatJourneyStatusToken('completed', 'unchecked'), 'Completed · finish not checked');
+  assert.equal(formatJourneyStatusToken('abandoned-mid-flow', undefined, 3), 'Stopped mid-flow (at step 3)');
+});
+
 test('sessions refuses a missing posthog-cli with a stackless install/PATH message that keeps ENOENT visible', (t: TestContext) => {
   const workspace = configuredEnvironmentWorkspace(t, 'missing-posthog-cli');
   const emptyPath = path.join(workspace, 'empty-bin');
@@ -144,6 +155,17 @@ test('runSessions: --help and -h print the synopsis and read no config, wizard s
   } finally {
     process.exitCode = originalExitCode;
   }
+});
+
+test('sessions help discloses the literal status-filter behavior', () => {
+  const help = buildVerbHelpText('sessions');
+  assert.ok(help.includes('--completed selects Completed rows only (not Stopped mid-flow rows).'));
+  assert.ok(help.includes('--navigated selects Navigated rows only.'));
+  assert.ok(help.includes('--submitted selects Submitted rows only.'));
+  assert.ok(help.includes('Stopped mid-flow rows appear only when no status filter is set.'));
+  assert.ok(help.includes('The Sessions scan cannot show Error after submit.'));
+  const source = fs.readFileSync(new URL('./sessions.ts', import.meta.url), 'utf8');
+  assert.match(source, /Filters `ranked` by the requested literal status tokens/);
 });
 
 test('runSessions: unknown or value-less --shape refuses before configuration or fetching', () => {
@@ -294,15 +316,21 @@ test('formatSessionsTable: page-limited --exact results name their exact covered
 });
 
 test('formatSessionsTable: a mixed row is marked and broken down; a uniform row is untouched', () => {
+  // The row's status is the one the real ranking puts at the head of the
+  // mix: the highest `statusRank` among its members, never a hand-picked one.
+  const statusMix = { navigated: 9, submitted: 1 } as const;
+  const head = (Object.keys(statusMix) as (keyof typeof statusMix)[])
+    .reduce((best, status) => (statusRank(status) > statusRank(best) ? status : best));
+  assert.equal(head, 'navigated');
   const mixed = formatSessionsTable([rankedJourney({
-    status: 'submitted',
-    statusMix: { submitted: 1, navigated: 9 },
+    status: head,
+    statusMix,
     sessionCount: 10,
     signature: '/mixed-create',
   })], DEFAULT_TABLE_CORPUS_SIGNALS);
-  assert.match(mixed, /Submitted \(mixed\)/);
-  assert.match(mixed, /rank 1: 1 submitted · 9 navigated/);
-  assert.match(mixed, /the strongest single session/);
+  assert.match(mixed, /Navigated \(mixed\)/);
+  assert.match(mixed, /rank 1: 9 navigated · 1 submitted/);
+  assert.match(mixed, /The status shown is the session ranked most testable \(completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned\), and that is also the session "watch one session" opens\./);
 
   const uniform = formatSessionsTable([rankedJourney({ status: 'submitted', signature: '/uniform' })], DEFAULT_TABLE_CORPUS_SIGNALS);
   assert.match(uniform, /Submitted\s{2}/, 'a uniform row keeps its bare status token');
@@ -313,16 +341,16 @@ test('formatSessionsTable: a mixed row is marked and broken down; a uniform row 
 test('formatSessionsTable: a capped scan never prints its prevalence counts unqualified', () => {
   const capped = formatSessionsTable([rankedJourney({ status: 'completed' })], {
     ...DEFAULT_TABLE_CORPUS_SIGNALS,
-    completionCounts: { completed: 120, navigated: 9 },
+    completionCounts: { completed: 120, navigated: 9, submitted: 0, abandoned: 0, submitThenNav: 0, commitThenNewRoute: 0 },
     completionCoverage: { sessionsScanned: 500, totalSessionsAtScanStart: 41_200, capped: true },
   });
-  assert.match(capped, /120 completed · 9 navigated/);
+  assert.match(capped, /120 completed · at least 9 navigated/);
   assert.match(capped, /Counted from 500 of 41200 sessions in this window — a sample, not the whole window\./);
   assert.match(capped, /Navigated counts are a minimum, not a total\./);
 
   const whole = formatSessionsTable([rankedJourney({ status: 'completed' })], {
     ...DEFAULT_TABLE_CORPUS_SIGNALS,
-    completionCounts: { completed: 120, navigated: 9 },
+    completionCounts: { completed: 120, navigated: 9, submitted: 0, abandoned: 0, submitThenNav: 0, commitThenNewRoute: 0 },
     completionCoverage: { sessionsScanned: 120, totalSessionsAtScanStart: 120, capped: false },
   });
   assert.doesNotMatch(whole, /a sample, not the whole window/);
@@ -418,11 +446,11 @@ test('filterByStatus: coarse --completed keeps likely-submitted rows and renders
 test('buildStatusFilterNote: confirms exact filters and explains the shared coarse approximation', () => {
   assert.equal(
     buildStatusFilterNote({ completed: true, submitted: false }, 'exact'),
-    'Status filter: showing completed journeys.',
+    'Status filter: showing completed journeys. Stopped mid-flow rows appear only when no status filter is set. The Sessions scan reads events only, so it cannot show Error after submit.',
   );
   assert.equal(
     buildStatusFilterNote({ completed: false, submitted: true }, 'coarse'),
-    'Status filter: showing submitted journeys. In coarse scans, navigated journeys cannot be identified; completed/submitted retain only ≈ likely submitted rows.',
+    'Status filter: showing submitted journeys. In coarse scans, navigated journeys cannot be identified; completed/submitted retain only ≈ likely submitted rows. Stopped mid-flow rows appear only when no status filter is set. The Sessions scan reads events only, so it cannot show Error after submit.',
   );
   assert.equal(buildStatusFilterNote({ completed: false, submitted: false }, 'exact'), undefined);
 });
@@ -586,13 +614,14 @@ test('formatSessionsTable: empty input names a custom --since-hours window', () 
   );
 });
 
-test('formatSessionsTable: header + one padded row per entry, status column fits "≈ likely submitted" (18 chars)', () => {
+test('formatSessionsTable: header + one padded row per entry, status column fits the full completed label', () => {
   const table = formatSessionsTable([
     rankedJourney({ rank: 1, sessionCount: 12, status: 'submitted', signature: '/invoices/:id/pay' }),
   ], DEFAULT_TABLE_CORPUS_SIGNALS);
   const lines = table.split('\n');
-  assert.equal(lines[0], `rank  sessions  ${'status'.padEnd(18)}  ${'distinct id'.padEnd(36)}  signature`);
-  assert.equal(lines[1], `   1        12  ${'Submitted'.padEnd(18)}  ${'user-1'.padEnd(36)}  /invoices/:id/pay`);
+  const statusWidth = 'Completed · finish not checked'.length;
+  assert.equal(lines[0], `rank  sessions  ${'status'.padEnd(statusWidth)}  ${'distinct id'.padEnd(36)}  signature`);
+  assert.equal(lines[1], `   1        12  ${'Submitted'.padEnd(statusWidth)}  ${'user-1'.padEnd(36)}  /invoices/:id/pay`);
 });
 
 test('formatSessionsTable: depth remains JSON-only, leaving the human table byte-identical', () => {
@@ -630,14 +659,109 @@ test('formatSessionsTable: exact rows carry the copy-pasteable distinct id and a
   assert.match(lines[1], /019f20bc-dd02-7751-b4e6-f40ac2aa3a9a/);
   assert.equal(
     lines[3],
-    'Next: replaytest plan <distinct id> — turn a completed row into a reviewable plan (then: replaytest scaffold <slug>).',
+    'Next: replaytest plan <distinct id> — turn a Completed or Stopped mid-flow row into a reviewable plan (then: replaytest scaffold <slug>).',
   );
 });
 
 test('formatSessionsTable: adds the ranked-status aggregate footnote to the human table only', () => {
   const table = formatSessionsTable([rankedJourney({ status: 'completed' })], DEFAULT_TABLE_CORPUS_SIGNALS);
-  assert.match(table, /Status is an aggregate signal for the ranked journey; an individual session may resolve differently at plan time\./);
+  assert.match(table, /Unchecked: we saw the user reach a new page, but did not see whether it was the last step\./);
+  assert.match(table, /The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit;/);
   assert.equal(JSON.parse(formatSessionsJson(discovery({}), true, 1)).statusFootnote, undefined);
+});
+
+test('formatCompletionPrevalence: additive status counts sum and legacy census omits checked count', () => {
+  const full = {
+    completed: 120,
+    completedWitnessed: 8,
+    abandonedMidFlow: 2,
+    navigated: 9,
+    submitted: 4,
+    errorAfterSubmit: 1,
+    abandoned: 3,
+    submitThenNav: 0,
+    commitThenNewRoute: 0,
+  };
+  assert.equal(full.completed + full.abandonedMidFlow + full.navigated + full.submitted + full.errorAfterSubmit + full.abandoned, 139);
+  assert.ok(full.completedWitnessed <= full.completed);
+  assert.match(formatCompletionPrevalence(full), /^120 completed · 8 finish checked · 2 stopped mid-flow · at least 9 navigated · 4 submitted · 1 error after submit · 3 abandoned\n/);
+  const legacy = formatCompletionPrevalence({
+    completed: 120, navigated: 9, submitted: 4, abandoned: 3, submitThenNav: 0, commitThenNewRoute: 0,
+  });
+  assert.match(legacy, /^120 completed · at least 9 navigated · 4 submitted · 3 abandoned\n/);
+  assert.doesNotMatch(legacy, /checked/);
+  // An events-only count (no `completedWitnessed`) carries `errorAfterSubmit: 0` meaning "not
+  // measured": the line prints neither figure. A nonzero value is not trusted there either.
+  for (const errorAfterSubmit of [0, 1]) {
+    const eventsOnly = formatCompletionPrevalence({ ...full, completedWitnessed: undefined, errorAfterSubmit });
+    assert.match(eventsOnly, /^120 completed · at least 2 stopped mid-flow · at least 9 navigated · 4 submitted · 3 abandoned\n/);
+    assert.doesNotMatch(eventsOnly, /error after submit|checked/i);
+  }
+  // Events see only the typing half of Stopped mid-flow, so an events-only count is a minimum:
+  // "at least N" when N > 0, and left out at 0 rather than printed as a measured zero. A
+  // recording-backed count is measured and prints plainly, 0 included.
+  const eventsOnlyZero = formatCompletionPrevalence({ ...full, completedWitnessed: undefined, abandonedMidFlow: 0 });
+  assert.match(eventsOnlyZero, /^120 completed · at least 9 navigated · 4 submitted · 3 abandoned\n/);
+  assert.doesNotMatch(eventsOnlyZero, /stopped mid-flow/);
+  assert.match(formatCompletionPrevalence({ ...full, abandonedMidFlow: 0 }), /^120 completed · 8 finish checked · 0 stopped mid-flow · at least 9 navigated/);
+  assert.doesNotMatch(formatCompletionPrevalence(full), /at least \d+ stopped/);
+});
+
+test('formatSessionsTable: the status column fits "(mixed)" and long step labels without shifting later columns', () => {
+  const rows = [
+    rankedJourney({ rank: 1, sessionCount: 3, status: 'completed', representativeDistinctId: 'user-a', signature: '/a', statusMix: { completed: 2, submitted: 1 } }),
+    rankedJourney({ rank: 2, sessionCount: 2, status: 'abandoned-mid-flow', stoppedAtStep: 12, representativeDistinctId: 'user-b', signature: '/b', statusMix: { 'abandoned-mid-flow': 1, abandoned: 1 } }),
+    rankedJourney({ rank: 3, sessionCount: 1, status: 'submitted', representativeDistinctId: 'user-c', signature: '/c' }),
+  ];
+  const lines = formatSessionsTable(rows, { hasSingleUrlCoarseRow: false, coarseRageClicksAssessed: true }).split('\n');
+  const header = lines.find((line) => line.startsWith('rank'));
+  assert.ok(header);
+  const idColumn = header.indexOf('distinct id');
+  for (const [label, id] of [['Completed · finish not checked (mixed)', 'user-a'], ['Stopped mid-flow (at step 12) (mixed)', 'user-b'], ['Submitted', 'user-c']]) {
+    const line = lines.find((candidate) => candidate.includes(label));
+    assert.ok(line, `${label} is printed whole`);
+    assert.equal(line.indexOf(id), idColumn, `${label}: the distinct id stays in its column`);
+  }
+});
+
+test('formatFamiliesTable: the status column fits a "(mixed)" member wider than its head without shifting the members and signature columns', () => {
+  // The widest status is a MEMBER's, not the head's, so a width taken over heads only is too narrow.
+  const stoppedMember = rankedJourney({ rank: 2, sessionCount: 2, status: 'abandoned-mid-flow', stoppedAtStep: 12, signature: '/family > /b', statusMix: { 'abandoned-mid-flow': 1, abandoned: 1 } });
+  const submittedMember = rankedJourney({ rank: 3, sessionCount: 1, status: 'submitted', signature: '/family > /c' });
+  const single = rankedJourney({ rank: 1, sessionCount: 1, status: 'navigated', signature: '/standalone' });
+  const entries: TopLevelEntry[] = [
+    { kind: 'single', journey: single },
+    {
+      kind: 'family',
+      family: {
+        headSignature: '/family',
+        sessionCount: 3,
+        status: 'completed',
+        finality: 'witnessed',
+        members: [stoppedMember, submittedMember],
+      },
+    } as TopLevelEntry,
+  ];
+  const lines = formatFamiliesTable(entries, DEFAULT_TABLE_CORPUS_SIGNALS).split('\n');
+  const header = lines.find((line) => line.startsWith('rank'));
+  assert.ok(header);
+  const membersColumn = header.indexOf('members');
+  const signatureColumn = header.indexOf('signature');
+  const rows: Array<[string, string]> = [
+    ['Navigated', '/standalone'],
+    ['Completed · finish checked', '/family'],
+    ['Stopped mid-flow (at step 12) (mixed)', '↳ /family > /b'],
+    ['Submitted', '↳ /family > /c'],
+  ];
+  for (const [label, signature] of rows) {
+    const line = lines.find((candidate) => candidate.endsWith(signature) && candidate.includes(label));
+    assert.ok(line, `${label} is printed whole on the ${signature} row`);
+    assert.equal(line.indexOf(signature), signatureColumn, `${label}: the signature stays in its column`);
+  }
+  // The head's member count is right-aligned under "members", not pushed along by a long label.
+  const head = lines.find((candidate) => candidate.endsWith('  /family'));
+  assert.ok(head);
+  assert.equal(head.slice(membersColumn, membersColumn + 'members'.length), '      2');
 });
 
 test('formatSessionsTable: coarse rows render one approximate-scan source of truth plus fidelity limits', () => {
@@ -654,8 +778,9 @@ test('formatSessionsTable: coarse rows render one approximate-scan source of tru
 
   const lines = table.split('\n');
   assert.equal(lines[0], 'Approximate scan of 1200 sessions — counts are close, not exact.');
-  assert.equal(lines[1], `rank  sessions  ${'status'.padEnd(18)}  ${'distinct id'.padEnd(36)}  signature`);
-  assert.equal(lines[2], `   1        12  ${'≈ likely submitted'.padEnd(18)}  ${'user-1'.padEnd(36)}  /invoices/:id/pay`);
+  const statusWidth = 'Completed · finish not checked'.length;
+  assert.equal(lines[1], `rank  sessions  ${'status'.padEnd(statusWidth)}  ${'distinct id'.padEnd(36)}  signature`);
+  assert.equal(lines[2], `   1        12  ${'≈ likely submitted'.padEnd(statusWidth)}  ${'user-1'.padEnd(36)}  /invoices/:id/pay`);
   assert.equal(
     lines[3],
     'Rage-click presence is assessed on this broad scan; console-error and exception evidence need the exact per-session fetch.',
@@ -684,7 +809,7 @@ test('formatSessionsTable: coarse same-URL rows receive the exact-only depth not
   );
 
   assert.equal(coarseSingleUrl.split(depthNote).length - 1, 1);
-  assert.ok(coarseSingleUrl.includes(`\n${depthNote}\nStatus is an aggregate signal`));
+  assert.ok(coarseSingleUrl.includes(`\n${depthNote}\nUnchecked: we saw the user reach a new page`));
   assert.equal(coarseMultiUrl.includes(depthNote), false);
   assert.equal(filteredCoarseCorpus.includes(depthNote), true);
   assert.equal(exactSingleUrl.includes(depthNote), false);
@@ -744,14 +869,12 @@ test('formatSessionsTable: the default coarse scan discloses that navigated cann
 });
 
 test('the coarse navigated disclosure and the status-filter caveat share their claim without either replacing the other', () => {
-  // The filter-only caveat was the sole place this fact was ever stated, which
-  // is why the default scan was silent. Both must now hold: the filter note is
-  // unchanged, and the footer carries the same claim in the footer's voice.
+  // The filter note names the literal selection and the events-only limitation.
   assert.equal(
     buildStatusFilterNote({ completed: false, submitted: true }, 'coarse'),
-    'Status filter: showing submitted journeys. In coarse scans, navigated journeys cannot be identified; completed/submitted retain only ≈ likely submitted rows.',
+    'Status filter: showing submitted journeys. In coarse scans, navigated journeys cannot be identified; completed/submitted retain only ≈ likely submitted rows. Stopped mid-flow rows appear only when no status filter is set. The Sessions scan reads events only, so it cannot show Error after submit.',
   );
-  assert.equal(buildStatusFilterNote({ completed: false, submitted: true }, 'exact'), 'Status filter: showing submitted journeys.');
+  assert.equal(buildStatusFilterNote({ completed: false, submitted: true }, 'exact'), 'Status filter: showing submitted journeys. Stopped mid-flow rows appear only when no status filter is set. The Sessions scan reads events only, so it cannot show Error after submit.');
   for (const source of [buildStatusFilterNote({ completed: false, submitted: true }, 'coarse') ?? '', formatCoarseScanNote(coarseMeta, undefined, false, true, false)]) {
     assert.match(source, /In coarse scans, navigated journeys cannot be identified/);
   }
@@ -779,7 +902,7 @@ test('formatSessionsTable: refreshed rows render as exact rows without an approx
     },
   );
   const lines = table.split('\n');
-  assert.equal(lines[2], `   1        12  ${'Completed'.padEnd(18)}  ${'user-1'.padEnd(36)}  /invoices/:id/confirmation`);
+  assert.equal(lines[2], `   1        12  ${'Completed · finish not checked'.padEnd('Completed · finish not checked'.length)}  ${'user-1'.padEnd(36)}  /invoices/:id/confirmation`);
   assert.doesNotMatch(lines[2], /≈/);
   assert.match(lines[3], /Top 1 row exact-refreshed/);
   assert.match(lines[3], /session counts remain group-level approximations/);
@@ -960,6 +1083,14 @@ test('formatSessionsJson: exact output is an object with meta:null and journeys 
   });
 });
 
+test('formatSessionsJson: visit remains internal diagnostic data', () => {
+  const journey = { ...rankedJourney({ status: 'completed' }), visit: { index: 2, count: 3 } };
+  const rendered = formatSessionsJson(discovery({ ranked: [journey] }), true, 1);
+  const row = JSON.parse(rendered).journeys[0];
+  assert.equal(Object.hasOwn(row, 'visit'), false);
+  assert.doesNotMatch(rendered, /"visit"\s*:/);
+});
+
 test('runSessions: an exact same-URL row carries its depth object unchanged in --json', () => {
   const wizardUrl = 'http://localhost:8000/signup';
   const stdout: string[] = [];
@@ -1063,7 +1194,7 @@ test('formatSessionsJson: an empty journeys array still prints valid object JSON
   );
 });
 
-test('runSessions: coverage and replay contracts are additive; human output stays byte-identical', () => {
+test('runSessions: coverage and replay contracts are additive; human status copy names unchecked completion', () => {
   const noPlansDir = path.join(os.tmpdir(), `replaytest-no-plans-${Date.now()}-${Math.random()}`);
   const session = neutralSessionFromSteps('session-default', 'customer-default', orderConfirmationSteps('1001'));
   const fetchers = {
@@ -1071,10 +1202,10 @@ test('runSessions: coverage and replay contracts are additive; human output stay
     fetchAllSessions: () => [session],
   };
   const preChangeTable = [
-    `rank  sessions  ${'status'.padEnd(18)}  ${'distinct id'.padEnd(36)}  signature`,
-    `${String(1).padStart(4)}  ${String(1).padStart(8)}  ${'Completed'.padEnd(18)}  ${'customer-default'.padEnd(36)}  /dashboard > /orders/:id/pay > /orders/:id/confirmation`,
-    'Status is an aggregate signal for the ranked journey; an individual session may resolve differently at plan time.',
-    'Next: replaytest plan <distinct id> — turn a completed row into a reviewable plan (then: replaytest scaffold <slug>).',
+    `rank  sessions  ${'status'.padEnd('Completed · finish not checked'.length)}  ${'distinct id'.padEnd(36)}  signature`,
+    `${String(1).padStart(4)}  ${String(1).padStart(8)}  ${'Completed · finish not checked'.padEnd('Completed · finish not checked'.length)}  ${'customer-default'.padEnd(36)}  /dashboard > /orders/:id/pay > /orders/:id/confirmation`,
+    'Unchecked: we saw the user reach a new page, but did not see whether it was the last step. Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; `plan` and `frames` read the recording. An individual session may resolve differently at plan time.',
+    'Next: replaytest plan <distinct id> — turn a Completed or Stopped mid-flow row into a reviewable plan (then: replaytest scaffold <slug>).',
   ].join('\n');
   const emptyCoverage = {
     planIndex: [],
@@ -1096,6 +1227,8 @@ test('runSessions: coverage and replay contracts are additive; human output stay
     provenance: 'exact',
     status: 'completed',
     completionEvidence: 'submit-then-nav',
+    // An events-only scan never checks the finish, and says so on the row.
+    finality: 'unchecked',
     representativeDistinctId: 'customer-default',
     representativeSessionId: 'session-default',
     // Representative time bounds are part of the no-flag baseline
@@ -1130,6 +1263,9 @@ test('runSessions: coverage and replay contracts are additive; human output stay
         abandoned: 0,
         submitThenNav: 1,
         commitThenNewRoute: 0,
+        // Additive census key: events alone measure Stopped mid-flow. The
+        // recording-only counts (finish checked, error after submit) are left out.
+        abandonedMidFlow: 0,
       },
       // Counts never travel without the coverage they were read from: an
       // uncapped scan says so explicitly rather than leaving it to be assumed.
@@ -1154,10 +1290,14 @@ test('runSessions: coverage and replay contracts are additive; human output stay
     log: (line) => tableOutput.push(line),
   });
   // The prevalence line always says the Navigated count is a minimum,
-  // because merged creates can make the true count higher.
+  // because merged creates can make the true count higher. An events-only
+  // scan sees only the typing half of Stopped mid-flow (an empty next form
+  // needs the recording), so its count is a minimum: left out at 0, "at least
+  // N" above it. The finish-checked and error-after-submit counts need the
+  // recording and stay out.
   assert.deepEqual(tableOutput, [`Exact scan of 1 session.\n${preChangeTable.replace(
-    '\nStatus is an aggregate',
-    `\n1 completed · 0 navigated\n${NAVIGATED_PREVALENCE_FLOOR_NOTE}\nStatus is an aggregate`,
+    '\nUnchecked:',
+    `\n1 completed · at least 0 navigated · 0 submitted · 0 abandoned\n${NAVIGATED_PREVALENCE_FLOOR_NOTE}\nUnchecked:`,
   )}`]);
 
   const jsonOutput: string[] = [];
@@ -3183,11 +3323,22 @@ test('runSessions: stale plan signatures splice into flat, families, and --with-
       fetchers,
       log: (line) => stdout.push(line),
     });
-    const stale = JSON.parse(stdout[0] ?? '{}').stalePlanSignatures;
+    const json = JSON.parse(stdout[0] ?? '{}');
+    const stale = json.stalePlanSignatures;
     assert.equal(stale.plans.length, 1);
     assert.equal(stale.plans[0].slug, 'old-checkout');
     assert.equal(stale.plans[0].replanCommand, 'replaytest plan customer-old --session session-old');
-    assert.match(stale.note, /may read as uncovered/);
+    assert.match(stale.note, /different URL rules/);
+    const union = json.plansNeedReview;
+    assert.equal(union.plans.length, 1, 'the union list emits one entry per plan');
+    assert.deepEqual(union.plans[0].reasons.map(({ kind }: { kind: string }) => kind), [
+      'older-url-semantics',
+      'older-journey-boundaries',
+    ]);
+    assert.equal(
+      union.note,
+      'Some plans were built by an earlier version of replaytest, which grouped visits differently. Some plans were built under different URL rules, or the plan and current settings recognize different wizard-step URL parameters. Re-run plan for each listed session.',
+    );
   }
 
   const noPlansStdout: string[] = [];
@@ -3198,6 +3349,7 @@ test('runSessions: stale plan signatures splice into flat, families, and --with-
     log: (line) => noPlansStdout.push(line),
   });
   assert.equal(Object.hasOwn(JSON.parse(noPlansStdout[0] ?? '{}'), 'stalePlanSignatures'), false);
+  assert.equal(Object.hasOwn(JSON.parse(noPlansStdout[0] ?? '{}'), 'plansNeedReview'), false);
 });
 
 test('runSessions: --json splices superseded plans with reconciliation evidence without changing table output', (t) => {
@@ -3253,9 +3405,27 @@ test('runSessions: stale plan-signature table keeps plans distinct when they sha
   });
 
   const rendered = stdout[0] ?? '';
-  assert.match(rendered, /^  replaytest plan same-customer --session same-session  # old-checkout$/m);
-  assert.match(rendered, /^  replaytest plan same-customer --session same-session  # old-confirmation$/m);
-  assert.equal((rendered.match(/^  replaytest plan same-customer --session same-session  # old-(?:checkout|confirmation)$/gm) ?? []).length, 2);
+  assert.match(rendered, /^  old-checkout:$/m);
+  assert.match(rendered, /^  old-confirmation:$/m);
+  assert.equal((rendered.match(/^    replaytest plan same-customer --session same-session$/gm) ?? []).length, 2);
+  // A plan with both reasons prints each on its own line, in order, before its command.
+  assert.ok(
+    rendered.includes([
+      'ⓘ 2 plans need review:',
+      '  old-checkout:',
+      '    ⓘ This plan was built under different URL rules.',
+      '    ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.',
+      '    replaytest plan same-customer --session same-session',
+      '  old-confirmation:',
+      '    ⓘ This plan was built under different URL rules.',
+      '    ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.',
+      '    replaytest plan same-customer --session same-session',
+      '  Re-run plan for each listed session.',
+    ].join('\n')),
+    `every reason of a two-reason plan is printed:\n${rendered}`,
+  );
+  // The full clearing steps live behind the dashboard ⓘ and in the docs, not in this text.
+  assert.doesNotMatch(rendered.slice(rendered.indexOf('ⓘ 2 plans need review:')), /--force|reconcile --apply|regenerate/);
   // Both plans are visible, so no hidden-entry tail may print — a count derived from
   // unique commands (1) rather than rendered lines (2) would print a negative tail here.
   assert.doesNotMatch(rendered, /more \(see suite-status --json\)/);
@@ -3278,10 +3448,10 @@ test('runSessions: stale plan-signature table nudge lists ten commands then caps
   });
 
   const rendered = stdout[0] ?? '';
-  assert.match(rendered, /⚠ 12 plan\(s\) were built under older signature rules and may read as uncovered/);
-  assert.equal((rendered.match(/^  replaytest plan customer-\d+ --session session-\d+  # old-\d+$/gm) ?? []).length, 10);
-  assert.match(rendered, /^  replaytest plan customer-1 --session session-1  # old-1$/m);
-  assert.doesNotMatch(rendered, /^  replaytest plan customer-8 --session session-8  # old-8$/m);
+  assert.match(rendered, /ⓘ 12 plans need review/);
+  assert.equal((rendered.match(/^    replaytest plan customer-\d+ --session session-\d+$/gm) ?? []).length, 10);
+  assert.match(rendered, /^    replaytest plan customer-1 --session session-1$/m);
+  assert.doesNotMatch(rendered, /^    replaytest plan customer-8 --session session-8$/m);
   assert.match(rendered, /^… and 2 more \(see suite-status --json\)$/m);
 });
 
@@ -3372,11 +3542,11 @@ test('formatFamiliesTable: grouped golden includes union count, indented members
     formatFamiliesTable(entries, DEFAULT_TABLE_CORPUS_SIGNALS),
     [
       'Journey families — similar paths through the same flow, grouped. Grouping follows the path a user took, not the goal they had.',
-      `rank      sessions  ${'status'.padEnd(18)}  members  signature`,
-      `       1         6  ${'Completed'.padEnd(18)}        2  /checkout > /pay > /done`,
-      `                 5  ${'Completed'.padEnd(18)}           ↳ /checkout > /pay > /done`,
-      `                 3  ${'Submitted'.padEnd(18)}           ↳ /pay > /done`,
-      `       2         2  ${'Abandoned'.padEnd(18)}           /dashboard (shared core of 2 families)`,
+      `rank      sessions  ${'status'.padEnd('Completed · finish not checked'.length)}  members  signature`,
+      `       1         6  ${'Completed · finish not checked'.padEnd('Completed · finish not checked'.length)}        2  /checkout > /pay > /done`,
+      `                 5  ${'Completed · finish not checked'.padEnd('Completed · finish not checked'.length)}           ↳ /checkout > /pay > /done`,
+      `                 3  ${'Submitted'.padEnd('Completed · finish not checked'.length)}           ↳ /pay > /done`,
+      `       2         2  ${'Abandoned'.padEnd('Completed · finish not checked'.length)}           /dashboard (shared core of 2 families)`,
       'Families group paths that are segments of one longer recorded route (structural, not goal-based). Plans/tests stay per exact path.',
     ].join('\n'),
   );
@@ -4076,7 +4246,7 @@ test('sessions --watch tick-1 compares against a stored snapshot built under mat
     readAutoCheckSetting: () => '15m',
     readStoredSnapshot: () => ({
       snapshot: { provenance: 'coarse', meta: coarseWatchMeta({ totalSessionsAtScanStart: 100 }), sessions: [] },
-      filterKey: '["sessions","--json"]|wizardStepParams=[]|limit=undefined',
+      filterKey: '["sessions","--json"]|wizardStepParams=[]|segmentation=1|evidence=events|limit=undefined',
     }),
     runCheck: async () => ({ provenance: 'coarse', meta: coarseWatchMeta({ totalSessionsAtScanStart: 105 }), sessions: [] }),
   });
@@ -4345,7 +4515,7 @@ test('sessions --watch characterization: tick-1 stored baseline handles matching
   const cases = [
     {
       name: 'matching key compares',
-      filterKey: '["sessions","--json"]|wizardStepParams=[]|limit=undefined',
+      filterKey: '["sessions","--json"]|wizardStepParams=[]|segmentation=1|evidence=events|limit=undefined',
       wizard: () => ({ paramNames: [], overridesActive: false }),
       logs: [compared],
       warns: ['Watching for new sessions every 15m. Runs 1 check, then exits.'],

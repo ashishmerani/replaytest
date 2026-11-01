@@ -7,8 +7,10 @@ import {
   computeFinalPageTextWithSource,
   describeUnattributableExceptionReason,
 } from './journey-evidence.js';
+import { segmentJourneys } from './journeys.js';
 import type { Journey } from './journeys.js';
 import type { NeutralException, NeutralStep } from './neutral-session.js';
+import { fetchArchiveNeutralSessionsWithDomEnrichment } from './providers/archive-adapter.js';
 
 const BASE = 'http://localhost:8000';
 
@@ -85,6 +87,27 @@ test('exception attribution preserves the witnessed time window, distinct type o
       unattributableCount: 2,
       unattributableReason: 'journey-window-unparseable',
     },
+  );
+});
+
+test('the invoice journey alone owns the witnessed exception after visit and continuation segmentation', async () => {
+  const sessionId = '019f4a5a-48a6-79aa-80d5-280b15dee17a';
+  const [session] = await fetchArchiveNeutralSessionsWithDomEnrichment('archive', sessionId);
+  assert.ok(session !== undefined);
+  const journeys = segmentJourneys(session);
+  const attributed = journeys.map((journey) => ({
+    journey,
+    evidence: attributeExceptions(journey, session.witnessedExceptions ?? []),
+  }));
+  const invoice = attributed.find(({ journey }) => journey.finalUrl.includes('/invoice-pay.html'));
+
+  // Visit splitting and forward continuation leave the search step-3 journey intact;
+  // the TypeError remains owned by the invoice journey, not its neighbours.
+  assert.equal(attributed.length, 3);
+  assert.deepEqual(invoice?.evidence, { count: 1, types: ['TypeError'] });
+  assert.deepEqual(
+    attributed.filter(({ journey }) => journey !== invoice?.journey).map(({ evidence }) => evidence.count),
+    [0, 0],
   );
 });
 
