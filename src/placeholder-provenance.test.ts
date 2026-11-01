@@ -5,6 +5,7 @@
  * before they are regenerated.
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -41,7 +42,7 @@ function sidecar(placeholder?: true): Sidecar {
       journeyIndex: 0,
       signature: '/start > /done',
       generatedAt: '2026-08-11T00:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/start',
     steps: [

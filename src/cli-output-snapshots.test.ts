@@ -1,3 +1,4 @@
+import { toolIdentifier } from './tool-identifier.js';
 import { tempDirForFile } from './test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
@@ -10,6 +11,7 @@ import { runGaps, runRegenerate, runSessions, runTriage } from './cli.js';
 import { displayPath } from './cli/sidecar-io.js';
 import { buildHandFinishedDisclosure } from './hand-finished.js';
 import { DashboardLocalStore } from './dashboard/local-store.js';
+import { plansNeedReviewNote, type PlansNeedReviewEntry } from './plan-review-report.js';
 import type { NeutralSession, NeutralStep, NeutralTarget } from './neutral-session.js';
 import type { Sidecar } from './sidecar.js';
 import { captureProcessStderr, captureProcessStdout } from './cli/verbs/test-support.js';
@@ -155,15 +157,18 @@ test('captureProcessStderr removes its own token when a floating nested capture 
 
 const FIXED_NOW = Date.parse('2026-08-10T12:00:00.000Z');
 
+// The sessions count lines below read an events-only scan, where a Stopped mid-flow count is a
+// minimum (events see only typing on the next step): it reads "at least N" and a 0 is left out,
+// never printed as a measured zero (`formatCompletionPrevalence`).
 const SNAPSHOTS = {
   handFinishedDisclosure: 'ⓘ hand-finished spec (declared) — do not run "replaytest scaffold snapshot-flow --force": it would overwrite hand-authored work. Parity is owned by human review; if a deliberate re-scaffold is intended, remove the hand-finished declaration first.',
   sessionsTable: `Exact scan of 1 session.
-rank  sessions  status              distinct id                           signature
-   1         1  Completed           sessions-customer                     /dashboard > /orders/:id/pay > /orders/:id/confirmation
-1 completed · 0 navigated
-Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.
-Status is an aggregate signal for the ranked journey; an individual session may resolve differently at plan time.
-Next: replaytest plan <distinct id> — turn a completed row into a reviewable plan (then: replaytest scaffold <slug>).`,
+rank  sessions  status                          distinct id                           signature
+   1         1  Completed · finish not checked  sessions-customer                     /dashboard > /orders/:id/pay > /orders/:id/confirmation
+1 completed · at least 0 navigated · 0 submitted · 0 abandoned
+Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once, so a low Navigated count is never on its own evidence that this class is rare.
+Unchecked: we saw the user reach a new page, but did not see whether it was the last step. Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; \`plan\` and \`frames\` read the recording. An individual session may resolve differently at plan time.
+Next: replaytest plan <distinct id> — turn a Completed or Stopped mid-flow row into a reviewable plan (then: replaytest scaffold <slug>).`,
   sessionsJson: `{
   "provenance": "exact",
   "meta": null,
@@ -180,6 +185,7 @@ Next: replaytest plan <distinct id> — turn a completed row into a reviewable p
       "provenance": "exact",
       "status": "completed",
       "completionEvidence": "submit-then-nav",
+      "finality": "unchecked",
       "representativeDistinctId": "sessions-customer",
       "representativeSessionId": "sessions-recording",
       "representativeStartedAt": "2026-08-01T09:00:00.000Z",
@@ -207,7 +213,8 @@ Next: replaytest plan <distinct id> — turn a completed row into a reviewable p
     "submitted": 0,
     "abandoned": 0,
     "submitThenNav": 1,
-    "commitThenNewRoute": 0
+    "commitThenNewRoute": 0,
+    "abandonedMidFlow": 0
   },
   "completionCoverage": {
     "sessionsScanned": 1,
@@ -250,10 +257,10 @@ Next: replaytest plan <distinct id> — turn a completed row into a reviewable p
   }
 }`,
   sessionsRefusal: 'Cannot use --replay-availability without --json: the bounded live availability check only annotates JSON replay links, so in table mode it would silently do nothing. Add --json to run it, or drop --replay-availability.',
-  sessionsStoredTable: `rank  sessions  status              distinct id                           signature
-   1         1  Completed           stored-customer                       /dashboard > /orders/:id/pay > /orders/:id/confirmation
-Status is an aggregate signal for the ranked journey; an individual session may resolve differently at plan time.
-Next: replaytest plan <distinct id> — turn a completed row into a reviewable plan (then: replaytest scaffold <slug>).
+  sessionsStoredTable: `rank  sessions  status                          distinct id                           signature
+   1         1  Completed · finish not checked  stored-customer                       /dashboard > /orders/:id/pay > /orders/:id/confirmation
+Unchecked: we saw the user reach a new page, but did not see whether it was the last step. Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; \`plan\` and \`frames\` read the recording. An individual session may resolve differently at plan time.
+Next: replaytest plan <distinct id> — turn a Completed or Stopped mid-flow row into a reviewable plan (then: replaytest scaffold <slug>).
 Stored dashboard snapshot — fetched Aug 10, 2026, 11:00 AM UTC (raw UTC: 2026-08-10T11:00:00.000Z).
 Stored snapshot key: ["sessions","--json"]|wizardStepParams=[]|limit=undefined. No PostHog contact.`,
   sessionsStoredJson: `{
@@ -300,7 +307,7 @@ Stored snapshot key: ["sessions","--json"]|wizardStepParams=[]|limit=undefined. 
     "source": "dashboard-last-scan",
     "contactedPostHog": false,
     "filterKey": "[\\"sessions\\",\\"--json\\"]|wizardStepParams=[]|limit=undefined",
-    "payloadSchemaVersion": 6,
+    "payloadSchemaVersion": 8,
     "identity": {
       "host": "us.posthog.com",
       "projectId": "snapshot-project"
@@ -325,12 +332,12 @@ Stored snapshot key: ["sessions","--json"]|wizardStepParams=[]|limit=undefined. 
   }
 }`,
   sessionsShapeTable: `Exact scan of 1 session.
-rank  sessions  status              confidence     distinct id                           signature
-   1         1  Completed           Seen directly  sessions-customer                     /dashboard > /orders/:id/pay > /orders/:id/confirmation
-1 completed · 0 navigated
-Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.
-Status is an aggregate signal for the ranked journey; an individual session may resolve differently at plan time.
-Next: replaytest plan <distinct id> — turn a completed row into a reviewable plan (then: replaytest scaffold <slug>).
+rank  sessions  status                          confidence     distinct id                           signature
+   1         1  Completed · finish not checked  Seen directly  sessions-customer                     /dashboard > /orders/:id/pay > /orders/:id/confirmation
+1 completed · at least 0 navigated · 0 submitted · 0 abandoned
+Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once, so a low Navigated count is never on its own evidence that this class is rare.
+Unchecked: we saw the user reach a new page, but did not see whether it was the last step. Stopped mid-flow can come from events (typing on the next step) or from the recording (an empty next-step form). Error after submit and a checked finish need the session recording. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit; \`plan\` and \`frames\` read the recording. An individual session may resolve differently at plan time.
+Next: replaytest plan <distinct id> — turn a Completed or Stopped mid-flow row into a reviewable plan (then: replaytest scaffold <slug>).
 Shape filter: form-submit-signal [Seen directly] — We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)`,
   gapsTable: `Exact scan of 1 session.
 What your users do vs. what your tests cover
@@ -359,7 +366,7 @@ Form submissions
       Warning: This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production.
   Already has a test:
     Nothing here.
-  Has a test — needs review:
+  Plan needs review:
     Nothing here.
   Has a test — out of date:
     Nothing here.
@@ -382,7 +389,7 @@ Long multi-step flows
     Nothing here.
   Already has a test:
     Nothing here.
-  Has a test — needs review:
+  Plan needs review:
     Nothing here.
   Has a test — out of date:
     Nothing here.
@@ -545,7 +552,7 @@ Take a sample now — it looks at your newest sessions without changing the map 
     "source": "live"
   }
 }`,
-  gapsStoredRefusal: 'Cannot use gaps --stored — no stored traffic scan exists in this workspace yet. --stored never contacts PostHog, so there is nothing local to read. Run `replaytest gaps` (a live scan — no --stored) to build the local coarse store; a slice seals after two scans, at least 10 minutes apart (by default), see the same number of sessions for it. `replaytest sessions` and the dashboard scan build the same store. Run `replaytest scan-status` to see what\'s already saved; "How scanning works" in the docs explains the cost model.',
+  gapsStoredRefusal: 'Cannot use gaps --stored — no stored traffic scan exists in this workspace yet. --stored never contacts PostHog, so there is nothing local to read. Run `replaytest gaps` (a live scan — no --stored) to build the local coarse store; a slice seals after two scans, at least 10 minutes apart (by default), see the same number of sessions for it. The Sessions scan, from `replaytest sessions` or the dashboard, builds the same store. Run `replaytest scan-status` to see what\'s already saved; "How scanning works" in the docs explains the cost model.',
   gapsStoredTable: `From your last saved scan: approximate scan of 0 sessions.
 What your users do vs. what your tests cover
 Each section looks at one kind of real user traffic.
@@ -617,8 +624,8 @@ E1 - Journey presence
 - Skipped fetch/non-match failures: 0
 
 E2 - Status distribution
-- Baseline: the sidecar was generated from a completed journey.
-- Fresh confirmed: completed 1, navigated 0, submitted 0, abandoned 0
+- Baseline: the recorded journey reached the plan's final page.
+- Fresh confirmed: completed 1 (0 with the finish checked), stopped mid-flow 0, navigated 0, submitted 0, error after submit 0, abandoned 0
 
 E3 - Selector freshness
 - Checked against session: triage-fresh-recording
@@ -663,6 +670,9 @@ Next: \`replaytest fix-selector snapshot-flow\` (dry run), then re-run it with \
       "navigated": 0,
       "submitted": 0,
       "abandoned": 0,
+      "completedWitnessed": 0,
+      "abandonedMidFlow": 0,
+      "errorAfterSubmit": 0,
       "nonCompleted": []
     },
     "selectorFreshness": {
@@ -770,11 +780,11 @@ E1 - Journey presence
 - Skipped fetch/non-match failures: 2
 
 E2 - Status distribution
-- Baseline: the sidecar was generated from a completed journey.
-- Fresh confirmed: completed 0, navigated 1, submitted 0, abandoned 0
+- Baseline: the recorded journey reached the plan's final page.
+- Fresh confirmed: completed 0 (0 with the finish checked), stopped mid-flow 0, navigated 1, submitted 0, error after submit 0, abandoned 0
 
 E3 - Selector freshness
-- Not checked: no fresh completed instance to compare selectors against (all confirmed matches were non-completed)
+- Not checked: no fresh match reached the plan's final page without an error, so there is nothing to compare selectors against
 
 E4 - Flow variants
 - 2 session(s): /dashboard > /orders/:id/review > /orders/:id/confirmation
@@ -1024,10 +1034,11 @@ function plannedSessionsJsonSnapshot(): string {
     journeys: Array<Record<string, unknown>>;
     suiteScan: Record<string, unknown>;
     stalePlanSignatures?: unknown;
+    plansNeedReview?: unknown;
   };
   const needsReview = {
     kind: 'older-url-semantics',
-    note: 'ⓘ Generated under older URL semantics — review if your app uses ?step= wizards.',
+    note: 'ⓘ This plan was built under different URL rules.',
     replanCommand: 'replaytest plan sessions-customer --session sessions-recording',
   };
   const journey = expected.journeys[0];
@@ -1039,6 +1050,7 @@ function plannedSessionsJsonSnapshot(): string {
     provenance: journey.provenance,
     status: journey.status,
     completionEvidence: journey.completionEvidence,
+    finality: journey.finality,
     representativeDistinctId: journey.representativeDistinctId,
     representativeSessionId: journey.representativeSessionId,
     representativeStartedAt: journey.representativeStartedAt,
@@ -1078,7 +1090,21 @@ function plannedSessionsJsonSnapshot(): string {
       sessionId: 'sessions-recording',
       replanCommand: needsReview.replanCommand,
     }],
-    note: 'Plans built under older signature rules may read as uncovered — re-run plan for them.',
+    note: 'These plans were built under different URL rules. Re-run plan for each listed session.',
+  };
+  const inventoryEntry: PlansNeedReviewEntry = {
+    slug: 'snapshot-flow',
+    reasons: [
+      { kind: 'older-url-semantics', note: needsReview.note },
+      { kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' },
+    ],
+    distinctId: 'sessions-customer',
+    sessionId: 'sessions-recording',
+    replanCommand: needsReview.replanCommand,
+  };
+  expected.plansNeedReview = {
+    plans: [inventoryEntry],
+    note: plansNeedReviewNote([inventoryEntry]),
   };
   return JSON.stringify(expected, null, 2);
 }
@@ -1240,7 +1266,7 @@ test('sessions output snapshots cover table, JSON, and refusal renderings', asyn
  * the field ever serializes as `[]`/`null` on a single-property scan, or the
  * `sites` column ever renders below its threshold, this is what goes red.
  */
-test('origin attribution case 1 (byte-parity): a single-property scan is byte-identical to the pre-change sessions table and JSON, with no sites column and no origin key', async () => {
+test('origin attribution case 1: a single-property scan has no sites column or origin key', async () => {
   const fixture = workspace('origin-single-property');
   const recorded = session('sessions-recording', 'sessions-customer', orderSteps('1001'));
   const fetchers = {
@@ -1359,7 +1385,7 @@ function triageSidecar(): Sidecar {
       journeyIndex: 0,
       signature: '/dashboard > /orders/:id/pay > /orders/:id/confirmation',
       generatedAt: '2026-08-01T09:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/dashboard',
     steps: [
@@ -1550,6 +1576,9 @@ test('regenerate proposal output snapshot names the Tier A source, proposal slot
       ...triageSidecar().source,
       origin: 'http://app.test',
       signatureSemanticsVersion: 1,
+      // A live plan as `plan` writes it now carries the segmentation marker,
+      // so regenerate treats it as current (no review note).
+      segmentationVersion: 1,
       wizardStepParamNames: [],
     },
   };

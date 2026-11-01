@@ -25,7 +25,7 @@ export const GAP_MAP_CONFIDENCE_CLASSES = {
 export const GAP_MAP_COVERAGE_LABELS = {
   noKnownLink: 'No test yet',
   knownLinks: 'Has a test',
-  needsReview: 'Needs review',
+  needsReview: 'Plan needs review',
   superseded: 'Out of date',
   possibleSuiteMatches: 'Maybe covered',
   notAssessed: "Couldn't check",

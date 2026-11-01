@@ -1,19 +1,32 @@
 /**
- * Plan-signature review report — a small, read-only re-key nudge shared by
- * `sessions` and the dashboard. Older sidecars cannot be re-keyed safely:
- * they retain a canonical signature but not the raw URL evidence needed to
- * recompute it.
+ * Plan review report — a small, read-only inventory shared by `sessions` and
+ * the dashboard. Older sidecars cannot be re-keyed safely: they retain a
+ * canonical signature but not the raw URL evidence needed to recompute it.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { WizardStepParamNames } from './canonical-url.js';
-import { signatureSemanticsReview, type SignatureSemanticsReview } from './sidecar.js';
+import {
+  PLAN_REVIEW_CLEARING_NOTE,
+  planReviewReasons,
+  type PlanReviewReason,
+  type SignatureSemanticsReview,
+} from './sidecar.js';
 import { parseSidecarJson } from './triage.js';
 
 export interface PlanReviewEntry extends SignatureSemanticsReview {
   slug: string;
+  distinctId: string;
+  sessionId: string;
+  replanCommand: string;
+}
+
+/** One plan in the plan-level inventory, with every applicable reason kept separately. */
+export interface PlansNeedReviewEntry {
+  slug: string;
+  reasons: PlanReviewReason[];
   distinctId: string;
   sessionId: string;
   replanCommand: string;
@@ -26,8 +39,24 @@ export interface PlanReviewSkipped {
 }
 
 export interface PlanReviewReport {
+  /** Signature-only inventory retained for the 0.1.0 JSON contract. */
   plans: PlanReviewEntry[];
+  /** Union inventory: one entry per plan, with signature and visit-boundary reasons separate. */
+  plansNeedReview: PlansNeedReviewEntry[];
   skipped: PlanReviewSkipped[];
+}
+
+export function plansNeedReviewNote(plans: readonly PlansNeedReviewEntry[]): string {
+  const reasons = plans.flatMap((plan) => plan.reasons);
+  const parts: string[] = [];
+  if (reasons.some((reason) => reason.kind === 'older-journey-boundaries')) {
+    parts.push('Some plans were built by an earlier version of replaytest, which grouped visits differently.');
+  }
+  if (reasons.some((reason) => reason.kind !== 'older-journey-boundaries')) {
+    parts.push('Some plans were built under different URL rules, or the plan and current settings recognize different wizard-step URL parameters.');
+  }
+  parts.push(PLAN_REVIEW_CLEARING_NOTE);
+  return parts.join(' ');
 }
 
 /** The exact CLI command that regenerates one recorded plan. */
@@ -71,6 +100,7 @@ export function collectPlanReviewReport(
   currentParamNames: WizardStepParamNames,
 ): PlanReviewReport {
   const plans: PlanReviewEntry[] = [];
+  const plansNeedReview: PlansNeedReviewEntry[] = [];
   const skipped: PlanReviewSkipped[] = [];
 
   for (const planFile of listPlanJsonFiles(plansDir)) {
@@ -92,27 +122,26 @@ export function collectPlanReviewReport(
       continue;
     }
 
-    let review: SignatureSemanticsReview | undefined;
+    let reasons: PlanReviewReason[];
     try {
-      review = signatureSemanticsReview(parsed.sidecar.source, currentParamNames);
+      reasons = planReviewReasons(parsed.sidecar.source, currentParamNames);
     } catch (err) {
       skipped.push({
         slug,
-        reason: `Invalid signature semantics fields (${err instanceof Error ? err.message : String(err)}).`,
+        reason: `Invalid plan review fields (${err instanceof Error ? err.message : String(err)}).`,
       });
       continue;
     }
-    if (review === undefined) continue;
+    if (reasons.length === 0) continue;
 
     const { distinctId, sessionId } = parsed.sidecar.source;
-    plans.push({
-      slug,
-      ...review,
-      distinctId,
-      sessionId,
-      replanCommand: buildReplanCommand(distinctId, sessionId),
-    });
+    const replanCommand = buildReplanCommand(distinctId, sessionId);
+    plansNeedReview.push({ slug, reasons, distinctId, sessionId, replanCommand });
+    const signatureReview = reasons.find((reason): reason is SignatureSemanticsReview => reason.kind !== 'older-journey-boundaries');
+    if (signatureReview !== undefined) {
+      plans.push({ slug, ...signatureReview, distinctId, sessionId, replanCommand });
+    }
   }
 
-  return { plans, skipped };
+  return { plans, plansNeedReview, skipped };
 }

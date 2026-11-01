@@ -116,7 +116,7 @@ export { selectPlanSession, buildPlanSessionNotFoundMessage } from './cli/plan-s
 export { slugify, slugifyJourneyRoute, dedupeSlug } from './cli/slug.js';
 export { hasAnyConfig, buildInitSetupHint, formatConfigStatus, formatInitConfigWriteStatus, buildInitNextStepHint, buildGitignoreEnvGuard } from './cli/verbs/init.js';
 export type { InitUpdatedFields } from './cli/verbs/init.js';
-export { readPackageVersion } from './cli/verbs/version.js';
+export { readPackageVersion } from './tool-identifier.js';
 export { buildScaffoldExistsError, shouldRefuseScaffoldTarget, buildMissingSidecarError, formatFramesTip, formatScaffoldWrittenLines, runScaffold } from './cli/verbs/scaffold.js';
 export type { ScaffoldRunDeps } from './cli/verbs/scaffold.js';
 export { formatPlanSupersededReport, formatReconcileReport, runReconcile } from './cli/verbs/reconcile.js';

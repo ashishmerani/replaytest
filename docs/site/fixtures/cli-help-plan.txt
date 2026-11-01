@@ -2,10 +2,12 @@ Usage:
   replaytest plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin] [--allow-privacy-disclosure] [--steal-scan-lock]
       Fetch a session and write a reviewable sidecar (<slug>.md + <slug>.plan.json)
       to .replaytest/plans/ for each plannable journey. Refuses to overwrite a
-      sidecar owned by a different or unknown journey unless --force is passed.
-      Plannable = every completed journey, plus a navigated one holding a single
+      sidecar when its session, journey position, or recorded flow shape differs, or when it cannot be read, unless --force is passed.
+      Plannable = every Completed journey or Stopped mid-flow journey (the plan checks the step change it saw),
+      plus a Navigated one holding a single
       inline-commit create (its spec presses the committing keystroke as a step
       marked SYNTHESIZED, because no recording captures it).
+      Submitted, Abandoned, and Error after submit journeys are not plannable.
       Refuses a journey that spans origins or that witnessed no origin at all,
       so a plan never asserts one property's URLs against another's — and
       holds back every other plannable journey in the same session too, since

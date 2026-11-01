@@ -5,6 +5,7 @@
  * test may depend on an ignored `tmp/` fixture.
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +46,7 @@ export function initializeRetireFixture(root: string, stateLockOptions: StateLoc
     title: 'Crash fixture',
     source: {
       distinctId: 'audit-user', sessionId: 'audit-session', journeyIndex: 0,
-      signature: '/cart > /confirmation', generatedAt: '2099-08-01T00:00:00.000Z', tool: 'replaytest@0.1.0',
+      signature: '/cart > /confirmation', generatedAt: '2099-08-01T00:00:00.000Z', tool: toolIdentifier(),
     },
     start: '/cart',
     steps: [{ action: 'click' as const, label: 'Pay now', locator: "getByRole('button', { name: 'Pay now' })", isSubmit: true }],

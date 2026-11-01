@@ -1,6 +1,7 @@
 // SEAM GUARD: this sanctioned internal module may import provider adapter TYPES but never provider data fields.
 import type { AppScope, AppScopeDisclosure } from '../../app-scope.js';
 import type { CapMetadata } from '../../providers/posthog-adapter.js';
+import { segmentationCacheKeySuffix, type EvidenceLoadMode } from '../../selection.js';
 import type { CompletionCounts, CompletionScanCoverage } from '../../selection.js';
 import type { RankedJourneyWithCoverage, TopLevelEntryWithCoverage } from '../../dashboard/view-model.js';
 import type { SuiteScanCapReason } from '../../suite-scan.js';
@@ -26,14 +27,19 @@ function appScopeCacheKeySuffix(appScope: AppScope | undefined): string {
   return `|appScope=${JSON.stringify({ app: appScope.app, prefixes: [...appScope.prefixes].sort() })}`;
 }
 
-export function sessionsStoredFilterKey(args: SessionsArgs, config: WizardStepConfig, appScope: AppScope | undefined): string {
+export function sessionsStoredFilterKey(
+  args: SessionsArgs,
+  config: WizardStepConfig,
+  appScope: AppScope | undefined,
+  evidenceMode: EvidenceLoadMode = 'events',
+): string {
   const cacheArgs = ['sessions', '--json'];
   if (args.families) cacheArgs.push('--families');
   if (args.completed) cacheArgs.push('--completed');
   if (args.navigated) cacheArgs.push('--navigated');
   if (args.submitted) cacheArgs.push('--submitted');
   if (args.sinceHours !== undefined) cacheArgs.push('--since-hours', String(args.sinceHours));
-  return `${JSON.stringify(cacheArgs)}|wizardStepParams=${JSON.stringify([...config.paramNames].sort())}${appScopeCacheKeySuffix(appScope)}|limit=undefined`;
+  return `${JSON.stringify(cacheArgs)}|wizardStepParams=${JSON.stringify([...config.paramNames].sort())}${appScopeCacheKeySuffix(appScope)}${segmentationCacheKeySuffix(evidenceMode)}|limit=${String(args.limit)}`;
 }
 
 export interface StoredSessionsPayload {

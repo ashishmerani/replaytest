@@ -37,8 +37,8 @@ test('the installed @playwright/test version is one the claim was earned on', ()
 
 test('locked constants match the build evidence', () => {
   assert.equal(PLAYWRIGHT_FLOOR, '1.30.0');
-  assert.deepEqual(PLAYWRIGHT_VERIFIED_AT, ['1.30.0', '1.61.0', '1.62.1', '1.63.0']);
-  assert.equal(PLAYWRIGHT_COMPAT_CLAIM, 'verified at 1.30.0, 1.61.0, 1.62.1, and 1.63.0; between = expected but untested.');
+  assert.deepEqual(PLAYWRIGHT_VERIFIED_AT, ['1.30.0', '1.61.0', '1.62.1', '1.63.0', '1.64.1']);
+  assert.equal(PLAYWRIGHT_COMPAT_CLAIM, 'verified at 1.30.0, 1.61.0, 1.62.1, 1.63.0, and 1.64.1; between = expected but untested.');
   assert.equal(NODE_FLOOR, 22);
   assert.equal(NODE_ENGINES_RANGE, '>=22');
   assert.equal(NODE_VERIFIED_NOTE, 'Node 22 LTS and Node 24 (full test suite + a packaged-install consumer check)');

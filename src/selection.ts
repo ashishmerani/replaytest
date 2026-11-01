@@ -43,10 +43,9 @@
  * signature; `sessionCount` is the number of DISTINCT SESSIONS that
  * produced a journey with that signature (not the number of journeys — two
  * matching journeys inside the SAME session count once); the representative
- * journey PREFERS the strongest-witnessed instance — completed (test-plan
- * material) over submitted (a witnessed form submit) over
- * navigated (typed input plus a new landing, without a submit) over
- * abandoned. Frequency is the default rank key, but frequency ≠
+ * journey prefers the plannable-first `statusRank` order: completed, stopped
+ * mid-flow, navigated, submitted, error after submit, then abandoned.
+ * Frequency is the default rank key, but frequency ≠
  * importance (a rare-but-critical flow can be buried under a frequent
  * trivial one), so an optional `importance` hook can bump a signature above
  * the frequency-only order.
@@ -96,11 +95,15 @@ import {
 } from './depth.js';
 import type { NeutralRageClick, NeutralSession } from './neutral-session.js';
 import {
+  assertNeverJourneyStatus,
   isPlannableJourney,
   segmentJourneys,
+  SEGMENTATION_VERSION,
   type CompletionEvidence,
   type Journey,
+  type JourneyFinality,
   type JourneyStatus,
+  type MidFlowEvidence,
 } from './journeys.js';
 import { attributeExceptions, type AttributedExceptions } from './journey-evidence.js';
 import {
@@ -271,17 +274,18 @@ export interface RankedRageClicks {
  * Per-status instance counts for a collapsed row whose members did NOT all end
  * the same way.
  *
- * WHY: `status` is the STRONGEST-witnessed instance (`statusRank`), and one
- * signature can collect instances of several statuses. Left alone, a lone
- * `submitted` outlier speaks for nine `navigated` siblings: the badge, the
- * gap-map sentence, and the "watch one session" target all describe the
- * outlier. The mix is carried so every display can say what the row's members
- * ACTUALLY did, without disturbing the representative preference.
+ * WHY: `status` is the rank-preferred instance (`statusRank`), and one
+ * signature can collect instances of several statuses. Without the mix, the
+ * badge, gap-map sentence, and "watch one session" target would hide the
+ * minority outcomes behind the selected representative. The mix is carried so
+ * every display can say what the row's members ACTUALLY did, without
+ * disturbing the representative preference.
  *
  * Present ONLY when a row spans two or more statuses — a single-status row is
  * fully described by `status` alone and stays byte-identical in JSON.
  */
 export type JourneyStatusMix = Partial<Record<JourneyStatus, number>>;
+export type EvidenceLoadMode = 'events' | 'recording';
 
 /** One canonical (deduped) journey — many raw sessions collapsed into one row via `journeySignature`. */
 export interface RankedJourney {
@@ -294,8 +298,14 @@ export interface RankedJourney {
   statusMix?: JourneyStatusMix;
   /** Present on exact rows when the representative reached a landing-witnessed status. */
   completionEvidence?: CompletionEvidence;
+  /** Whether a completed representative's final page was checked to be the real finish. */
+  finality?: JourneyFinality;
+  /** Step ordinal where a stopped-mid-flow representative ended, when its URL carries one. */
+  stoppedAtStep?: number;
+  /** What showed a stopped-mid-flow representative. */
+  midFlowEvidence?: MidFlowEvidence;
   /**
-   * Present ONLY on an exact `navigated` row whose representative journey is
+   * Present ONLY on an exact non-completed row whose representative journey is
    * genuinely plannable — i.e. `isPlannableJourney` (journeys.ts), evaluated
    * on the real steps at ranking time, where they are still in hand.
    *
@@ -309,10 +319,13 @@ export interface RankedJourney {
    * Deliberately ABSENT rather than `false` in every other case, so each
    * existing row's JSON stays byte-identical:
    *   - `completed` rows are plannable by status alone;
+   *   - a stopped-mid-flow or navigated row is included only when the same
+   *     `isPlannableJourney` predicate accepts its representative;
    *   - a merged multi-create `navigated` row is refused;
    *   - a coarse row has no journey to judge.
-   * Absent therefore means "not known to be plannable", which is the safe
-   * default an older saved scan already gets.
+   * Absent therefore means "not known to be plannable" for navigated rows, the
+   * safe default an older saved scan already gets. Completed and stopped-mid-flow
+   * rows are accepted by status alone, as `isPlannableJourney` accepts them.
    */
   plannable?: true;
   signal?: CoarseSignal;
@@ -452,6 +465,12 @@ export interface CompletionCounts {
   abandoned: number;
   submitThenNav: number;
   commitThenNewRoute: number;
+  /** Subset of `completed` whose final page was checked; absent on events-only loads. */
+  completedWitnessed?: number;
+  /** Journeys that stopped part-way through a multi-step flow. */
+  abandonedMidFlow?: number;
+  /** Journeys where an error appeared after the submit; absent on events-only loads, which cannot see one. */
+  errorAfterSubmit?: number;
 }
 
 /**
@@ -472,7 +491,10 @@ export function scanCoverage(
   };
 }
 
-export function completionCountsForSessions(sessions: readonly NeutralSession[]): CompletionCounts {
+export function completionCountsForSessions(
+  sessions: readonly NeutralSession[],
+  evidenceMode: EvidenceLoadMode,
+): CompletionCounts {
   const counts: CompletionCounts = {
     completed: 0,
     navigated: 0,
@@ -480,28 +502,52 @@ export function completionCountsForSessions(sessions: readonly NeutralSession[])
     abandoned: 0,
     submitThenNav: 0,
     commitThenNewRoute: 0,
+    abandonedMidFlow: 0,
+    // Both need the recording: an events-only load leaves them out rather than claim 0.
+    ...(evidenceMode === 'recording' ? { completedWitnessed: 0, errorAfterSubmit: 0 } : {}),
   };
   for (const session of sessions) {
     for (const journey of segmentJourneys(session)) {
-      switch (journey.status) {
-        case 'completed':
-          counts.completed += 1;
-          counts.submitThenNav += 1;
-          break;
-        case 'navigated':
-          counts.navigated += 1;
-          counts.commitThenNewRoute += 1;
-          break;
-        case 'submitted':
-          counts.submitted += 1;
-          break;
-        case 'abandoned':
-          counts.abandoned += 1;
-          break;
-      }
+      countJourneyStatus(counts, journey, evidenceMode);
     }
   }
   return counts;
+}
+
+/** Adds one journey to completion counts, using the load mode rather than its classification provenance. */
+export function countJourneyStatus(
+  counts: CompletionCounts,
+  journey: Journey,
+  evidenceMode: EvidenceLoadMode,
+): void {
+  const { status } = journey;
+  switch (status) {
+    case 'completed':
+      counts.completed += 1;
+      counts.submitThenNav += 1;
+      if (evidenceMode === 'recording' && journey.finality === 'witnessed') {
+        counts.completedWitnessed = (counts.completedWitnessed ?? 0) + 1;
+      }
+      break;
+    case 'navigated':
+      counts.navigated += 1;
+      counts.commitThenNewRoute += 1;
+      break;
+    case 'submitted':
+      counts.submitted += 1;
+      break;
+    case 'abandoned':
+      counts.abandoned += 1;
+      break;
+    case 'abandoned-mid-flow':
+      counts.abandonedMidFlow = (counts.abandonedMidFlow ?? 0) + 1;
+      break;
+    case 'error-after-submit':
+      counts.errorAfterSubmit = (counts.errorAfterSubmit ?? 0) + 1;
+      break;
+    default:
+      return assertNeverJourneyStatus(status, 'completion counts');
+  }
 }
 
 /**
@@ -810,11 +856,9 @@ function coarseRankedRageClicks(group: CoarseSignatureGroup): RankedRageClicks |
  *   - `sessionCount` = the number of DISTINCT sessions (by `session.id`)
  *     that produced at least one journey with that signature —
  *     two matching journeys inside the SAME session count once, not twice.
- *   - the representative journey PREFERS the strongest-witnessed instance —
- *     completed (test-plan material) > submitted (a completion
- * candidate — a witnessed submit with no confirmed outcome) > navigated
- * (typed input plus a new landing, without a witnessed submit) > abandoned —
- * regardless of which order sessions are scanned in; `status`
+ *   - the representative journey prefers the plannable-first `statusRank`
+ *     order — completed > abandoned-mid-flow > navigated > submitted >
+ *     error-after-submit > abandoned — regardless of scan order; `status`
  *     reflects whichever was picked. (Instances of DIFFERENT status CAN share
  *     one signature: the signature only reads navigation steps, so an
  *     abandoned journey that traverses the same route sequence without ever
@@ -941,8 +985,8 @@ function rankCanonicalJourneyRows(
       const depthSample = journeyDepthSample(journeyItem);
       if (depthSample !== undefined) group.depthSamples.push(depthSample);
 
-      // Prefer the strongest-witnessed representative: completed > submitted >
-      // navigated > abandoned. Equal-status candidates use a lexicographic session-id
+      // Prefer the plannable-first representative in `statusRank` order.
+      // Equal-status candidates use a lexicographic session-id
       // tie-break so the representative does not depend on scan order.
       const candidateRank = statusRank(journeyItem.status);
       if (
@@ -990,10 +1034,13 @@ function rankCanonicalJourneyRows(
         // Evaluated HERE because this is the last point that holds the real
         // steps. See `RankedJourney.plannable` for why it is carried and why a
         // completed row deliberately omits it.
-        ...(group.representative.journey.status === 'navigated' &&
+        ...(group.representative.journey.status !== 'completed' &&
         isPlannableJourney(group.representative.journey)
           ? { plannable: true as const }
           : {}),
+        ...(group.representative.journey.finality === undefined ? {} : { finality: group.representative.journey.finality }),
+        ...(group.representative.journey.stoppedAtStep === undefined ? {} : { stoppedAtStep: group.representative.journey.stoppedAtStep }),
+        ...(group.representative.journey.midFlowEvidence === undefined ? {} : { midFlowEvidence: group.representative.journey.midFlowEvidence }),
         representativeDistinctId: group.representative.session.distinctId,
         representativeSessionId: group.representative.session.id,
         representativeStartedAt: group.representative.session.startedAt,
@@ -1024,8 +1071,15 @@ function rankCanonicalJourneyRows(
   return ranked;
 }
 
-/** Status order for every mix display — strongest witness first, matching `statusRank`. */
-const STATUS_MIX_ORDER: readonly JourneyStatus[] = ['completed', 'submitted', 'navigated', 'abandoned'];
+/** Plannable-first status order for every mix display, matching `statusRank`. */
+const STATUS_MIX_ORDER: readonly JourneyStatus[] = [
+  'completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned',
+];
+
+/** Segmentation and evidence provenance bind every saved-scan cache identity. */
+export function segmentationCacheKeySuffix(mode: EvidenceLoadMode): string {
+  return `|segmentation=${SEGMENTATION_VERSION}|evidence=${mode}`;
+}
 
 /**
  * A mix, or `undefined` when every instance ended the same way. Returning
@@ -1039,11 +1093,11 @@ export function mixedStatusCounts(counts: ReadonlyMap<JourneyStatus, number>): J
   return mix;
 }
 
-/** `3 navigated · 1 submitted` — the one wording every mix surface shares. */
+/** `3 navigated · 1 submitted` — lower-case wording shared by the mix surfaces. */
 export function formatStatusMix(mix: JourneyStatusMix): string {
   return STATUS_MIX_ORDER
     .filter((status) => (mix[status] ?? 0) > 0)
-    .map((status) => `${mix[status] as number} ${status}`)
+    .map((status) => `${mix[status] as number} ${status === 'abandoned-mid-flow' ? 'stopped mid-flow' : status === 'error-after-submit' ? 'error after submit' : status}`)
     .join(' · ');
 }
 
@@ -1230,9 +1284,12 @@ function exactRowsFromRepresentative(
       status: journeyItem.status,
       // Same derivation as the full exact scan — a refreshed row must not
       // silently lose plannability and become unreachable in the dashboard.
-      ...(journeyItem.status === 'navigated' && isPlannableJourney(journeyItem)
+      ...(journeyItem.status !== 'completed' && isPlannableJourney(journeyItem)
         ? { plannable: true as const }
         : {}),
+      ...(journeyItem.finality === undefined ? {} : { finality: journeyItem.finality }),
+      ...(journeyItem.stoppedAtStep === undefined ? {} : { stoppedAtStep: journeyItem.stoppedAtStep }),
+      ...(journeyItem.midFlowEvidence === undefined ? {} : { midFlowEvidence: journeyItem.midFlowEvidence }),
       representativeDistinctId: row.representativeDistinctId,
       representativeSessionId: row.representativeSessionId,
       representativeStartedAt: session.startedAt,
@@ -1380,7 +1437,7 @@ export function rankDiscoveryJourneys(
         provenance: 'exact',
         ranked: rankCanonicalJourneys(scoped.sessions, { wizardStepParamNames: opts.wizardStepParamNames }),
         meta: null,
-        completionCounts: completionCountsForSessions(scoped.sessions),
+        completionCounts: completionCountsForSessions(scoped.sessions, 'events'),
         completionCoverage: scanCoverage(sessions.length, total),
         ...(appScopeDisclosure(scoped, opts.appScope) === undefined ? {} : { appScope: appScopeDisclosure(scoped, opts.appScope) }),
       };
@@ -1392,7 +1449,7 @@ export function rankDiscoveryJourneys(
         provenance: 'exact',
         ranked: rankCanonicalJourneys(scoped.sessions, { wizardStepParamNames: opts.wizardStepParamNames }),
         meta: exactPageLimitMetadata(error, total, scanUntil, opts.sinceHours),
-        completionCounts: completionCountsForSessions(scoped.sessions),
+        completionCounts: completionCountsForSessions(scoped.sessions, 'events'),
         completionCoverage: scanCoverage(sessions.length, total, true),
         ...(appScopeDisclosure(scoped, opts.appScope) === undefined ? {} : { appScope: appScopeDisclosure(scoped, opts.appScope) }),
       };
@@ -1458,7 +1515,7 @@ export function rankDiscoveryJourneyFamilies(
           progress: fetcherSet.progress,
         }),
         meta: null,
-        completionCounts: completionCountsForSessions(scoped.sessions),
+        completionCounts: completionCountsForSessions(scoped.sessions, 'events'),
         completionCoverage: scanCoverage(sessions.length, total),
         ...(appScopeDisclosure(scoped, opts.appScope) === undefined ? {} : { appScope: appScopeDisclosure(scoped, opts.appScope) }),
       };
@@ -1474,7 +1531,7 @@ export function rankDiscoveryJourneyFamilies(
           progress: fetcherSet.progress,
         }),
         meta: exactPageLimitMetadata(error, total, scanUntil, opts.sinceHours),
-        completionCounts: completionCountsForSessions(scoped.sessions),
+        completionCounts: completionCountsForSessions(scoped.sessions, 'events'),
         completionCoverage: scanCoverage(sessions.length, total, true),
         ...(appScopeDisclosure(scoped, opts.appScope) === undefined ? {} : { appScope: appScopeDisclosure(scoped, opts.appScope) }),
       };

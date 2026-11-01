@@ -38,24 +38,11 @@ test('Step2', async ({ page }) => {
     if (msg.type() === 'error') consoleErrors.push(msg.text());
   });
 
-  await page.goto('/flows/settings-6');
-  // recorded action 1: fill "Work email"
-  await page.getByTestId('settings-6-0-settings-6-p0-f3').fill('test@example.com'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 2: click "Input"
-  await page.getByTestId('settings-6-0-settings-6-p0-f1-Platinum').click();
-  // recorded action 3: fill "Full name"
-  await page.getByTestId('settings-6-0-settings-6-p0-f2').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // recorded action 4: fill "Full name"
-  await page.getByTestId('settings-6-0-settings-6-p0-name').fill('example'); // replaytest-marker: placeholder-value — placeholder value
-  // The recording witnessed a checkbox/radio interaction but not its resulting state
-  // (masking/no captured value at the seam) — .check() assumes the common case;
-  // use .uncheck() if this control should end up unchecked.
-  // recorded action 5: fill "Platinum"
-  await page.getByTestId('settings-6-0-settings-6-p0-f1-Platinum').check();
-  // recorded action 6: fill "Search query"
+  await page.goto('/flows/search-3');
+  // recorded action 1: fill "Search query"
   await page.getByTestId('search-3-0-search-3-query').fill('example'); // replaytest-marker: placeholder-value — placeholder value
   // If submit is blocked by a required field the recording didn't capture (e.g. a masked input), add its synthetic fill above.
-  // recorded action 7: click "Search"
+  // recorded action 2: click "Search"
   await page.getByTestId('flow-search').click();
 
   await expect(page).toHaveURL('/flows/search-3/step2');

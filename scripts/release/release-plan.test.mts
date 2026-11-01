@@ -13,6 +13,7 @@ import {
   ReleasePlanError,
   buildNotes,
   buildReleaseFooter,
+  changelogHeading,
   channelFor,
   checkOrdering,
   classifyBundleVerification,
@@ -24,6 +25,9 @@ import {
   evaluateReleasePoint,
   extractChangelogSection,
   isDateNotice,
+  isUnreleasedLinkDefinition,
+  linkReferenceLabel,
+  packagePathFor,
   parseDistTags,
   parseVersion,
   renderSummary,
@@ -292,16 +296,16 @@ test('strict version shapes and whole-string BigInt ordering', () => {
   }
 });
 
-test('publish failure gives conditional duplicate-version guidance and preserves failure status', () => {
+test('publish failure gives accurate registry guidance and preserves failure status', () => {
   const workflow = fs.readFileSync(path.join(RELEASE_ROOT, '.github/workflows/release.yml'), 'utf8');
   const script = readNamedStepScript(workflow, 'publish', 'Check the registry, then publish')!;
-  const message = 'npm refused the publish. If it says this version already exists, the package is live: wait a few minutes and use Re-run failed jobs again.';
+  const message = 'Publishing failed; see the npm message above. One possible cause is that this version is already published. If npm says so, wait a few minutes and use Re-run failed jobs; the re-run checks the registry first.';
   for (const failure of ['You cannot publish over the previously published versions: 0.1.0.', 'ENEEDAUTH: authentication required']) {
     const root = tempDirForFile(path.join(os.tmpdir(), 'release-publish-refused-'));
     const fixture = makeReleaseFixture(root);
     const result = shellRun(script, root, {
       ...fixtureEnv(root, fixture.hashes, 'absent', 'publish'),
-      TARBALL: 'release-candidate/replaytest-0.1.0.tgz', NPM_PUBLISH_FAILURE: failure,
+      TARBALL: './release-candidate/replaytest-0.1.0.tgz', NPM_PUBLISH_FAILURE: failure,
     });
     assert.equal(result.status, 17, result.stderr);
     assert.ok(result.stderr.includes(failure), result.stderr);
@@ -312,9 +316,9 @@ test('publish failure gives conditional duplicate-version guidance and preserves
   for (const mode of ['absent', 'present']) {
     const root = tempDirForFile(path.join(os.tmpdir(), 'release-publish-quiet-'));
     const fixture = makeReleaseFixture(root);
-    const result = shellRun(script, root, { ...fixtureEnv(root, fixture.hashes, mode, 'publish'), TARBALL: 'release-candidate/replaytest-0.1.0.tgz' });
+    const result = shellRun(script, root, { ...fixtureEnv(root, fixture.hashes, mode, 'publish'), TARBALL: './release-candidate/replaytest-0.1.0.tgz' });
     assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
-    assert.ok(!(result.stdout + result.stderr).includes('npm refused the publish'), `${mode}: ${result.stdout}${result.stderr}`);
+    assert.ok(!(result.stdout + result.stderr).includes('Publishing failed'), `${mode}: ${result.stdout}${result.stderr}`);
   }
 });
 
@@ -492,6 +496,48 @@ test('section extraction ignores fake headings in both fence forms and stops bef
   }
   const linked = cleanSection() + '\n[0.1.0]: https://github.com/example/project/releases/tag/v0.1.0';
   assert.doesNotMatch(extractChangelogSection(linked, '0.1.0').text, /^\[0\.1\.0\]:/m);
+  for (const definitions of [
+    '[Unreleased]: https://example.invalid/unreleased\n[0.1.0]: https://example.invalid/0.1.0',
+    '[0.1.0]: https://example.invalid/0.1.0\n[uNrElEaSeD]: https://example.invalid/unreleased',
+  ]) {
+    assert.doesNotMatch(extractChangelogSection(cleanSection() + '\n' + definitions, '0.1.0').text, /^\[(?:Unreleased|0\.1\.0)\]:/im);
+  }
+});
+
+test('the shared CHANGELOG line readers match Unreleased link lines loosely and read any bracketed heading', () => {
+  for (const line of [
+    '[Unreleased]: https://u', '[unreleased]:https://u', '[UNRELEASED]: https://u "t"', '   [Unreleased]: https://u',
+    '[ Unreleased ]: https://u', '[Unreleased]:',
+  ]) assert.equal(isUnreleasedLinkDefinition(line), true, line);
+  for (const line of [
+    '[0.1.0]: https://r', '[compare]: https://c', '    [Unreleased]: https://u', 'See [Unreleased]: below',
+    '[Unreleased]', '[Unreleased](https://u)', '[Unreleased notes]: https://u',
+  ]) assert.equal(isUnreleasedLinkDefinition(line), false, line);
+  assert.equal(linkReferenceLabel('[compare]: https://c'), 'compare');
+  assert.equal(linkReferenceLabel('  [0.1.0]: https://r'), '0.1.0');
+  assert.equal(linkReferenceLabel('- [0.1.0]: https://r'), undefined);
+  assert.deepEqual(changelogHeading('## [0.2.0] - 2026-10-01'), { label: '0.2.0', rest: ' - 2026-10-01' });
+  assert.deepEqual(changelogHeading('## [0.2.0] - TBD'), { label: '0.2.0', rest: ' - TBD' });
+  assert.deepEqual(changelogHeading('## [0.2.0] '), { label: '0.2.0', rest: ' ' });
+  assert.deepEqual(changelogHeading('## [Unreleased]'), { label: 'Unreleased', rest: '' });
+  for (const line of [' ## [0.2.0]', '### [0.2.0]', '##[0.2.0]', '## 0.2.0', '## []']) assert.equal(changelogHeading(line), undefined, line);
+});
+
+test('section extraction accepts only a dated heading whose brackets hold exactly the version', () => {
+  const body = '\n\nNotes for this release.\n';
+  assert.equal(extractChangelogSection('## [0.1.0] - 2026-10-15' + body, '0.1.0').date, '2026-10-15');
+  assert.equal(extractChangelogSection('## [0.1.0] - 2026-10-15' + body, '0.1.0').text, '\nNotes for this release.');
+  for (const heading of ['## [0.1.0]', '## [0.1.0] - TBD', '## [0.1.0] - 2026-10-15 ', '## [0.1.0]-2026-10-15', '## [0.1.0] - 2026-02-30']) {
+    assert.throws(() => extractChangelogSection(heading + body, '0.1.0'), /must include a real YYYY-MM-DD date at line 1/, heading);
+  }
+  // Only a space, a hyphen or the end of the line may follow the brackets for the heading to count.
+  for (const heading of ['## [0.1.0]x - 2026-10-15', '## [0.1.0.1] - 2026-10-15', '## [0.1.0 ] - 2026-10-15']) {
+    assert.throws(() => extractChangelogSection(heading + body, '0.1.0'), /exactly one heading for 0\.1\.0; found 0/, heading);
+  }
+  assert.throws(
+    () => extractChangelogSection('## [0.1.0] - 2026-10-15' + body + '## [0.1.0] - 2026-10-08' + body, '0.1.0'),
+    /exactly one heading for 0\.1\.0; found 2/,
+  );
 });
 
 test('section extraction refuses duplicate headings, unbalanced fences, and invalid dates', () => {
@@ -750,7 +796,7 @@ test('the hand-off contract runs the workflow scripts from the guard reader with
   const alreadyRoot = path.join(tmpRoot, 'already-published');
   fs.mkdirSync(alreadyRoot);
   const already = makeReleaseFixture(alreadyRoot, undefined, 'different-valid');
-  const alreadyEnv = { ...fixtureEnv(alreadyRoot, already.hashes, 'present', 'publish'), TARBALL: 'release-candidate/replaytest-0.1.0.tgz' };
+  const alreadyEnv = { ...fixtureEnv(alreadyRoot, already.hashes, 'present', 'publish'), TARBALL: './release-candidate/replaytest-0.1.0.tgz' };
   const noDuplicate = shellRun(publishCommand!, alreadyRoot, alreadyEnv);
   assert.equal(noDuplicate.status, 0, noDuplicate.stderr);
   assert.doesNotMatch(fs.readFileSync(already.calls, 'utf8'), /npm publish called/);
@@ -943,9 +989,65 @@ test('publishing enabled forces release-point enforcement even during a dry run'
 test('empty successful registry output is absent, as documented by the registry probe', () => {
   const root = tempDirForFile(path.join(os.tmpdir(), 'release-empty-registry-'));
   const fixture = makeReleaseFixture(root);
-  const result = shellRun('node release-candidate/release-plan.mts classify-publish', root, { ...fixtureEnv(root, fixture.hashes, 'empty', 'publish'), TARBALL: 'release-candidate/replaytest-0.1.0.tgz' });
+  const result = shellRun('node release-candidate/release-plan.mts classify-publish', root, { ...fixtureEnv(root, fixture.hashes, 'empty', 'publish'), TARBALL: './release-candidate/replaytest-0.1.0.tgz' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, 'publish');
+});
+
+test('the shared package path is always ./release-candidate/<file>, never a bare or owner/repo-shaped value', () => {
+  const expected = './release-candidate/replaytest-0.1.0.tgz';
+  assert.equal(packagePathFor(['release-notes.md', 'release-plan.mts', 'replaytest-0.1.0.tgz']), expected);
+  for (const names of [['replaytest-0.1.0.tgz'], ['a.tgz'], ['replaytest-1.2.3-rc.4.tgz']]) {
+    const value = packagePathFor(names);
+    assert.match(value, /^\.\/release-candidate\/[^/]+\.tgz$/, value);
+    assert.notEqual(value, names[0]);
+    assert.notEqual(value, 'release-candidate/' + names[0]);
+  }
+  for (const names of [[], ['release-notes.md'], ['a.tgz', 'b.tgz'], ['.hidden.tgz'], ['-flag.tgz']]) {
+    assert.throws(() => packagePathFor(names), ReleasePlanError, JSON.stringify(names));
+  }
+});
+
+test('the live publish refuses any package path other than the shared one, before npm publish runs', () => {
+  const workflow = fs.readFileSync(path.join(RELEASE_ROOT, '.github/workflows/release.yml'), 'utf8');
+  const script = readNamedStepScript(workflow, 'publish', 'Check the registry, then publish')!;
+  for (const tarball of ['replaytest-0.1.0.tgz', 'release-candidate/replaytest-0.1.0.tgz', '']) {
+    const root = tempDirForFile(path.join(os.tmpdir(), 'release-publish-path-'));
+    const fixture = makeReleaseFixture(root);
+    const result = shellRun(script, root, { ...fixtureEnv(root, fixture.hashes, 'absent', 'publish'), TARBALL: tarball });
+    assert.notEqual(result.status, 0, tarball);
+    assert.match(result.stderr, /must be \.\/release-candidate\/replaytest-0\.1\.0\.tgz, the path a dry-run dispatch checks; nothing was published\./, tarball);
+    assert.doesNotMatch(fs.existsSync(fixture.calls) ? fs.readFileSync(fixture.calls, 'utf8') : '', /npm publish/, tarball);
+  }
+});
+
+test('the dry run hands npm exactly the package path and tag the live publish does', () => {
+  const workflow = fs.readFileSync(path.join(RELEASE_ROOT, '.github/workflows/release.yml'), 'utf8');
+  const dryRun = readNamedStepScript(workflow, 'preflight', 'Dry-run the publish command')!;
+  const handoff = readNamedStepScript(workflow, 'publish', 'The tested package and module match their hashes')!;
+  const publish = readNamedStepScript(workflow, 'publish', 'Check the registry, then publish')!;
+  const root = tempDirForFile(path.join(os.tmpdir(), 'release-dry-run-path-'));
+  const fixture = makeReleaseFixture(root);
+  // Preflight's own TARBALL is npm pack's bare file name; the dry run must not hand that to npm.
+  // The tag must be the checked DIST_TAG, never the raw input, so the input is planted with a different value.
+  const dry = shellRun(dryRun, root, {
+    ...fixtureEnv(root, fixture.hashes, 'absent', 'preflight'), DRY_RUN: 'true', DIST_TAG: 'next', NPM_TAG: 'unchecked-input', TARBALL: 'replaytest-0.1.0.tgz',
+  });
+  assert.equal(dry.status, 0, dry.stderr);
+  const env = fixtureEnv(root, fixture.hashes, 'absent', 'publish');
+  assert.equal(shellRun(handoff, root, env).status, 0);
+  const live = shellRun(publish, root, fixtureEnv(root, fixture.hashes, 'absent', 'publish'));
+  assert.equal(live.status, 0, live.stderr);
+  const publishCalls = fs.readFileSync(fixture.calls, 'utf8').split('\n').filter((line) => line.startsWith('npm publish ') && line !== 'npm publish called');
+  assert.equal(publishCalls.length, 2, publishCalls.join('\n'));
+  const [dryCall, liveCall] = publishCalls as [string, string];
+  assert.ok(dryCall.endsWith(' --dry-run'), dryCall);
+  assert.equal(dryCall.slice(0, -' --dry-run'.length), liveCall);
+  assert.equal(liveCall, 'npm publish ./release-candidate/replaytest-0.1.0.tgz --provenance --access public --ignore-scripts --tag next');
+  // A live dispatch skips the dry run in preflight; publishing happens only in the publish job.
+  const skipped = shellRun(dryRun, root, { ...fixtureEnv(root, fixture.hashes, 'absent', 'preflight'), DRY_RUN: 'false', DIST_TAG: 'next' });
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.equal(fs.readFileSync(fixture.calls, 'utf8').split('\n').filter((line) => line.startsWith('npm publish ') && line !== 'npm publish called').length, 2);
 });
 
 test('packed manifest refuses private packages, wrong names, wrong versions and tag disagreements', () => {
@@ -989,4 +1091,17 @@ test('the release command deletes an untagged draft before creating and publishi
   const calls = fs.readFileSync(fixture.calls, 'utf8').trim().split('\n');
   assert.equal(calls.length, 6);
   for (const [index, prefix] of ['gh api ', 'gh release view ', 'gh release delete ', 'gh release create ', 'gh release upload ', 'gh release edit '].entries()) assert.ok(calls[index]?.startsWith(prefix), calls.join('\n'));
+});
+
+test('release-plan.mts imports only node built-ins, because the release workflow runs a lone copy of it', () => {
+  const source = ts.createSourceFile('release-plan.mts', fs.readFileSync(path.join(RELEASE_DIR, 'release-plan.mts'), 'utf8'), ts.ScriptTarget.Latest, true);
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) specifiers.push(node.moduleSpecifier.text);
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) specifiers.push(node.arguments[0].text);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.ok(specifiers.length > 0, 'expected release-plan.mts to import node built-ins');
+  assert.deepEqual(specifiers.filter((specifier) => !specifier.startsWith('node:')), [], 'release-plan.mts must import only node: built-ins');
 });

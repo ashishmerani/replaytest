@@ -73,7 +73,7 @@
     },
     {
       "key": "I-A11",
-      "text": "built under older signature rules",
+      "text": "This plan was built under different URL rules",
       "surface": "on screen",
       "clicks": 0,
       "fixture": "a"
@@ -331,7 +331,7 @@
     },
     {
       "key": "I-C7",
-      "text": "Show only journeys that reached a known end",
+      "text": "Show only journeys whose last submit reached a new page",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a",
@@ -483,7 +483,7 @@
     },
     {
       "key": "I-C26",
-      "text": "Generate plan contacts PostHog to fetch this completed session",
+      "text": "Generate plan contacts PostHog to fetch this session",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a",
@@ -499,7 +499,7 @@
     },
     {
       "key": "I-C28",
-      "text": "This plan was built under older signature rules",
+      "text": "This plan was built under different URL rules",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a",
@@ -603,7 +603,7 @@
     },
     {
       "key": "I-C41",
-      "text": "were built before your journey-matching rules changed",
+      "text": "This plan was built by an earlier version of replaytest",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a",
@@ -836,7 +836,7 @@
     },
     {
       "key": "I-E5",
-      "text": "were built before your journey-matching rules changed",
+      "text": "This plan was built by an earlier version of replaytest",
       "surface": "on screen",
       "clicks": 0,
       "fixture": "E5"
@@ -983,14 +983,14 @@
     },
     {
       "key": "V-C7",
-      "text": "\"Show only journeys that reached a known end.\"",
+      "text": "\"Show only journeys whose last submit reached a new page. Stopped mid-flow rows appear only when no status filter is set.\"",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
     },
     {
       "key": "V-C8",
-      "text": "\"Show only journeys where someone typed something and then landed on a new page, with no form submit seen. A journey that creates one record can be planned; one that creates several in a row cannot yet.\"",
+      "text": "\"Show only journeys where someone typed something and then landed on a new page, with no form submit seen. A journey that creates one record can be planned; a journey that creates several in a row is skipped.\"",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1025,7 +1025,7 @@
     },
     {
       "key": "V-C13",
-      "text": "\"Marking a journey reviewed is remembered on this machine. If the way we recognise this journey changes, the mark clears.\"",
+      "text": "\"Marking a journey reviewed is remembered on this machine. If the way we recognize this journey changes, the mark clears.\"",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1060,7 +1060,7 @@
     },
     {
       "key": "V-C18",
-      "text": "\"How far the user's journey got — not whether you have a test for it. Completed: a submit, then a different page. Navigated: typing, then a different page, with no submit seen.\" The full four-column ladder above remains available through Full ladder.",
+      "text": "\"How far the user's journey got — not whether you have a test for it. Completed: a submit then a distinct landing, with no unfinished step or refused submit seen · Stopped mid-flow: reached the next step of a flow, then stopped there · Error after submit: an error appeared after submit and its form stayed or reappeared · Navigated: typed input then a new landing, with no submit seen · Submitted: a submit with no new page and no error seen · Abandoned: no rule above matched. Unchecked: we saw the user reach a new page, but did not see whether it was the last step. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit.\" The full four-column ladder above remains available through Full ladder.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1130,7 +1130,7 @@
     },
     {
       "key": "V-C28",
-      "text": "\"This plan was built before your journey-matching rules changed, so its coverage may read wrong.\" The re-run command is labelled and paired with a Copy button.",
+      "text": "\"This plan was built under different URL rules.\" The re-run command is labelled and paired with a Copy button.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1186,7 +1186,7 @@
     },
     {
       "key": "V-C36",
-      "text": "\"The sessions grouped here did not all end the same way: [breakdown, e.g. 3 navigated · 1 submitted]. The badge shows the strongest single session, which is also the one 'Watch replay' opens.\"",
+      "text": "\"The sessions grouped here did not all end the same way: [breakdown, e.g. 3 navigated · 1 submitted]. The badge shows the session ranked most testable (completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned). That is also the one 'Watch replay' opens.\"",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1200,7 +1200,7 @@
     },
     {
       "key": "V-C38",
-      "text": "\"Marked reviewed on this machine. The mark clears if the way we recognise this journey changes.\"",
+      "text": "\"Marked reviewed on this machine. The mark clears if the way we recognize this journey changes.\"",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1221,7 +1221,7 @@
     },
     {
       "key": "V-C41",
-      "text": "\"[N] plans were built before your journey-matching rules changed. Re-run them.\" / \"The plan is still there, but its coverage may now read wrong. Re-run it to record the current journey-matching rules.\"",
+      "text": "\"This plan was built by an earlier version of replaytest, which grouped visits differently.\" / \"Tests still run unchanged. Some journeys these plans covered may say “No test yet” until the plans are re-run.\" / \"Re-run plan for each listed session. Re-running plan rewrites the plan, so edits made to it are replaced. The dashboard guide lists what to do if plan refuses or the session can no longer be fetched.\"",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1305,28 +1305,28 @@
     },
     {
       "key": "L-1",
-      "text": "Completed · A form submit followed by a navigation to a distinct witnessed URL. · A submit step is followed later by a navigation. · The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized. · A submit can still be an application-side failure; this records the witnessed route change, not backend validation.",
+      "text": "Completed · A form submit followed by a navigation to a distinct URL seen in the session's events. · A submit step is followed later by a navigation. · The final URL differs from the entry URL after only index-file and trailing-slash spelling are normalized. · A submit can still be an application-side failure; this records the route change seen, not backend validation.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
     },
     {
       "key": "L-2",
-      "text": "Navigated · Typed input followed by a landing on a new route; no form submit was witnessed. · No submit step exists; at least one input step exists. · The last landing is new by exact URL and canonical path, and input occurred away from that landing. · Trailing interactions are trimmed to retain the landing witness. · Search-then-open: typed a query and opened an existing result. · Typed-then-bailed-elsewhere: changed a field, then navigated away for another reason. · Created-then-deleted: later delete activity is trimmed after the landing.",
+      "text": "Navigated · Typed input followed by a landing on a new route; no submit seen. · No submit step exists; at least one input step exists. · The last landing is new by exact URL and canonical path, and input occurred away from that landing. · Trailing interactions are trimmed to retain the landing witness. · Search-then-open: typed a query and opened an existing result. · Typed-then-bailed-elsewhere: changed a field, then navigated away for another reason. · Created-then-deleted: later delete activity is trimmed after the landing.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
     },
     {
       "key": "L-3",
-      "text": "Submitted · A form submit, without a distinct post-submit landing. · At least one submit step exists. · The completed submit-then-navigation rule did not hold. · The submit may have succeeded in place or its landing may have been missing from the recording.",
+      "text": "Submitted · A form submit with no new page and no error seen after it. · A submit happened with no new page and no error seen after it. · The submit may have succeeded in place or its landing may have been missing from the recording.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
     },
     {
       "key": "L-4",
-      "text": "Abandoned · No form submit was seen, and we didn't see typing followed by arriving on a new page. · No completed, navigated, or submitted rule matched. · A missing captured event can make an otherwise successful flow appear abandoned.",
+      "text": "Abandoned · No form submit was seen, and we didn't see typing followed by arriving on a new page. · No other rule matched. · A missing captured event can make an otherwise successful flow appear abandoned.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"
@@ -1340,7 +1340,7 @@
     },
     {
       "key": "L-6",
-      "text": "Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once. Splitting them apart is not built yet, so a low Navigated count is never on its own evidence that this class is rare.",
+      "text": "Navigated counts are a minimum, not a total. When one session creates several records back to back, those creates can merge into a single journey and be counted once, so a low Navigated count is never on its own evidence that this class is rare.",
       "surface": "header ⓘ",
       "clicks": 1,
       "fixture": "a"

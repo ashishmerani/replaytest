@@ -18,14 +18,27 @@ import {
 import type { RecordingManifestRow } from '../corpus/archive-recordings-lib.mjs';
 
 /**
- * Every intentionally normalized field. `buildSidecar` stamps this field
- * from the wall clock in normal planning mode. Archive mode currently
- * replaces it with the archive timestamp, but it remains provenance rather
- * than plan behaviour, so goldens use this stable sentinel in either mode.
+ * Every intentionally normalized field, both plan-sidecar provenance.
+ * `source.generatedAt` comes from the clock or archive timestamp;
+ * `source.tool` follows the package.json version, and is masked only when it
+ * is exactly `replaytest@<semver>`, so a malformed identifier still differs.
+ * Markdown plans and scaffold specs are compared unchanged: neither renders
+ * the tool identifier.
  */
-export const NORMALIZED_FIELD_PATHS = ['source.generatedAt'] as const;
+export const NORMALIZED_FIELD_PATHS = ['source.generatedAt', 'source.tool'] as const;
 export const NORMALIZED_GENERATED_AT = '__EVAL_NORMALIZED_GENERATED_AT__';
+export const NORMALIZED_TOOL_IDENTIFIER = 'replaytest@__EVAL_NORMALIZED_TOOL_VERSION__';
+export const NORMALIZATION_REPORT = {
+  fields: NORMALIZED_FIELD_PATHS,
+  replacements: {
+    'source.generatedAt': NORMALIZED_GENERATED_AT,
+    'source.tool': NORMALIZED_TOOL_IDENTIFIER,
+  },
+} as const;
 export const EMPTY_GOLDEN_FILE = 'EMPTY.json';
+
+const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?`;
+const TOOL_IDENTIFIER_VALUE = new RegExp(`^replaytest@${SEMVER}$`);
 
 export type ArtifactMap = Map<string, string>;
 export type EvalVerdict =
@@ -106,7 +119,7 @@ export function readArchiveFile(archiveDir: string, manifestPath: string): Buffe
   }
 }
 
-/** Normalizes an emitted artifact without changing plan content or markdown. */
+/** Normalizes sidecar provenance without changing plan content or markdown. */
 export function normalizeArtifact(fileName: string, raw: string): string {
   if (!fileName.endsWith('.plan.json')) return raw;
   let parsed: unknown;
@@ -122,6 +135,7 @@ export function normalizeArtifact(fileName: string, raw: string): string {
   if (sidecar.source !== null && typeof sidecar.source === 'object' && !Array.isArray(sidecar.source)) {
     const source = sidecar.source as Record<string, unknown>;
     if (typeof source.generatedAt === 'string') source.generatedAt = NORMALIZED_GENERATED_AT;
+    if (typeof source.tool === 'string' && TOOL_IDENTIFIER_VALUE.test(source.tool)) source.tool = NORMALIZED_TOOL_IDENTIFIER;
   }
   return `${JSON.stringify(parsed, null, 2)}\n`;
 }

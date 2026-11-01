@@ -2,7 +2,7 @@
   "version": 2,
   "identity": { "host": "metrics.example.test", "projectId": "orchard-lab" },
   "filterKey": "sessions --json|limit=all",
-  "payloadSchemaVersion": 6,
+  "payloadSchemaVersion": 8,
   "payload": {
     "exitCode": 0,
     "stdout": "",

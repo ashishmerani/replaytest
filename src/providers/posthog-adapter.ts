@@ -61,6 +61,7 @@ import { ReplaytestUserFacingError } from '../user-facing-error.js';
 import { getPostHogProjectFingerprint } from '../provider-config.js';
 import { DEFAULT_SESSION_SCAN_HOURS } from '../session-scan-defaults.js';
 import { normalizeDiagnostic } from '../diagnostic-bound.js';
+import { APPEARED_TAGS, ERROR_TOKENS, SUCCESS_TOKENS, flowStepRelation, type AppearedTag, type ErrorToken, type SuccessToken } from '../journey-outcome.js';
 
 import type {
   NeutralAncestor,
@@ -180,6 +181,7 @@ export function toNeutralSession(rows: PostHogEventRow[]): NeutralSession[] {
           url: nullableField(row.url) ?? '',
           at: row.timestamp,
           target: parseElementsChain(row.elements_chain),
+          ...(kind === 'input' && elementsChainShowsPageChrome(row.elements_chain) ? { inPageChrome: true } : {}),
         });
       }
     }
@@ -223,6 +225,19 @@ function mapEventToKind(row: PostHogEventRow): NeutralStepKind | undefined {
     return undefined; // unrecognized $autocapture event_type — drop
   }
   return undefined; // $set, $pageleave, or anything else — drop
+}
+
+/** Element-chain-only chrome signal shared by light and DOM-enriched loads. */
+function elementsChainShowsPageChrome(chain: string | undefined): boolean {
+  const value = nullableField(chain);
+  if (value === undefined) return false;
+  for (const fragment of splitChainElements(value)) {
+    const { tag, attrs } = parseChainElement(fragment);
+    if (tag === 'header' || tag === 'nav' || tag === 'footer' || tag === 'aside') return true;
+    const role = attrs['attr__role']?.toLowerCase();
+    if (role === 'search' || role === 'complementary') return true;
+  }
+  return false;
 }
 
 /** `finalUrl` = url of the last navigation step, falling back to the last step of any kind. */
@@ -3663,6 +3678,19 @@ function enrichStep(step: NeutralStep, routeMap: Map<string, RouteEnrichment>): 
 
 /** rrweb's OWN top-level event type for a FullSnapshot — an unrelated number space from the node-type constants above (`RRWEB_ELEMENT_NODE` etc.), which describe nodes INSIDE a FullSnapshot's decoded `data`. */
 const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
+const RRWEB_INCREMENTAL_SNAPSHOT_EVENT_TYPE = 3;
+/**
+ * IncrementalSnapshot fields rrweb always carries as arrays, whatever the
+ * incremental source (Mutation, StyleSheetRule, …). A string in one of them
+ * can only be a provider-packed payload, so it is unpacked on every
+ * incremental source rather than an allow-list of sources.
+ */
+const PACKED_ARRAY_FIELDS: readonly string[] = ['adds', 'attributes', 'removes', 'texts'];
+/** The provider's event-level compression-version marker, present on every packed event in the archive. */
+const PACKED_EVENT_MARKER_FIELD = 'cv';
+/** A gzip stream's first two bytes, as they appear after the latin1 round-trip. */
+const GZIP_MAGIC_LATIN1 = '\u001f\u008b';
+const REPLAY_DECODE_FAILURE_REASON = "Part of this session's recording could not be read. Try another recorded session of the same journey.";
 
 /**
  * One decoded rrweb FullSnapshot ("Timestamped decode"): its DOM-tree
@@ -3691,6 +3719,8 @@ export interface ReplayStreamWindow {
   hasFullSnapshot: boolean;
   firstTimestampMs: number;
   lastTimestampMs: number;
+  /** Neutral reasons a replay event in this window could not be decoded. */
+  decodeIssues?: string[];
 }
 
 /**
@@ -3780,6 +3810,32 @@ export function parseFullSnapshotTrees(jsonlText: string): DecodedFullSnapshot[]
 }
 
 /**
+ * The same FullSnapshot trees `parseFullSnapshotTrees` returns, read from an
+ * already-decoded stream instead of a second JSON pass over the raw text: one
+ * pull is parsed once and feeds both selector enrichment and the evidence
+ * pass. Each snapshot takes the most recent Meta `href` before it in the
+ * decoded (timestamp-ordered) stream — rrweb emits a Meta immediately before
+ * every FullSnapshot — so each lands on the same route as the text parser
+ * places it.
+ */
+export function fullSnapshotTreesFromDecode(decode: FullReplayStreamDecode): DecodedFullSnapshot[] {
+  const snapshots: DecodedFullSnapshot[] = [];
+  let currentHref: string | undefined;
+  for (const window of decode.windows) {
+    for (const event of window.events) {
+      const href = metaEventHref(event);
+      if (href !== undefined) {
+        currentHref = href;
+        continue;
+      }
+      const decoded = decodeFullSnapshotEvent(event);
+      if (decoded !== undefined) snapshots.push(currentHref === undefined ? decoded : { ...decoded, href: currentHref });
+    }
+  }
+  return snapshots;
+}
+
+/**
  * PURE decode for replay rather than selector enrichment: retains every
  * rrweb event, decodes each usable FullSnapshot payload, and partitions the
  * result before a replayer sees it. The recording's raw tuple identifier is
@@ -3787,10 +3843,13 @@ export function parseFullSnapshotTrees(jsonlText: string): DecodedFullSnapshot[]
  * ordinal ordered by each stream's first event timestamp.
  *
  * A bare event object is accepted as the legacy snapshot parser accepts it.
- * Bad JSON, an invalid tuple/bare shape, or an undecodable FullSnapshot is
- * skipped and counted rather than guessed or thrown. Other rrweb events pass
- * through unchanged, apart from stable timestamp ordering within their own
- * neutral stream.
+ * Bad JSON, an invalid tuple/bare shape, an undecodable FullSnapshot, or a
+ * packed payload that does not decode to the expected shape is skipped and
+ * counted rather than guessed. Such a stream also carries a neutral decode
+ * issue so a consumer cannot call its rendered state complete; a stream whose
+ * every event failed still appears (with no events) so its issue is visible.
+ * Other rrweb events pass through unchanged, apart from stable timestamp
+ * ordering within their own neutral stream.
  */
 export function decodeFullReplayStream(jsonlText: string): FullReplayStreamDecode {
   interface StreamEvent {
@@ -3802,11 +3861,15 @@ export function decodeFullReplayStream(jsonlText: string): FullReplayStreamDecod
   interface RawStream {
     firstSequence: number;
     events: StreamEvent[];
+    timestamps: number[];
+    decodeIssues: Set<string>;
   }
 
   const streams = new Map<string, RawStream>();
   const bareEventStreamKey = '__replaytest_bare_event_stream__';
   let malformedLinesSkipped = 0;
+  // Unreadable lines have no stream key and cannot be assigned to one window.
+  let unreadableLineCount = 0;
   let sequence = 0;
 
   for (const line of jsonlText.split('\n')) {
@@ -3817,30 +3880,41 @@ export function decodeFullReplayStream(jsonlText: string): FullReplayStreamDecod
       parsed = JSON.parse(line);
     } catch {
       malformedLinesSkipped += 1;
+      unreadableLineCount += 1;
       continue;
     }
 
     const unpacked = unpackReplayStreamLine(parsed, bareEventStreamKey);
     if (unpacked === undefined) {
       malformedLinesSkipped += 1;
+      unreadableLineCount += 1;
       continue;
     }
 
-    const event = decodeReplayStreamEvent(unpacked.event);
-    if (event === undefined) {
-      malformedLinesSkipped += 1;
-      continue;
-    }
-
-    const timestampMs = replayEventTimestampMs(event);
-    const stream = streams.get(unpacked.streamKey);
-    const streamEvent: StreamEvent = { event, timestampMs, sequence };
+    const timestampMs = replayEventTimestampMs(unpacked.event);
+    let currentStream = streams.get(unpacked.streamKey);
+    const streamSequence = sequence;
     sequence += 1;
-    if (stream === undefined) {
-      streams.set(unpacked.streamKey, { firstSequence: streamEvent.sequence, events: [streamEvent] });
+    if (currentStream === undefined) {
+      currentStream = {
+        firstSequence: streamSequence,
+        events: [],
+        timestamps: [timestampMs],
+        decodeIssues: new Set(),
+      };
+      streams.set(unpacked.streamKey, currentStream);
     } else {
-      stream.events.push(streamEvent);
+      currentStream.timestamps.push(timestampMs);
     }
+
+    const decoded = decodeReplayStreamEvent(unpacked.event);
+    if (decoded.event === undefined) {
+      malformedLinesSkipped += 1;
+      currentStream.decodeIssues.add(decoded.issue);
+      continue;
+    }
+
+    currentStream.events.push({ event: decoded.event, timestampMs, sequence: streamSequence });
   }
 
   const orderedStreams = [...streams.values()]
@@ -3851,26 +3925,42 @@ export function decodeFullReplayStream(jsonlText: string): FullReplayStreamDecod
       return {
         events,
         firstSequence: stream.firstSequence,
-        firstTimestampMs: events[0]?.timestampMs ?? 0,
-        lastTimestampMs: events[events.length - 1]?.timestampMs ?? 0,
+        timestamps: [...stream.timestamps].sort((a, b) => a - b),
+        decodeIssues: [...stream.decodeIssues],
       };
     })
     .sort(
       (a, b) =>
-        a.firstTimestampMs - b.firstTimestampMs ||
+        (a.timestamps[0] ?? 0) - (b.timestamps[0] ?? 0) ||
         a.firstSequence - b.firstSequence,
     );
 
+  // Design decision: an unreadable line carries no stream key, so it cannot
+  // be pinned to one window — and the event it held may belong to any of them.
+  // Every window therefore carries the issue and none can be called complete.
+  // Deliberately conservative: never silently wrong beats a partial guess.
+  const unattributedIssue = unreadableLinesReason(unreadableLineCount);
   return {
-    windows: orderedStreams.map((stream, window) => ({
-      window,
-      events: stream.events.map(({ event }) => event),
-      hasFullSnapshot: stream.events.some(({ event }) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE),
-      firstTimestampMs: stream.firstTimestampMs,
-      lastTimestampMs: stream.lastTimestampMs,
-    })),
+    windows: orderedStreams.map((stream, window) => {
+      const decodeIssues = new Set(stream.decodeIssues);
+      if (unattributedIssue !== undefined) decodeIssues.add(unattributedIssue);
+      return {
+        window,
+        events: stream.events.map(({ event }) => event),
+        hasFullSnapshot: stream.events.some(({ event }) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE),
+        firstTimestampMs: stream.timestamps[0] ?? 0,
+        lastTimestampMs: stream.timestamps[stream.timestamps.length - 1] ?? 0,
+        ...(decodeIssues.size === 0 ? {} : { decodeIssues: [...decodeIssues] }),
+      };
+    }),
     malformedLinesSkipped,
   };
+}
+
+/** Actionable neutral reason carrying only the number of unreadable lines. */
+function unreadableLinesReason(count: number): string | undefined {
+  if (count === 0) return undefined;
+  return `${count} line${count === 1 ? '' : 's'} of this session's recording could not be read. Try another recorded session of the same journey.`;
 }
 
 /**
@@ -3910,12 +4000,63 @@ function isRrwebEvent(value: unknown): value is Record<string, unknown> {
   );
 }
 
-/** FullSnapshots must be decoded for rrweb's replayer; all other events are already replay-ready. */
-function decodeReplayStreamEvent(event: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (event.type !== RRWEB_FULL_SNAPSHOT_EVENT_TYPE) return event;
+/** Either a replay-ready event, or the issue that made it unusable — a drop always names its issue. */
+type DecodedReplayStreamEvent =
+  | { event: Record<string, unknown>; issue?: undefined }
+  | { event?: undefined; issue: string };
 
-  const data = decodeFullSnapshotData(event.data);
-  return data === undefined ? undefined : { ...event, data };
+/** Provider-packed replay payloads are decoded here before neutral events reach the renderer. */
+function decodeReplayStreamEvent(
+  event: Record<string, unknown>,
+): DecodedReplayStreamEvent {
+  if (event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) {
+    // Every dropped FullSnapshot is a decode issue, whatever its `data` shape:
+    // a silent drop would leave the window's bounds (and so every capture
+    // offset) measured from an event the replayer never receives.
+    const data = decodeFullSnapshotData(event.data);
+    if (data === undefined) return { issue: REPLAY_DECODE_FAILURE_REASON };
+    return { event: { ...event, data } };
+  }
+
+  if (event.type === RRWEB_INCREMENTAL_SNAPSHOT_EVENT_TYPE) {
+    const marked = event[PACKED_EVENT_MARKER_FIELD] !== undefined;
+    if (marked && typeof event.data === 'string') {
+      const unpacked = unpackPackedField(event.data);
+      if (!isPlainRecord(unpacked)) return { issue: REPLAY_DECODE_FAILURE_REASON };
+      return { event: { ...event, data: unpacked } };
+    }
+    if (!isPlainRecord(event.data)) return { event };
+    let data: Record<string, unknown> | undefined;
+    for (const [key, value] of Object.entries(event.data)) {
+      if (typeof value !== 'string') continue;
+      const arrayField = PACKED_ARRAY_FIELDS.includes(key);
+      // Known array fields are unpacked on any incremental source; any other
+      // string field only when the event carries the provider's packed marker
+      // AND the string is a gzip stream — plain strings (typed text) stay put.
+      if (!arrayField && !(marked && value.startsWith(GZIP_MAGIC_LATIN1))) continue;
+      const unpacked = unpackPackedField(value);
+      const shapeOk = arrayField ? Array.isArray(unpacked) : typeof unpacked === 'object' && unpacked !== null;
+      if (!shapeOk) return { issue: REPLAY_DECODE_FAILURE_REASON };
+      data ??= { ...event.data };
+      data[key] = unpacked;
+    }
+    return { event: data === undefined ? event : { ...event, data } };
+  }
+
+  return { event };
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** gzip + latin1 recovery of one packed field; `undefined` when it does not decode to JSON. */
+function unpackPackedField(packed: string): unknown {
+  try {
+    return JSON.parse(gunzipSync(Buffer.from(packed, 'latin1')).toString('utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Missing/non-finite timestamps preserve the existing decoder's defensive 0ms floor. */
@@ -4089,6 +4230,56 @@ function getPostHogRest(
 /** The graceful-floor route map replaces the prior flat DOM index: it matches no route at all, so `enrichTargetsFromDom` against it leaves every step unchanged. Returned by `fetchDomSnapshot` whenever the snapshot fetch/decode fails at any stage. */
 const EMPTY_ROUTE_MAP: Map<string, RouteEnrichment> = new Map();
 
+export interface ReplayFetchSeam {
+  credentials: { apiKey: string; projectId: string; host?: ApiHost };
+  get: (pathname: string, apiKey: string, host: ApiHost) => Promise<{ status: number; body: string }>;
+}
+
+export interface ReplayPayload {
+  available: boolean;
+  jsonl?: string;
+  decode?: FullReplayStreamDecode;
+}
+
+export async function fetchReplayPayload(
+  sessionId: string,
+  opts: { progress?: ProgressReporter; replayFetch?: ReplayFetchSeam; activity?: string } = {},
+): Promise<ReplayPayload> {
+  const startedAt = Date.now();
+  const progress = opts.progress ?? noProgress;
+  try {
+    const fileEnv = opts.replayFetch === undefined ? loadDotEnv(ENV_PATH) : undefined;
+    const apiKey = opts.replayFetch?.credentials.apiKey ?? fileEnv?.POSTHOG_PERSONAL_API_KEY;
+    const projectId = opts.replayFetch?.credentials.projectId ?? fileEnv?.POSTHOG_PROJECT_ID;
+    if (!apiKey || !projectId) return { available: false };
+    const host = opts.replayFetch?.credentials.host ?? normalizeApiHost(fileEnv?.POSTHOG_API_HOST ?? '') ?? DEFAULT_API_HOST;
+    const getRest = opts.replayFetch?.get ?? getPostHogRest;
+    const activity = opts.activity ?? 'Replay pull';
+    const basePath = `/api/projects/${encodeURIComponent(projectId)}/session_recordings/${encodeURIComponent(sessionId)}/snapshots`;
+    const sourcesResp = await getRest(basePath, apiKey, host);
+    if (sourcesResp.status !== 200) {
+      progress(`${activity}: 1 snapshot index fetched (HTTP ${sourcesResp.status}; ${formatDurationMs(Date.now() - startedAt)} elapsed).`);
+      return { available: false };
+    }
+    const blobKeys = parseSnapshotSources(sourcesResp.body)
+      .filter((source): source is SnapshotSource & { blob_key: string } => source.source === 'blob_v2' && typeof source.blob_key === 'string')
+      .map((source) => source.blob_key)
+      .sort((a, b) => Number(a) - Number(b));
+    progress(`${activity}: 1 snapshot index fetched (${blobKeys.length} blob(s) queued; ${formatDurationMs(Date.now() - startedAt)} elapsed).`);
+    if (blobKeys.length === 0) return { available: false };
+    const jsonl = await fetchBlobChunks(basePath, blobKeys, apiKey, host, {
+      progress: opts.progress,
+      startedAt,
+      activity,
+      getRest,
+    });
+    if (jsonl === undefined) return { available: false };
+    return { available: true, jsonl, decode: decodeFullReplayStream(jsonl) };
+  } catch {
+    return { available: false };
+  }
+}
+
 /** Max consecutive blob_v2 keys fetched per REST GET: a single wide `start_blob_key`..`end_blob_key` span can time out on a long recording, so these windows stay well under the server-side span limit. */
 export const BLOB_FETCH_WINDOW = 5;
 
@@ -4114,7 +4305,7 @@ async function fetchBlobChunks(
   blobKeys: string[],
   apiKey: string,
   host: ApiHost = DEFAULT_API_HOST,
-  opts: { progress?: ProgressReporter; startedAt?: number; activity?: string } = {},
+  opts: { progress?: ProgressReporter; startedAt?: number; activity?: string; getRest?: ReplayFetchSeam['get'] } = {},
 ): Promise<string | undefined> {
   const bodies: string[] = [];
   const progress = opts.progress ?? noProgress;
@@ -4122,7 +4313,7 @@ async function fetchBlobChunks(
   const activity = opts.activity ?? 'Replay pull';
   for (let i = 0; i < blobKeys.length; i += BLOB_FETCH_WINDOW) {
     const window = blobKeys.slice(i, i + BLOB_FETCH_WINDOW);
-    const resp = await getPostHogRest(
+    const resp = await (opts.getRest ?? getPostHogRest)(
       buildBlobSnapshotWindowPath(basePath, window),
       apiKey,
       host,
@@ -4146,43 +4337,10 @@ async function fetchBlobChunks(
  */
 export async function fetchFullReplayStream(
   sessionId: string,
-  opts: { progress?: ProgressReporter } = {},
+  opts: { progress?: ProgressReporter; replayFetch?: ReplayFetchSeam } = {},
 ): Promise<ReplayStreamWindow[]> {
-  try {
-    const startedAt = Date.now();
-    const progress = opts.progress ?? noProgress;
-    const fileEnv = loadDotEnv(ENV_PATH);
-    const apiKey = fileEnv.POSTHOG_PERSONAL_API_KEY;
-    const projectId = fileEnv.POSTHOG_PROJECT_ID;
-    if (!apiKey || !projectId) return [];
-    const host = normalizeApiHost(fileEnv.POSTHOG_API_HOST ?? '') ?? DEFAULT_API_HOST;
-    const basePath = `/api/projects/${encodeURIComponent(projectId)}/session_recordings/${encodeURIComponent(sessionId)}/snapshots`;
-
-    const sourcesResp = await getPostHogRest(basePath, apiKey, host);
-    if (sourcesResp.status !== 200) {
-      progress(`Replay pull: 1 snapshot index fetched (HTTP ${sourcesResp.status}; ${formatDurationMs(Date.now() - startedAt)} elapsed).`);
-      return [];
-    }
-
-    const blobKeys = parseSnapshotSources(sourcesResp.body)
-      .filter(
-        (source): source is SnapshotSource & { blob_key: string } =>
-          source.source === 'blob_v2' && typeof source.blob_key === 'string',
-      )
-      .map((source) => source.blob_key)
-      .sort((a, b) => Number(a) - Number(b));
-    progress(`Replay pull: 1 snapshot index fetched (${blobKeys.length} blob(s) queued; ${formatDurationMs(Date.now() - startedAt)} elapsed).`);
-    if (blobKeys.length === 0) return [];
-
-    const jsonl = await fetchBlobChunks(basePath, blobKeys, apiKey, host, {
-      progress: opts.progress,
-      startedAt,
-      activity: 'Replay pull',
-    });
-    return jsonl === undefined ? [] : decodeFullReplayStream(jsonl).windows;
-  } catch {
-    return [];
-  }
+  const replay = await fetchReplayPayload(sessionId, { ...opts, activity: 'Replay pull' });
+  return replay.decode?.windows ?? [];
 }
 
 /**
@@ -4218,47 +4376,11 @@ export async function fetchFullReplayStream(
 export async function fetchDomSnapshot(
   sessionId: string,
   timeline: RouteTimelineEntry[],
-  opts: { progress?: ProgressReporter } = {},
+  opts: { progress?: ProgressReporter; replayFetch?: ReplayFetchSeam } = {},
 ): Promise<Map<string, RouteEnrichment>> {
-  try {
-    const startedAt = Date.now();
-    const progress = opts.progress ?? noProgress;
-    const fileEnv = loadDotEnv(ENV_PATH);
-    const apiKey = fileEnv.POSTHOG_PERSONAL_API_KEY;
-    const projectId = fileEnv.POSTHOG_PROJECT_ID;
-    if (!apiKey || !projectId) return EMPTY_ROUTE_MAP;
-    const host = normalizeApiHost(fileEnv.POSTHOG_API_HOST ?? '') ?? DEFAULT_API_HOST;
-
-    const basePath = `/api/projects/${encodeURIComponent(projectId)}/session_recordings/${encodeURIComponent(sessionId)}/snapshots`;
-
-    const sourcesResp = await getPostHogRest(basePath, apiKey, host);
-    if (sourcesResp.status !== 200) {
-      progress(`DOM replay pull: 1 snapshot index fetched (HTTP ${sourcesResp.status}; ${formatDurationMs(Date.now() - startedAt)} elapsed).`);
-      return EMPTY_ROUTE_MAP;
-    }
-
-    const blobKeys = parseSnapshotSources(sourcesResp.body)
-      .filter(
-        (source): source is SnapshotSource & { blob_key: string } =>
-          source.source === 'blob_v2' && typeof source.blob_key === 'string',
-      )
-      .map((source) => source.blob_key)
-      .sort((a, b) => Number(a) - Number(b));
-    progress(`DOM replay pull: 1 snapshot index fetched (${blobKeys.length} blob(s) queued; ${formatDurationMs(Date.now() - startedAt)} elapsed).`);
-    if (blobKeys.length === 0) return EMPTY_ROUTE_MAP;
-
-    const jsonl = await fetchBlobChunks(basePath, blobKeys, apiKey, host, {
-      progress: opts.progress,
-      startedAt,
-      activity: 'DOM replay pull',
-    });
-    if (jsonl === undefined) return EMPTY_ROUTE_MAP;
-
-    const snapshots = parseFullSnapshotTrees(jsonl);
-    return buildRouteIndex(snapshots, timeline);
-  } catch {
-    return EMPTY_ROUTE_MAP;
-  }
+  const replay = await fetchReplayPayload(sessionId, { ...opts, activity: 'DOM replay pull' });
+  if (replay.jsonl === undefined) return EMPTY_ROUTE_MAP;
+  return buildRouteIndex(parseFullSnapshotTrees(replay.jsonl), timeline);
 }
 
 /**
@@ -4278,22 +4400,2513 @@ export async function fetchDomSnapshot(
 export async function fetchNeutralSessionsWithDomEnrichment(
   distinctId: string,
   sessionId?: string,
-  opts: { progress?: ProgressReporter } = {},
+  opts: { progress?: ProgressReporter; replayFetch?: ReplayFetchSeam } = {},
+): Promise<NeutralSession[]> {
+  return enrichSessionsFromReplay(fetchNeutralSessions(distinctId, sessionId, opts), opts);
+}
+
+/**
+ * The per-session half of `fetchNeutralSessionsWithDomEnrichment`, split out
+ * so an already-loaded neutral session can be composed with an injected
+ * replay fetch: one replay pull per session, parsed once, feeds both the
+ * selector enrichment and the evidence pass.
+ */
+export async function enrichSessionsFromReplay(
+  sessions: NeutralSession[],
+  opts: { progress?: ProgressReporter; replayFetch?: ReplayFetchSeam } = {},
 ): Promise<NeutralSession[]> {
   const startedAt = Date.now();
   const progress = opts.progress ?? noProgress;
-  const sessions = fetchNeutralSessions(distinctId, sessionId, opts);
   const enriched: NeutralSession[] = [];
   for (const session of sessions) {
     const timeline = buildRouteTimeline(session.steps);
-    const routeMap = await fetchDomSnapshot(session.id, timeline, opts);
-    enriched.push(...enrichTargetsFromDom([session], routeMap));
+    const replay = await fetchReplayPayload(session.id, { ...opts, activity: 'DOM replay pull' });
+    const routeMap = replay.decode === undefined
+      ? EMPTY_ROUTE_MAP
+      : buildRouteIndex(fullSnapshotTreesFromDecode(replay.decode), timeline);
+    const selectorEnriched = enrichTargetsFromDom([session], routeMap);
+    const evidence = enrichNeutralSessionWithReplayEvidence(selectorEnriched[0] ?? session, replay.decode, replay.available);
+    enriched.push(evidence.session);
     progress(
       `DOM enrichment: ${enriched.length}/${sessions.length} ${countNoun(sessions.length, 'session')} completed (${formatDurationMs(Date.now() - startedAt)} elapsed).`,
     );
   }
   return enriched;
 }
+
+// ---------------------------------------------------------------------------
+// Recording evidence — one decoded pass, provider details stay in this file.
+// ---------------------------------------------------------------------------
+
+const RRWEB_META_EVENT = 4;
+const RRWEB_CUSTOM_EVENT = 5;
+const RRWEB_INCREMENTAL_EVENT = 3;
+const RRWEB_MUTATION_SOURCE = 0;
+const RRWEB_MOUSE_SOURCE = 2;
+const RRWEB_INPUT_SOURCE = 5;
+const RRWEB_CLICK = 2;
+const REACTION_WINDOW_CAP_MS = 10_000;
+const LANDING_SETTLE_MS = 1_000;
+/**
+ * The time veto of the lineup rule. Once a window's recording pages line up
+ * with exactly one run of the event occurrences (decided on URL keys alone),
+ * each aligned pair is checked on time: a recording page whose start differs
+ * from its event occurrence's first step by more than this is unbound — that
+ * pair only; the rest of the alignment stands. Time never selects or breaks a
+ * tie; it can only remove a pair. 5 s sits far above the clock offsets the
+ * eval archive shows (every pair within about 1.2 s), but the archive is a
+ * localhost corpus and cannot calibrate this against a real browser clock:
+ * a skew above 5 s unbinds every pair (fails closed, evidence is lost), and
+ * it never moves a binding to another visit.
+ */
+const RECORDING_PAIR_CLOCK_TOLERANCE_MS = 5_000;
+/**
+ * The span guard of the lineup rule. A window's unique alignment binds
+ * nothing when an event occurrence outside its aligned run starts inside the
+ * window's recorded span (its first to its last event), widened by this much
+ * on each side for the clock offset between the recording and the events. An
+ * occurrence the run skips but the recording's own time covers is a visit the
+ * recording should have shown: an unrecorded second tab, or a page the
+ * recording lost. Its neighbours' pages would then sit one visit off, so the
+ * window fails closed. The guard only removes bindings; a larger value removes
+ * more, because the visit just before a recording starts, or just after it
+ * ends, then counts as inside it.
+ *
+ * 0 ms: the span is exactly the window's first to last event, inclusive. It
+ * sees a skipped visit anywhere inside the recording, and one at the
+ * recording's first page when the two clocks agree or the recording's clock
+ * runs ahead of the events. A skipped visit at the first page while the
+ * recording's clock runs behind the events by d ms is seen only from a
+ * tolerance of d; until then its neighbour's evidence can still bind one
+ * visit off. The eval archive (a localhost corpus, so it cannot calibrate
+ * this against a real browser clock) shows the recording behind the events
+ * on 47 of its 256 bound pages, by at most 427 ms. A value above 0 also
+ * drops windows whose neighbouring visit starts just outside the recording,
+ * the archive's common shape (the recording stops at a page change, and the
+ * next page's first event lands a moment later): from 84 ms up it drops real
+ * windows, 57 of the archive's 255 bound landings at 250 ms (255 landings and
+ * 121 submits bound at 0 ms).
+ */
+const RECORDING_SPAN_GUARD_TOLERANCE_MS = 0;
+/**
+ * The early-visit guard of the lineup rule. A window's unique alignment binds
+ * nothing when the event occurrence aligned with any kept page other than the
+ * window's first recorded page starts before the reference time, or has no
+ * readable start. The reference is the start of the window's first recorded
+ * page marker (a trimmed head page counts as that first page); a recorded
+ * event before that marker never lowers it, and a marker time that is not a
+ * finite number refuses the window. The window still claims its aligned run,
+ * so another window lined up on the same visits does not bind them.
+ *
+ * Why: the recorder saw its first page first, so a page it saw later cannot
+ * belong to a visit that started before the recorder saw anything. When one
+ * does, the events lost a later visit and the whole alignment sits on an
+ * earlier one (the same flow run a moment before), so every pair in it is
+ * suspect, not just the early one. The first page itself is exempt: a
+ * recorder that starts late legitimately opens part-way into a visit.
+ *
+ * 0 ms, with a strict comparison: an occurrence starting exactly at the
+ * reference binds, 1 ms earlier refuses. Raising this FAILS OPEN: any earlier
+ * visit within the tolerance of the first page becomes bindable again (at
+ * 500 ms, the same flow run 400 ms before the recording gets its submit
+ * reaction and its finish page bound on the wrong visit). The cost of 0 is
+ * lost evidence, never a wrong binding: a genuine later page is refused when
+ * the recording's clock runs behind the events by more than the time its
+ * first page was on screen. The eval archive (a localhost corpus, so it
+ * cannot calibrate this against a real browser clock) never trips the guard:
+ * every recording-behind offset among its bound pages is at a window's first
+ * page (47 of 47), and every page after the first has the recording ahead,
+ * with a margin of at least 112 ms. Were every window a further d ms behind:
+ *
+ *   d (ms)   bound pages lost when their whole window is refused (of the archive's 256)
+ *   100      0
+ *   150      7
+ *   300      111
+ *   427      159
+ */
+const RECORDING_EARLY_VISIT_TOLERANCE_MS = 0;
+const APPEARED_BUCKET_CAP = 20;
+const APPEARED_OUTPUT_CAP = 20;
+
+type NodeId = string | number;
+
+export interface EvidenceWorkCounts {
+  streamEvents: number;
+  nodeMapOperations: number;
+  nodeAndSubtreeIterations: number;
+  liveFormIterations: number;
+  controlAndNameIterations: number;
+  get total(): number;
+}
+
+class EvidenceWorkMeter implements EvidenceWorkCounts {
+  streamEvents = 0;
+  nodeMapOperations = 0;
+  nodeAndSubtreeIterations = 0;
+  liveFormIterations = 0;
+  controlAndNameIterations = 0;
+  get total(): number {
+    return this.streamEvents + this.nodeMapOperations + this.nodeAndSubtreeIterations +
+      this.liveFormIterations + this.controlAndNameIterations;
+  }
+  event(): void { this.streamEvents += 1; }
+  nodeOperation(): void { this.nodeMapOperations += 1; }
+  iteration(): void { this.nodeAndSubtreeIterations += 1; }
+  formIteration(): void { this.liveFormIterations += 1; }
+  controlIteration(): void { this.controlAndNameIterations += 1; }
+}
+
+interface LiveNode {
+  id: NodeId;
+  type: number;
+  tag: string;
+  attrs: Record<string, unknown>;
+  style: Record<string, string>;
+  parentId?: NodeId;
+  childIds: NodeId[];
+  /** Per-parent position map: a child's index is cached here, valid below `positionsValidUpTo`, so a sibling lookup never rescans the list. */
+  childPositions: Map<NodeId, number>;
+  positionsValidUpTo: number;
+  ownTextLength: number;
+  childVisibleTextLength: number;
+  visibleTextLength: number;
+  valueEmpty: boolean;
+  ownHidden: boolean;
+  ownInteractive: boolean;
+  subtreeInteractiveCount: number;
+}
+
+class CountedNodeMap {
+  private readonly values = new Map<NodeId, LiveNode>();
+  constructor(private readonly work: EvidenceWorkMeter) {}
+  get(id: NodeId): LiveNode | undefined { this.work.nodeOperation(); return this.values.get(id); }
+  has(id: NodeId): boolean { this.work.nodeOperation(); return this.values.has(id); }
+  set(id: NodeId, value: LiveNode): void { this.work.nodeOperation(); this.values.set(id, value); }
+  delete(id: NodeId): boolean { this.work.nodeOperation(); return this.values.delete(id); }
+  clear(): void { this.work.nodeOperation(); this.values.clear(); }
+  get size(): number { return this.values.size; }
+}
+
+/**
+ * Every climb up `parentId` links (and every subtree walk) takes at most the
+ * live node count plus one steps (each live node once, then one absent id);
+ * a longer climb can only be a cycle a hostile or corrupt recording built
+ * (two adds that parent each other). It throws, and the per-window failure
+ * guard marks that window `undecodable`.
+ */
+function climbGuard(dom: EvidenceDom): () => void {
+  const limit = dom.nodeCount + 1;
+  let visited = 0;
+  return () => {
+    visited += 1;
+    if (visited > limit) throw new Error('cyclic node parents in the recording');
+  };
+}
+
+interface RecordedAnchor {
+  timestampMs: number;
+  nodeId: NodeId;
+  formId: NodeId;
+  baseline: FormSnapshot;
+  reaction?: NeutralStep['afterSubmit'];
+}
+
+/** Running per-form totals, kept as controls attach, detach and change, so a landing form is read in O(1) rather than by a control scan. */
+interface FormStats {
+  submitControls: number;
+  countedControls: number;
+  emptyControls: number;
+  identityNames: Map<string, number>;
+}
+
+/** What one attached control contributes to its form's running totals. */
+interface ControlContribution {
+  submit: boolean;
+  counted: boolean;
+  empty: boolean;
+  name?: string;
+}
+
+interface FormSnapshot {
+  formId: NodeId;
+  controlIds: Set<NodeId>;
+  editableControlIds: Set<NodeId>;
+  identityNames: Set<string>;
+  invalidIds: Set<NodeId>;
+  invalidNames: Set<string>;
+  errorMessageCounts: Map<string, number>;
+}
+
+interface EventOccurrence {
+  url: string;
+  stepIndices: number[];
+  submitIndices: number[];
+  navigationIndices: number[];
+  /** The time of this occurrence's first step (epoch ms); undefined when it does not parse, and then no recording page binds to it. */
+  firstAtMs?: number;
+}
+
+interface RecordedOccurrence {
+  url?: string;
+  eventOccurrence?: EventOccurrence;
+  decodeIssues: boolean;
+  anchors: RecordedAnchor[];
+}
+
+/** One page of a recording window, found by the marker-only pre-pass. */
+interface RecordingPage {
+  /** Index into the window's events of the route marker that starts the page. */
+  eventIndex: number;
+  startMs: number;
+  key?: string;
+}
+
+/** How one recording window binds: which markers start a page, and the event occurrence each page binds to (by page ordinal; undefined = unbound). */
+interface WindowBindingPlan {
+  pageStarts: Set<number>;
+  bindings: Array<EventOccurrence | undefined>;
+  /** The event occurrences a window whose pages could not be read covers in time: they read `undecodable` and bind nowhere. */
+  undecodable: EventOccurrence[];
+}
+
+interface ReactionEntry {
+  nodeId: NodeId;
+  bucket: 0 | 1 | 2;
+  value: NonNullable<NonNullable<NeutralStep['afterSubmit']>['appeared']>[number];
+}
+
+interface ActiveReaction {
+  anchor: RecordedAnchor;
+  occurrence: RecordedOccurrence;
+  buckets: [ReactionEntry[], ReactionEntry[], ReactionEntry[]];
+  removedSlots: Set<string>;
+  dialogIds: Set<NodeId>;
+  fieldMarks: Map<NodeId, boolean>;
+  endMs?: number;
+}
+
+interface LandingWatch {
+  stepIndex: number;
+  eventOccurrence: EventOccurrence;
+  sourceSubmitIndex?: number;
+  sourceAnchor?: RecordedAnchor;
+  url: string;
+  relation: 'forward' | 'same' | 'unrelated';
+  seenRelated: 'none' | 'empty' | 'filled';
+  seenUnrelated: 'none' | 'empty' | 'filled';
+  sawRePresentedForm: boolean;
+  /** Forms seen re-presented; their landing error is judged once, at the judgement point. */
+  rePresentedForms: Set<NodeId>;
+  /** Forms already live when the watch started and not touched since; read at the judgement point if still present. */
+  seededForms: Set<NodeId>;
+  /**
+   * Forms were already live when the watch started but were not seeded (a
+   * later landing of the same submit): one of them may sit on screen unread,
+   * so this landing never reads `settled` and never claims an absence. Each
+   * FullSnapshot then decides it anew, for any landing: a snapshot whose root
+   * was read clears it (every form on the new screen is read); one whose root
+   * cannot be read sets it (the screen is unknown).
+   */
+  unseededLiveForms: boolean;
+  /**
+   * The judgement point has passed: the end of the 1 s settle window, or the
+   * first recorded click, input or submit before it. `settled` and
+   * `errorShown` are fixed there; presence keeps counting after it, until the
+   * watch ends (`completed`) at the first interaction or the occurrence's end.
+   */
+  judged: boolean;
+  settled: boolean;
+  /** The landing error, judged once at the judgement point on the re-presented forms seen by then. */
+  errorShown?: boolean;
+  completed: boolean;
+  markerMs: number;
+}
+
+export interface RecordingEvidencePass {
+  session: NeutralSession;
+  work: EvidenceWorkCounts;
+}
+
+/** Testable provider seam: decoded archive/live windows map into only neutral facts. */
+export function enrichNeutralSessionWithReplayEvidence(
+  session: NeutralSession,
+  decode: FullReplayStreamDecode | undefined,
+  recordingAvailable = decode !== undefined,
+): RecordingEvidencePass {
+  const work = new EvidenceWorkMeter();
+  const steps = session.steps.map((step) => ({ ...step }));
+  const resultSession = { ...session, steps };
+  const eventOccurrences = buildEventOccurrences(steps);
+
+  const matchedSubmits = new Map<number, RecordedAnchor | undefined>();
+  const submitCoverage = new Map<number, NonNullable<NeutralStep['afterSubmit']>['coverage']>();
+  const landingValues = new Map<number, NonNullable<NeutralStep['landing']>>();
+  if (!recordingAvailable) {
+    for (let i = 0; i < steps.length; i += 1) {
+      if (steps[i]?.kind === 'submit') submitCoverage.set(i, 'no-recording');
+      if (steps[i]?.kind === 'navigation') {
+        landingValues.set(i, { coverage: 'no-recording', relatedOpenForm: 'none', unrelatedOpenForm: 'none' });
+      }
+    }
+  } else if (decode === undefined || (decode.windows.length === 0 && decode.malformedLinesSkipped > 0)) {
+    for (let i = 0; i < steps.length; i += 1) {
+      if (steps[i]?.kind === 'submit') submitCoverage.set(i, 'undecodable');
+      if (steps[i]?.kind === 'navigation') {
+        landingValues.set(i, { coverage: 'undecodable', relatedOpenForm: 'none', unrelatedOpenForm: 'none' });
+      }
+    }
+  } else {
+    const decoder = new EvidenceStreamProcessor(steps, eventOccurrences, work, matchedSubmits, submitCoverage, landingValues);
+    try {
+      decoder.process(decode.windows);
+    } catch {
+      // Last-resort floor: the per-window guard inside `process` already
+      // turns a failing window into `undecodable`; anything that escapes it
+      // marks every step the pass had not finished as `undecodable`, so a
+      // hostile recording never throws out of the adapter.
+      for (let i = 0; i < steps.length; i += 1) {
+        if (steps[i]?.kind === 'submit' && !submitCoverage.has(i)) submitCoverage.set(i, 'undecodable');
+        if (steps[i]?.kind === 'navigation' && !landingValues.has(i)) {
+          landingValues.set(i, { coverage: 'undecodable', relatedOpenForm: 'none', unrelatedOpenForm: 'none' });
+        }
+      }
+    }
+    for (let i = 0; i < steps.length; i += 1) {
+      const step = steps[i];
+      if (step?.kind === 'submit' && !submitCoverage.has(i)) submitCoverage.set(i, 'no-recording');
+      if (step?.kind === 'navigation' && !landingValues.has(i)) {
+        landingValues.set(i, { coverage: 'no-occurrence', relatedOpenForm: 'none', unrelatedOpenForm: 'none' });
+      }
+    }
+  }
+
+  let nearestSubmit: number | undefined;
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    if (step?.kind === 'submit') {
+      nearestSubmit = i;
+      const coverage = submitCoverage.get(i) ?? 'no-recording';
+      const anchor = matchedSubmits.get(i);
+      step.afterSubmit = anchor?.reaction ?? {
+        coverage,
+        fieldsMarkedInvalid: 0,
+        appeared: [],
+      };
+    } else if (step?.kind === 'navigation') {
+      const landing = { ...(landingValues.get(i) ?? { coverage: 'no-occurrence', relatedOpenForm: 'none', unrelatedOpenForm: 'none' }) };
+      // `rePresentsSubmittedForm` is present exactly when the submitted form
+      // is known (the nearest preceding submit has an anchored form), on any
+      // coverage: `false` then means "not seen re-presented in what was
+      // recorded", and a reader takes it as an absence only when settled.
+      const sourceKnown = nearestSubmit !== undefined && matchedSubmits.get(nearestSubmit) !== undefined;
+      if (sourceKnown) landing.rePresentsSubmittedForm ??= false;
+      else {
+        delete landing.rePresentsSubmittedForm;
+        delete landing.errorShown;
+      }
+      step.landing = landing;
+    }
+  }
+  return { session: resultSession, work };
+}
+
+function buildEventOccurrences(steps: NeutralStep[]): EventOccurrence[] {
+  const occurrences: EventOccurrence[] = [];
+  let current: EventOccurrence | undefined;
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    if (step === undefined) continue;
+    const key = pageUrlKey(step.url);
+    if (step.kind === 'navigation' || current === undefined || pageUrlKey(current.url) !== key) {
+      const atMs = Date.parse(step.at);
+      current = {
+        url: step.url, stepIndices: [], submitIndices: [], navigationIndices: [],
+        ...(Number.isFinite(atMs) ? { firstAtMs: atMs } : {}),
+      };
+      occurrences.push(current);
+    }
+    current.stepIndices.push(index);
+    if (step.kind === 'submit') current.submitIndices.push(index);
+    if (step.kind === 'navigation') current.navigationIndices.push(index);
+  }
+  return occurrences;
+}
+
+/**
+ * The lineup rule: recording evidence binds only where a recording window's
+ * pages line up one-to-one with the session's event occurrences.
+ *
+ * - The recording side is each window's page list (`recordingPages`), less
+ *   the run of pages at its head and the run at its tail whose URL key the
+ *   session's events never carry (`trimRecordingOnlyEdges`); trimmed pages
+ *   bind nothing, and a recording-only page in the middle still binds nothing
+ *   in the window.
+ * - The kept pages' URL keys must match exactly one contiguous run of the event
+ *   occurrences' URL keys; none or more than one match binds nothing in that
+ *   window. Uniqueness is decided on URL keys alone; time never breaks a tie.
+ * - Each aligned pair is then checked on time
+ *   (`RECORDING_PAIR_CLOCK_TOLERANCE_MS`); a pair outside it is unbound alone.
+ * - An event occurrence claimed by more than one window's alignment binds in
+ *   none of them, and windows whose time ranges overlap (two tabs in one
+ *   session) bind nothing at all.
+ * - The span guard (`RECORDING_SPAN_GUARD_TOLERANCE_MS`): a window binds
+ *   nothing when an event occurrence outside its aligned run starts inside
+ *   the window's recorded span, or has no readable time. The span is the
+ *   whole window's, trimmed pages included.
+ * - The early-visit guard (`RECORDING_EARLY_VISIT_TOLERANCE_MS`): a window
+ *   binds nothing when the occurrence aligned with any kept page other than
+ *   its first recorded page (a trimmed head page is that first page) starts
+ *   before the first page marker's start, or has no readable time.
+ * - Both guards are applied after the claims are counted: a window they
+ *   refuse still claims its run, so refusing one never frees a visit for
+ *   another window.
+ * - A window whose pages cannot be read binds nothing, and the event
+ *   occurrences its span covers read `undecodable` and bind in no window.
+ *
+ * Unbound steps keep the existing fallthrough values. Every rule here except
+ * the trim only removes bindings; the trim drops only pages that can line up
+ * with no visit, so recording evidence can never bind a visit the recording
+ * does not line up with.
+ */
+function planWindowBindings(
+  windows: readonly ReplayStreamWindow[],
+  eventOccurrences: readonly EventOccurrence[],
+  work: EvidenceWorkMeter,
+): WindowBindingPlan[] {
+  const keyIds = new Map<string, number>();
+  const eventKeyIds = eventOccurrences.map((occurrence) => {
+    work.iteration();
+    const key = pageUrlKey(occurrence.url);
+    if (key === undefined) return -1;
+    let id = keyIds.get(key);
+    if (id === undefined) {
+      id = keyIds.size;
+      keyIds.set(key, id);
+    }
+    return id;
+  });
+  const spans = new OccurrenceTimeIndex(eventOccurrences, work);
+  // A window whose events cannot be read in the pre-pass has no page list:
+  // it binds nothing, the occurrences its span covers read `undecodable`
+  // (a recording existed but could not be read), and the other windows are
+  // planned as usual.
+  const failed = new Set<number>();
+  const pages = windows.map((window, windowIndex) => {
+    try {
+      return recordingPages(window, work);
+    } catch {
+      failed.add(windowIndex);
+      return [];
+    }
+  });
+  const unreadable = new Set<number>();
+  const coveredByFailed = new Map<number, number[]>();
+  for (const windowIndex of failed) {
+    const window = windows[windowIndex];
+    if (window === undefined) continue;
+    const covered = spans.within(window.firstTimestampMs, window.lastTimestampMs);
+    coveredByFailed.set(windowIndex, covered);
+    for (const occurrenceIndex of covered) unreadable.add(occurrenceIndex);
+  }
+  const runIndex = buildRunIndex(eventKeyIds, work);
+  const lineups = pages.map((list) => trimRecordingOnlyEdges(list, keyIds, work));
+  const starts = pages.map((list, windowIndex) => {
+    const lineup = lineups[windowIndex];
+    if (lineup === undefined || lineup.length === 0) return undefined;
+    return alignedRunStart(list.slice(lineup.head, lineup.head + lineup.length), keyIds, runIndex, work);
+  });
+  const overlapping = overlappingWindowIndexes(windows, work);
+  // Claims count every unique alignment, including one the span guard or the
+  // early-visit guard then refuses: two windows lined up on one occurrence
+  // still collide.
+  const claims = new Map<number, number>();
+  for (let windowIndex = 0; windowIndex < windows.length; windowIndex += 1) {
+    const start = starts[windowIndex];
+    if (start === undefined) continue;
+    for (let page = 0; page < (lineups[windowIndex]?.length ?? 0); page += 1) {
+      work.iteration();
+      claims.set(start + page, (claims.get(start + page) ?? 0) + 1);
+    }
+  }
+  return windows.map((window, windowIndex) => {
+    const list = pages[windowIndex] ?? [];
+    const lineup = lineups[windowIndex] ?? { head: 0, length: 0 };
+    const aligned = starts[windowIndex];
+    // The span guard reads the window's FULL span, trimmed pages included:
+    // the trim never shrinks what the guard looks at.
+    const start = aligned !== undefined && spans.onlyRunInside(window.firstTimestampMs, window.lastTimestampMs, aligned, lineup.length) &&
+      noKeptPageBindsAnEarlyVisit(window, list, lineup, aligned, eventOccurrences, work)
+      ? aligned
+      : undefined;
+    const bindings = list.map((page, ordinal): EventOccurrence | undefined => {
+      work.iteration();
+      if (start === undefined || overlapping.has(windowIndex)) return undefined;
+      // A trimmed head or tail page binds nothing.
+      if (ordinal < lineup.head || ordinal >= lineup.head + lineup.length) return undefined;
+      const occurrenceIndex = start + ordinal - lineup.head;
+      if ((claims.get(occurrenceIndex) ?? 0) > 1 || unreadable.has(occurrenceIndex)) return undefined;
+      const occurrence = eventOccurrences[occurrenceIndex];
+      if (occurrence?.firstAtMs === undefined) return undefined;
+      return Math.abs(page.startMs - occurrence.firstAtMs) <= RECORDING_PAIR_CLOCK_TOLERANCE_MS ? occurrence : undefined;
+    });
+    const undecodable = (coveredByFailed.get(windowIndex) ?? []).flatMap((index) => eventOccurrences[index] ?? []);
+    return { pageStarts: new Set(list.map((page) => page.eventIndex)), bindings, undecodable };
+  });
+}
+
+/**
+ * The early-visit guard (`RECORDING_EARLY_VISIT_TOLERANCE_MS`): false (the
+ * window binds nothing) when the event occurrence aligned with any kept page
+ * other than the window's first recorded page starts before the reference,
+ * or has no readable start. The reference is the raw time of the window's
+ * first page marker, trimmed or not; a time that is not a finite number
+ * fails every comparison, so the window binds nothing. One pass over the kept
+ * pages.
+ */
+function noKeptPageBindsAnEarlyVisit(
+  window: ReplayStreamWindow,
+  pages: readonly RecordingPage[],
+  lineup: { head: number; length: number },
+  start: number,
+  eventOccurrences: readonly EventOccurrence[],
+  work: EvidenceWorkMeter,
+): boolean {
+  const first = pages[0];
+  const rawMs = first === undefined ? undefined : (window.events[first.eventIndex] as { timestamp?: unknown } | undefined)?.timestamp;
+  const reference = typeof rawMs === 'number' && Number.isFinite(rawMs) ? rawMs : Number.NaN;
+  const earliest = reference - RECORDING_EARLY_VISIT_TOLERANCE_MS;
+  // The first recorded page (ordinal 0) is exempt; a trimmed head moves no page into its place.
+  for (let ordinal = Math.max(lineup.head, 1); ordinal < lineup.head + lineup.length; ordinal += 1) {
+    work.iteration();
+    const occurrenceStart = eventOccurrences[start + ordinal - lineup.head]?.firstAtMs;
+    if (occurrenceStart === undefined || !(occurrenceStart >= earliest)) return false;
+  }
+  return true;
+}
+
+/**
+ * The event occurrences by start time, for the span guard: which occurrences
+ * start inside a window's recorded span (widened by
+ * `RECORDING_SPAN_GUARD_TOLERANCE_MS` on each side). Sorted once; each
+ * question is two binary searches plus the window's own run, so the guard
+ * never costs windows × occurrences.
+ */
+class OccurrenceTimeIndex {
+  /** Occurrence indexes with a readable start time, by that time. */
+  private readonly timed: number[];
+  private readonly untimed: number[];
+
+  constructor(private readonly occurrences: readonly EventOccurrence[], private readonly work: EvidenceWorkMeter) {
+    this.timed = [];
+    this.untimed = [];
+    for (let index = 0; index < occurrences.length; index += 1) {
+      work.iteration();
+      if (occurrences[index]?.firstAtMs === undefined) this.untimed.push(index);
+      else this.timed.push(index);
+    }
+    this.timed.sort((a, b) => this.at(a) - this.at(b) || a - b);
+  }
+
+  private at(index: number): number {
+    return this.occurrences[index]?.firstAtMs ?? Number.NaN;
+  }
+
+  /** The first sorted position whose start is at or after `ms` (or after it, when `strict`). */
+  private bound(ms: number, strict: boolean): number {
+    let low = 0;
+    let high = this.timed.length;
+    while (low < high) {
+      this.work.iteration();
+      const middle = (low + high) >>> 1;
+      const value = this.at(this.timed[middle] ?? -1);
+      if (strict ? value <= ms : value < ms) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  }
+
+  /** The widened span, or undefined when the window's range does not parse. */
+  private span(firstMs: number, lastMs: number): [number, number] | undefined {
+    if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs)) return undefined;
+    return [firstMs - RECORDING_SPAN_GUARD_TOLERANCE_MS, lastMs + RECORDING_SPAN_GUARD_TOLERANCE_MS];
+  }
+
+  /** Every timed occurrence starting inside the widened span, in time order; every timed occurrence when the span does not parse. */
+  within(firstMs: number, lastMs: number): number[] {
+    const span = this.span(firstMs, lastMs);
+    if (span === undefined) return [...this.timed];
+    return this.timed.slice(this.bound(span[0], false), this.bound(span[1], true));
+  }
+
+  /**
+   * True when every occurrence that starts inside the widened span belongs to
+   * the run `[start, start + length)`, and every occurrence outside the run
+   * has a readable start. False (bind nothing) otherwise, or when the span
+   * does not parse.
+   */
+  onlyRunInside(firstMs: number, lastMs: number, start: number, length: number): boolean {
+    const span = this.span(firstMs, lastMs);
+    if (span === undefined) return false;
+    let runInside = 0;
+    let runUntimed = 0;
+    for (let index = start; index < start + length; index += 1) {
+      this.work.iteration();
+      const at = this.occurrences[index]?.firstAtMs;
+      if (at === undefined) runUntimed += 1;
+      else if (at >= span[0] && at <= span[1]) runInside += 1;
+    }
+    if (this.untimed.length > runUntimed) return false;
+    return this.bound(span[1], true) - this.bound(span[0], false) === runInside;
+  }
+}
+
+/**
+ * The marker-only pre-pass: a window's ordered page list. Every Meta and
+ * every custom `$pageview` route marker starts a page, with one normalization
+ * and only one: a page load's own route marker joins the Meta's page. That is
+ * the first route marker after a Meta, with the Meta's URL key, at most
+ * `LANDING_SETTLE_MS` after it, with no recorded click, input or submit and no
+ * FullSnapshot other than the Meta's own between them (the archive's shape: a
+ * Meta, its snapshot, and its own marker 1-3 ms later). Any later same-URL
+ * marker starts its own page, so it must line up with its own event visit.
+ */
+function recordingPages(window: ReplayStreamWindow, work: EvidenceWorkMeter): RecordingPage[] {
+  const pages: RecordingPage[] = [];
+  // The Meta page that may still absorb its own route marker; cleared at the
+  // first marker after it (absorbed or not), interaction or second snapshot.
+  let metaPage: { key?: string; startMs: number; ownSnapshotSeen: boolean } | undefined;
+  for (let index = 0; index < window.events.length; index += 1) {
+    work.iteration();
+    const event = window.events[index];
+    const route = recordingRouteMarker(event);
+    if (route.isMarker) {
+      const timestampMs = replayEventTimestampMs(event as Record<string, unknown>);
+      const key = route.url === undefined ? undefined : pageUrlKey(route.url);
+      const gapMs = metaPage === undefined ? Number.NaN : timestampMs - metaPage.startMs;
+      if (!route.meta && metaPage !== undefined && key !== undefined && key === metaPage.key && gapMs >= 0 && gapMs <= LANDING_SETTLE_MS) {
+        metaPage = undefined;
+        continue;
+      }
+      pages.push({ eventIndex: index, startMs: timestampMs, ...(key === undefined ? {} : { key }) });
+      metaPage = route.meta ? { ...(key === undefined ? {} : { key }), startMs: timestampMs, ownSnapshotSeen: false } : undefined;
+      continue;
+    }
+    if (metaPage === undefined) continue;
+    if (recordingInteraction(event) !== undefined) metaPage = undefined;
+    else if (isFullSnapshotEvent(event)) {
+      if (metaPage.ownSnapshotSeen) metaPage = undefined;
+      else metaPage.ownSnapshotSeen = true;
+    }
+  }
+  return pages;
+}
+
+/**
+ * The index every window's run search reads: a suffix automaton over the
+ * session's event occurrence key ids, built once in linear time. For any
+ * key sequence it answers in time linear in that sequence's length how many
+ * contiguous runs carry it and where the first one ends, so the search cost
+ * is the session's occurrences once plus each window's own pages — never
+ * windows × occurrences, and never quadratic on long runs of one key (reload
+ * loops, hash-routed apps).
+ */
+interface RunIndex {
+  next: Array<Map<number, number>>;
+  /** Number of runs ending at a state's end positions (its occurrence count). */
+  count: number[];
+  /** The first position (in the occurrence list) where a state's runs end. */
+  firstEnd: number[];
+}
+
+function buildRunIndex(keys: readonly number[], work: EvidenceWorkMeter): RunIndex {
+  const next: Array<Map<number, number>> = [new Map<number, number>()];
+  const link: number[] = [-1];
+  const length: number[] = [0];
+  const firstEnd: number[] = [-1];
+  const count: number[] = [0];
+  let last = 0;
+  for (let position = 0; position < keys.length; position += 1) {
+    work.iteration();
+    const key = keys[position] ?? -1;
+    const current = next.length;
+    next.push(new Map<number, number>());
+    length.push((length[last] ?? 0) + 1);
+    link.push(0);
+    firstEnd.push(position);
+    count.push(1);
+    let state = last;
+    while (state !== -1 && !(next[state]?.has(key) ?? false)) {
+      work.iteration();
+      next[state]?.set(key, current);
+      state = link[state] ?? -1;
+    }
+    if (state !== -1) {
+      const target = next[state]?.get(key) ?? 0;
+      if ((length[state] ?? 0) + 1 === length[target]) {
+        link[current] = target;
+      } else {
+        const clone = next.length;
+        next.push(new Map(next[target]));
+        length.push((length[state] ?? 0) + 1);
+        link.push(link[target] ?? 0);
+        firstEnd.push(firstEnd[target] ?? -1);
+        count.push(0);
+        while (state !== -1 && next[state]?.get(key) === target) {
+          work.iteration();
+          next[state]?.set(key, clone);
+          state = link[state] ?? -1;
+        }
+        link[target] = clone;
+        link[current] = clone;
+      }
+    }
+    last = current;
+  }
+  // Occurrence counts flow up the suffix links, longest states first (a counting sort by length).
+  const byLength: number[][] = Array.from({ length: keys.length + 1 }, () => []);
+  for (let state = 1; state < next.length; state += 1) {
+    work.iteration();
+    byLength[length[state] ?? 0]?.push(state);
+  }
+  for (let size = keys.length; size > 0; size -= 1) {
+    for (const state of byLength[size] ?? []) {
+      work.iteration();
+      const parent = link[state] ?? -1;
+      if (parent > 0) count[parent] = (count[parent] ?? 0) + (count[state] ?? 0);
+    }
+  }
+  return { next, count, firstEnd };
+}
+
+/**
+ * The head and tail trim of the lineup rule: the part of a window's page list
+ * that lines up, as `head` (pages dropped at the start) and `length` (pages
+ * kept). The run of pages at the window's head, and the run at its tail,
+ * whose URL key appears nowhere among the session's event occurrences are
+ * dropped: a redirect page or a page the events never captured, recorded
+ * before the first visit or after the last one. Such a page lines up with no
+ * visit under any alignment; dropping it lets the pages beside it line up and
+ * changes nothing else. Its marker still starts its own page, so its events
+ * never join a kept page, and the span guard still reads the window's full
+ * span, the trimmed pages' time included.
+ *
+ * Only those two runs are trimmed. A recording-only page between two pages
+ * the events know is still a mismatch, so the window binds nothing; a head or
+ * tail page whose URL key appears anywhere in the events is kept, so it must
+ * line up like any other page; a page with no readable URL key is kept (it
+ * matches nothing, so the window binds nothing). Trimmed pages bind nothing.
+ * When the trim leaves no page, the window binds nothing. Uniqueness is still
+ * decided on the kept pages' URL keys alone.
+ */
+function trimRecordingOnlyEdges(
+  pages: readonly RecordingPage[],
+  keyIds: ReadonlyMap<string, number>,
+  work: EvidenceWorkMeter,
+): { head: number; length: number } {
+  const recordingOnly = (page: RecordingPage | undefined): boolean =>
+    page !== undefined && page.key !== undefined && !keyIds.has(page.key);
+  let head = 0;
+  while (head < pages.length && recordingOnly(pages[head])) {
+    work.iteration();
+    head += 1;
+  }
+  let end = pages.length;
+  while (end > head && recordingOnly(pages[end - 1])) {
+    work.iteration();
+    end -= 1;
+  }
+  return { head, length: end - head };
+}
+
+/**
+ * Where a window's page keys match a contiguous run of the event occurrence
+ * keys: the run's start when exactly one run matches, else undefined (none,
+ * or two or more). A page with no URL key, or a key the events never carry,
+ * matches nothing.
+ */
+function alignedRunStart(
+  pages: readonly RecordingPage[],
+  keyIds: ReadonlyMap<string, number>,
+  index: RunIndex,
+  work: EvidenceWorkMeter,
+): number | undefined {
+  if (pages.length === 0) return undefined;
+  let state = 0;
+  for (const page of pages) {
+    work.iteration();
+    const id = page.key === undefined ? undefined : keyIds.get(page.key);
+    const target = id === undefined ? undefined : index.next[state]?.get(id);
+    if (target === undefined) return undefined;
+    state = target;
+  }
+  if (index.count[state] !== 1) return undefined;
+  const end = index.firstEnd[state] ?? -1;
+  return end < 0 ? undefined : end - pages.length + 1;
+}
+
+/**
+ * Windows of one session whose time ranges overlap (inclusive) — two tabs
+ * recorded at once, whose pages interleave in the one events list. Sorted by
+ * start and merged into overlapping groups; every window in a group of two or
+ * more is returned. A window whose range does not parse overlaps everything.
+ */
+function overlappingWindowIndexes(windows: readonly ReplayStreamWindow[], work: EvidenceWorkMeter): Set<number> {
+  const overlapping = new Set<number>();
+  if (windows.length < 2) return overlapping;
+  const ordered = windows
+    .map((window, index) => ({ index, first: window.firstTimestampMs, last: window.lastTimestampMs }))
+    .sort((a, b) => a.first - b.first || a.index - b.index);
+  if (ordered.some((range) => !Number.isFinite(range.first) || !Number.isFinite(range.last))) {
+    for (let index = 0; index < windows.length; index += 1) overlapping.add(index);
+    return overlapping;
+  }
+  let group: number[] = [];
+  let groupLast = Number.NEGATIVE_INFINITY;
+  const closeGroup = () => {
+    if (group.length > 1) for (const index of group) overlapping.add(index);
+  };
+  for (const range of ordered) {
+    work.iteration();
+    if (group.length > 0 && range.first <= groupLast) {
+      group.push(range.index);
+      groupLast = Math.max(groupLast, range.last);
+    } else {
+      closeGroup();
+      group = [range.index];
+      groupLast = range.last;
+    }
+  }
+  closeGroup();
+  return overlapping;
+}
+
+function pageUrlKey(value: string): string | undefined {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return undefined;
+  }
+}
+
+class EvidenceDom {
+  readonly nodes: CountedNodeMap;
+  readonly forms = new Map<NodeId, Set<NodeId>>();
+  readonly formByHtmlId = new Map<string, NodeId>();
+  readonly externalControls = new Map<string, Set<NodeId>>();
+  readonly formStats = new Map<NodeId, FormStats>();
+  private readonly controlOwner = new Map<NodeId, NodeId>();
+  private readonly contributions = new Map<NodeId, ControlContribution>();
+  private dirtyForms = new Set<NodeId>();
+
+  constructor(private readonly work: EvidenceWorkMeter) {
+    this.nodes = new CountedNodeMap(work);
+  }
+
+  takeDirtyForms(): Set<NodeId> {
+    const dirty = this.dirtyForms;
+    this.dirtyForms = new Set<NodeId>();
+    return dirty;
+  }
+
+  resetForFullSnapshot(): void {
+    this.nodes.clear();
+    this.forms.clear();
+    this.formByHtmlId.clear();
+    this.externalControls.clear();
+    this.formStats.clear();
+    this.controlOwner.clear();
+    this.contributions.clear();
+    this.dirtyForms.clear();
+  }
+
+  loadSnapshot(root: unknown): void {
+    const rrNode = isRrwebNode(root) ? root : undefined;
+    if (rrNode !== undefined) this.addTree(rrNode, undefined, undefined, false);
+  }
+
+  isPresent(id: NodeId): boolean {
+    return this.nodes.has(id);
+  }
+
+  get nodeCount(): number {
+    return this.nodes.size;
+  }
+
+  get(id: NodeId): LiveNode | undefined {
+    return this.nodes.get(id);
+  }
+
+  /**
+   * Adds an rrweb subtree. Iterative (an explicit stack, never recursion), so
+   * a very deep DOM cannot overflow the call stack. Text and interactive
+   * totals are summed bottom-up over the new nodes and pushed to the existing
+   * ancestors once, so an add costs its own size plus one ancestor climb. An
+   * add whose parent is the node itself is skipped.
+   */
+  addTree(rrNode: RrwebNode, parentId: NodeId | undefined, nextId: NodeId | undefined, markDirty = true): NodeId | undefined {
+    const rootId = nodeId((rrNode as { id?: unknown }).id);
+    if (rootId === undefined || (parentId !== undefined && parentId === rootId)) return undefined;
+    const created: LiveNode[] = [];
+    const createdSet = new Set<LiveNode>();
+    const stack: Array<{ raw: RrwebNode; parentId: NodeId | undefined }> = [{ raw: rrNode, parentId }];
+    let isRoot = true;
+    while (stack.length > 0) {
+      const item = stack.pop();
+      if (item === undefined) break;
+      this.work.iteration();
+      const id = nodeId((item.raw as { id?: unknown }).id);
+      if (id === undefined || id === item.parentId) {
+        isRoot = false;
+        continue;
+      }
+      if (this.nodes.has(id)) this.removeTree(id, markDirty);
+      const node = createLiveNode(item.raw, id, item.parentId);
+      this.nodes.set(id, node);
+      if (item.parentId !== undefined) {
+        const parent = this.nodes.get(item.parentId);
+        if (parent !== undefined) insertChild(parent, id, isRoot ? nextId : undefined, this.work);
+      }
+      this.addNodeToIndexes(node);
+      created.push(node);
+      createdSet.add(node);
+      const childNodes = Array.isArray(item.raw.childNodes) ? item.raw.childNodes : [];
+      for (let index = childNodes.length - 1; index >= 0; index -= 1) {
+        this.work.iteration();
+        const rawChild = childNodes[index];
+        if (isRrwebNode(rawChild)) stack.push({ raw: rawChild, parentId: id });
+      }
+      isRoot = false;
+    }
+    // Reverse pre-order visits every child before its parent.
+    let rootNode: LiveNode | undefined;
+    for (let index = created.length - 1; index >= 0; index -= 1) {
+      this.work.iteration();
+      const node = created[index];
+      if (node === undefined || this.nodes.get(node.id) !== node) continue;
+      node.visibleTextLength = node.ownHidden ? 0 : node.ownTextLength + node.childVisibleTextLength;
+      const parent = node.parentId === undefined ? undefined : this.nodes.get(node.parentId);
+      if (parent !== undefined && createdSet.has(parent)) {
+        parent.childVisibleTextLength += node.visibleTextLength;
+        parent.subtreeInteractiveCount += node.subtreeInteractiveCount;
+      } else {
+        rootNode = node;
+      }
+    }
+    if (rootNode !== undefined && rootNode.parentId !== undefined) {
+      this.adjustParentForChild(rootNode.parentId, rootNode.visibleTextLength, rootNode.subtreeInteractiveCount);
+    }
+    return this.nodes.get(rootId) === undefined ? undefined : rootId;
+  }
+
+  /**
+   * Removes a subtree. Iterative; only the subtree's root is detached from
+   * its parent (one sibling-map update and one ancestor climb) — descendants
+   * leave with it, so a large removal never splices child by child.
+   */
+  removeTree(id: NodeId, markDirty = true): void {
+    const root = this.nodes.get(id);
+    if (root === undefined) return;
+    if (markDirty) this.markContainingFormDirty(id);
+    if (root.parentId !== undefined) {
+      const parent = this.nodes.get(root.parentId);
+      if (parent !== undefined) {
+        removeChild(parent, id, this.work);
+        this.adjustParentForChild(root.parentId, -root.visibleTextLength, -root.subtreeInteractiveCount);
+      }
+    }
+    const stack: NodeId[] = [id];
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (currentId === undefined) break;
+      this.work.iteration();
+      const node = this.nodes.get(currentId);
+      if (node === undefined) continue;
+      for (const childId of node.childIds) {
+        this.work.iteration();
+        stack.push(childId);
+      }
+      this.removeNodeFromIndexes(node);
+      this.nodes.delete(currentId);
+    }
+  }
+
+  applyAttributes(id: NodeId, patch: unknown): void {
+    const node = this.nodes.get(id);
+    if (node === undefined || !isPlainRecord(patch)) return;
+    const oldVisibleText = node.visibleTextLength;
+    const oldInteractive = node.ownInteractive;
+    const oldOwner = this.formOwner(id);
+    const oldFormHtmlId = node.tag === 'form' ? attrString(node, 'id') : undefined;
+    const oldExternalFormId = attrString(node, 'form');
+    for (const [key, value] of Object.entries(patch)) {
+      this.work.iteration();
+      if (key === 'style') {
+        node.style = value === null || value === false ? {} : mergeStyle(node.style, value);
+        if (Object.keys(node.style).length === 0) delete node.attrs.style;
+        else node.attrs.style = { ...node.style };
+      } else if (key === 'value') {
+        node.valueEmpty = value === undefined || value === null || value === '';
+        delete node.attrs.value;
+      } else if (value === null || value === false) {
+        delete node.attrs[key];
+      } else if (value === true) {
+        node.attrs[key] = '';
+      } else if (typeof value === 'string' || typeof value === 'number') {
+        node.attrs[key] = String(value);
+      }
+    }
+    node.ownHidden = isOwnNodeHidden(node);
+    node.ownInteractive = isInteractiveNode(node);
+    node.visibleTextLength = node.ownHidden ? 0 : node.ownTextLength + node.childVisibleTextLength;
+    node.subtreeInteractiveCount += Number(node.ownInteractive) - Number(oldInteractive);
+    const newOwner = this.formOwner(id);
+    const newExternalFormId = attrString(node, 'form');
+    if (oldExternalFormId !== newExternalFormId) {
+      if (oldExternalFormId !== undefined) this.removeExternalControl(oldExternalFormId, id);
+      if (newExternalFormId !== undefined && isFormControl(node)) this.addExternalControl(newExternalFormId, id);
+    }
+    if (oldOwner !== newOwner) {
+      this.detachControl(id);
+      this.attachControl(node, newOwner);
+    } else {
+      this.refreshContribution(node);
+    }
+    if (node.tag === 'form') {
+      const newFormHtmlId = attrString(node, 'id');
+      if (oldFormHtmlId !== newFormHtmlId) {
+        if (oldFormHtmlId !== undefined && this.formByHtmlId.get(oldFormHtmlId) === node.id) this.formByHtmlId.delete(oldFormHtmlId);
+        this.updateFormHtmlId(node);
+        if (oldFormHtmlId !== undefined) this.refreshExternalControls(oldFormHtmlId);
+        if (newFormHtmlId !== undefined) this.refreshExternalControls(newFormHtmlId);
+      }
+    }
+    this.recomputeAncestors(id, node.visibleTextLength - oldVisibleText, Number(node.ownInteractive) - Number(oldInteractive));
+    this.markContainingFormDirty(id);
+  }
+
+  applyText(id: NodeId, text: unknown): void {
+    const node = this.nodes.get(id);
+    if (node === undefined || node.type !== RRWEB_TEXT_NODE) return;
+    const oldLength = node.ownTextLength;
+    const nextLength = typeof text === 'string' ? text.length : 0;
+    if (oldLength === nextLength) return;
+    node.ownTextLength = nextLength;
+    const nextVisible = node.ownHidden ? 0 : node.ownTextLength + node.childVisibleTextLength;
+    const delta = nextVisible - node.visibleTextLength;
+    node.visibleTextLength = nextVisible;
+    if (node.parentId !== undefined) {
+      this.adjustParentForChild(node.parentId, delta, 0);
+      this.markContainingFormDirty(node.parentId);
+    }
+  }
+
+  applyControlValue(id: NodeId, text: unknown): void {
+    const node = this.nodes.get(id);
+    if (node === undefined || !isFormControl(node)) return;
+    node.valueEmpty = text === '';
+    this.refreshContribution(node);
+    this.markContainingFormDirty(id);
+  }
+
+  formControls(formId: NodeId): Set<NodeId> | undefined {
+    return this.forms.get(formId);
+  }
+
+  ownerOf(id: NodeId): NodeId | undefined {
+    return this.formOwner(id);
+  }
+
+  markContainingFormDirty(id: NodeId): void {
+    this.markContainingFormDirtyInternal(id);
+  }
+
+  isVisible(id: NodeId): boolean {
+    let currentId: NodeId | undefined = id;
+    const step = climbGuard(this);
+    while (currentId !== undefined) {
+      step();
+      this.work.iteration();
+      const node = this.nodes.get(currentId);
+      if (node === undefined || node.ownHidden) return false;
+      currentId = node.parentId;
+    }
+    return true;
+  }
+
+  /** True when `id` is `ancestorId` or lies under it (a bounded, counted climb up `parentId` links). */
+  isWithin(id: NodeId, ancestorId: NodeId): boolean {
+    let currentId: NodeId | undefined = id;
+    const step = climbGuard(this);
+    while (currentId !== undefined) {
+      step();
+      this.work.iteration();
+      if (currentId === ancestorId) return true;
+      currentId = this.nodes.get(currentId)?.parentId;
+    }
+    return false;
+  }
+
+  hasVisibleText(id: NodeId): boolean {
+    const node = this.nodes.get(id);
+    return node !== undefined && node.visibleTextLength > 0 && this.isVisible(id);
+  }
+
+  hasInteractiveDescendant(id: NodeId): boolean {
+    const node = this.nodes.get(id);
+    return node !== undefined && node.subtreeInteractiveCount > 0;
+  }
+
+  children(id: NodeId): NodeId[] {
+    return this.nodes.get(id)?.childIds ?? [];
+  }
+
+  private recomputeAncestors(startId: NodeId, visibleDelta: number, interactiveDelta: number): void {
+    let currentId: NodeId | undefined = startId;
+    let first = true;
+    const step = climbGuard(this);
+    while (currentId !== undefined) {
+      step();
+      this.work.iteration();
+      const node = this.nodes.get(currentId);
+      if (node === undefined) break;
+      if (!first) {
+        node.childVisibleTextLength += visibleDelta;
+        const oldVisible = node.visibleTextLength;
+        node.visibleTextLength = node.ownHidden ? 0 : node.ownTextLength + node.childVisibleTextLength;
+        visibleDelta = node.visibleTextLength - oldVisible;
+        node.subtreeInteractiveCount += interactiveDelta;
+      }
+      first = false;
+      currentId = node.parentId;
+    }
+  }
+
+  private adjustParentForChild(parentId: NodeId, visibleDelta: number, interactiveDelta: number): void {
+    const parent = this.nodes.get(parentId);
+    if (parent === undefined) return;
+    const oldVisible = parent.visibleTextLength;
+    parent.childVisibleTextLength += visibleDelta;
+    parent.subtreeInteractiveCount += interactiveDelta;
+    parent.visibleTextLength = parent.ownHidden ? 0 : parent.ownTextLength + parent.childVisibleTextLength;
+    this.recomputeAncestors(parentId, parent.visibleTextLength - oldVisible, interactiveDelta);
+  }
+
+  private addNodeToIndexes(node: LiveNode): void {
+    if (node.tag === 'form') {
+      this.forms.set(node.id, new Set<NodeId>());
+      this.formStats.set(node.id, { submitControls: 0, countedControls: 0, emptyControls: 0, identityNames: new Map<string, number>() });
+      this.updateFormHtmlId(node);
+      this.dirtyForms.add(node.id);
+    }
+    if (isFormControl(node)) {
+      const owner = this.formOwner(node.id);
+      this.attachControl(node, owner);
+    }
+  }
+
+  private removeNodeFromIndexes(node: LiveNode): void {
+    if (node.tag === 'form') {
+      const htmlId = attrString(node, 'id');
+      if (htmlId !== undefined && this.formByHtmlId.get(htmlId) === node.id) this.formByHtmlId.delete(htmlId);
+      this.forms.delete(node.id);
+      this.formStats.delete(node.id);
+      this.dirtyForms.add(node.id);
+      if (htmlId !== undefined) this.refreshExternalControls(htmlId);
+    }
+    this.detachControl(node.id);
+    const externalFormId = attrString(node, 'form');
+    if (externalFormId !== undefined) this.removeExternalControl(externalFormId, node.id);
+  }
+
+  private updateFormHtmlId(node: LiveNode): void {
+    if (node.tag !== 'form') return;
+    const htmlId = attrString(node, 'id');
+    if (htmlId !== undefined) {
+      this.formByHtmlId.set(htmlId, node.id);
+      this.refreshExternalControls(htmlId);
+    }
+  }
+
+  private addExternalControl(htmlId: string, controlId: NodeId): void {
+    const controls = this.externalControls.get(htmlId) ?? new Set<NodeId>();
+    controls.add(controlId);
+    this.externalControls.set(htmlId, controls);
+  }
+
+  private removeExternalControl(htmlId: string, controlId: NodeId): void {
+    const controls = this.externalControls.get(htmlId);
+    controls?.delete(controlId);
+    if (controls?.size === 0) this.externalControls.delete(htmlId);
+  }
+
+  private refreshExternalControls(htmlId: string): void {
+    const controls = this.externalControls.get(htmlId);
+    if (controls === undefined) return;
+    for (const controlId of controls) {
+      this.work.controlIteration();
+      const node = this.nodes.get(controlId);
+      if (node === undefined) continue;
+      const previousOwner = this.controlOwner.get(controlId);
+      const nextOwner = this.formOwner(controlId);
+      if (previousOwner !== nextOwner) {
+        this.detachControl(controlId);
+        this.attachControl(node, nextOwner);
+      }
+    }
+  }
+
+  private attachControl(node: LiveNode, formId: NodeId | undefined): void {
+    if (!isFormControl(node) || formId === undefined) return;
+    const controls = this.forms.get(formId);
+    if (controls === undefined) return;
+    controls.add(node.id);
+    this.controlOwner.set(node.id, formId);
+    const contribution = controlContribution(node);
+    this.contributions.set(node.id, contribution);
+    applyContribution(this.formStats.get(formId), contribution, 1);
+    this.dirtyForms.add(formId);
+  }
+
+  private detachControl(id: NodeId): void {
+    const owner = this.controlOwner.get(id);
+    if (owner === undefined) return;
+    this.forms.get(owner)?.delete(id);
+    this.controlOwner.delete(id);
+    const contribution = this.contributions.get(id);
+    this.contributions.delete(id);
+    if (contribution !== undefined) applyContribution(this.formStats.get(owner), contribution, -1);
+    this.dirtyForms.add(owner);
+  }
+
+  /** Re-reads an attached control after its attributes or value changed, keeping its form's running totals exact. */
+  private refreshContribution(node: LiveNode): void {
+    const owner = this.controlOwner.get(node.id);
+    if (owner === undefined) return;
+    const stats = this.formStats.get(owner);
+    const previous = this.contributions.get(node.id);
+    if (previous !== undefined) applyContribution(stats, previous, -1);
+    const next = controlContribution(node);
+    this.contributions.set(node.id, next);
+    applyContribution(stats, next, 1);
+  }
+
+  private formOwner(id: NodeId): NodeId | undefined {
+    const node = this.nodes.get(id);
+    if (node === undefined) return undefined;
+    const explicit = attrString(node, 'form');
+    if (explicit !== undefined) {
+      const explicitForm = this.formByHtmlId.get(explicit);
+      if (explicitForm !== undefined) return explicitForm;
+    }
+    let parentId = node.tag === 'form' ? undefined : node.parentId;
+    const step = climbGuard(this);
+    while (parentId !== undefined) {
+      step();
+      this.work.iteration();
+      const parent = this.nodes.get(parentId);
+      if (parent === undefined) return undefined;
+      if (parent.tag === 'form') return parent.id;
+      parentId = parent.parentId;
+    }
+    return undefined;
+  }
+
+  private markContainingFormDirtyInternal(id: NodeId): void {
+    const owner = this.formOwner(id);
+    if (owner !== undefined) this.dirtyForms.add(owner);
+    const node = this.nodes.get(id);
+    if (node?.tag === 'form') this.dirtyForms.add(node.id);
+  }
+}
+
+/**
+ * A child's index in its parent, from the per-parent position map. Positions
+ * below `positionsValidUpTo` are exact; an insert or removal lowers that mark,
+ * and a later lookup re-indexes only from the mark to the child it needs — so
+ * appends, inserts before a trailing sibling and removals from either end
+ * stay O(1) amortised instead of a sibling scan per lookup.
+ */
+function childIndex(parent: LiveNode, id: NodeId, work: EvidenceWorkMeter): number {
+  work.iteration();
+  const known = parent.childPositions.get(id);
+  if (known !== undefined && known < parent.positionsValidUpTo && parent.childIds[known] === id) return known;
+  for (let index = parent.positionsValidUpTo; index < parent.childIds.length; index += 1) {
+    work.iteration();
+    const childId = parent.childIds[index];
+    if (childId === undefined) continue;
+    parent.childPositions.set(childId, index);
+    parent.positionsValidUpTo = index + 1;
+    if (childId === id) return index;
+  }
+  return -1;
+}
+
+function insertChild(parent: LiveNode, id: NodeId, nextId: NodeId | undefined, work: EvidenceWorkMeter): void {
+  const insertAt = nextId === undefined ? -1 : childIndex(parent, nextId, work);
+  if (insertAt < 0) {
+    const index = parent.childIds.length;
+    parent.childIds.push(id);
+    parent.childPositions.set(id, index);
+    if (parent.positionsValidUpTo === index) parent.positionsValidUpTo = index + 1;
+    return;
+  }
+  parent.childIds.splice(insertAt, 0, id);
+  parent.childPositions.set(id, insertAt);
+  parent.positionsValidUpTo = Math.min(parent.positionsValidUpTo, insertAt);
+}
+
+function removeChild(parent: LiveNode, id: NodeId, work: EvidenceWorkMeter): void {
+  const index = childIndex(parent, id, work);
+  parent.childPositions.delete(id);
+  if (index < 0) return;
+  parent.childIds.splice(index, 1);
+  parent.positionsValidUpTo = Math.min(parent.positionsValidUpTo, index);
+}
+
+function createLiveNode(rrNode: RrwebNode, id: NodeId, parentId: NodeId | undefined): LiveNode {
+  const attrs: Record<string, unknown> = isPlainRecord(rrNode.attributes) ? { ...rrNode.attributes } : {};
+  const valueEmpty = attrs.value === undefined || attrs.value === null || attrs.value === '';
+  delete attrs.value;
+  const tagName: unknown = rrNode.tagName;
+  const textContent: unknown = rrNode.textContent;
+  const node: LiveNode = {
+    id,
+    type: rrNode.type,
+    tag: typeof tagName === 'string' ? tagName.toLowerCase() : '',
+    attrs,
+    style: parseInitialStyle(attrs.style),
+    parentId,
+    childIds: [],
+    childPositions: new Map<NodeId, number>(),
+    positionsValidUpTo: 0,
+    ownTextLength: rrNode.type === RRWEB_TEXT_NODE && typeof textContent === 'string' ? textContent.length : 0,
+    childVisibleTextLength: 0,
+    visibleTextLength: 0,
+    valueEmpty,
+    ownHidden: false,
+    ownInteractive: false,
+    subtreeInteractiveCount: 0,
+  };
+  node.ownHidden = isOwnNodeHidden(node);
+  node.ownInteractive = isInteractiveNode(node);
+  node.visibleTextLength = node.ownHidden ? 0 : node.ownTextLength;
+  node.subtreeInteractiveCount = node.ownInteractive ? 1 : 0;
+  return node;
+}
+
+function controlContribution(node: LiveNode): ControlContribution {
+  const valueBearing = node.tag === 'input' || node.tag === 'textarea' || node.tag === 'select';
+  const counted = isCountedControl(node);
+  const name = valueBearing ? controlIdentityName(node) : undefined;
+  return {
+    submit: isSubmitControl(node),
+    counted,
+    empty: counted && node.valueEmpty,
+    ...(name === undefined ? {} : { name }),
+  };
+}
+
+function applyContribution(stats: FormStats | undefined, contribution: ControlContribution, sign: 1 | -1): void {
+  if (stats === undefined) return;
+  if (contribution.submit) stats.submitControls += sign;
+  if (contribution.counted) stats.countedControls += sign;
+  if (contribution.empty) stats.emptyControls += sign;
+  if (contribution.name !== undefined) {
+    const next = (stats.identityNames.get(contribution.name) ?? 0) + sign;
+    if (next <= 0) stats.identityNames.delete(contribution.name);
+    else stats.identityNames.set(contribution.name, next);
+  }
+}
+
+function attrString(node: LiveNode, name: string): string | undefined {
+  const value = node.attrs[name];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseInitialStyle(value: unknown): Record<string, string> {
+  if (typeof value === 'string') {
+    const output: Record<string, string> = {};
+    for (const declaration of value.split(';')) {
+      const separator = declaration.indexOf(':');
+      if (separator < 0) continue;
+      const key = declaration.slice(0, separator).trim().toLowerCase();
+      const entry = declaration.slice(separator + 1).trim().toLowerCase();
+      if (key !== '' && entry !== '') output[key] = entry;
+    }
+    return output;
+  }
+  if (isPlainRecord(value)) return mergeStyle({}, value);
+  return {};
+}
+
+function mergeStyle(prior: Record<string, string>, patch: unknown): Record<string, string> {
+  const next = { ...prior };
+  if (typeof patch === 'string') return parseInitialStyle(patch);
+  if (!isPlainRecord(patch)) return next;
+  for (const [rawKey, rawValue] of Object.entries(patch)) {
+    const key = rawKey.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`).toLowerCase();
+    if (rawValue === null || rawValue === false || rawValue === '') delete next[key];
+    else if (typeof rawValue === 'string' || typeof rawValue === 'number') next[key] = String(rawValue).toLowerCase();
+  }
+  return next;
+}
+
+function isOwnNodeHidden(node: LiveNode): boolean {
+  if (node.attrs.hidden !== undefined) return true;
+  const classes = new Set((attrString(node, 'class') ?? '').split(/\s+/).filter(Boolean).map((token) => token.toLowerCase()));
+  if (['hidden', 'd-none', 'is-hidden', 'invisible'].some((token) => classes.has(token))) return true;
+  return node.style.display === 'none' || node.style.visibility === 'hidden' || node.style.visibility === 'collapse';
+}
+
+const INTERACTIVE_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea', 'option']);
+const INTERACTIVE_ROLES = new Set(['button', 'link', 'menuitem', 'tab', 'checkbox', 'radio', 'switch', 'option', 'textbox', 'combobox', 'slider']);
+const ERROR_CLASS_TOKENS = new Set(['is-invalid', 'has-error', 'mui-error', 'ant-form-item-has-error']);
+/** Input types left out of the empty/filled count; every other type — unknown and empty `type` included — counts. */
+const UNCOUNTED_INPUT_TYPES = new Set(['hidden', 'checkbox', 'radio', 'file', 'range', 'color', 'submit', 'image', 'button', 'reset']);
+
+function isInteractiveNode(node: LiveNode): boolean {
+  if (INTERACTIVE_TAGS.has(node.tag)) return true;
+  const role = (attrString(node, 'role') ?? '').toLowerCase();
+  if (INTERACTIVE_ROLES.has(role)) return true;
+  const editable = attrString(node, 'contenteditable');
+  return editable !== undefined && editable.toLowerCase() !== 'false';
+}
+
+function isFormControl(node: LiveNode): boolean {
+  return node.tag === 'input' || node.tag === 'textarea' || node.tag === 'select' || node.tag === 'button';
+}
+
+function isEditableControl(node: LiveNode): boolean {
+  if (node.tag === 'textarea' || node.tag === 'select') return true;
+  if (node.tag !== 'input') return false;
+  const type = (attrString(node, 'type') ?? 'text').toLowerCase();
+  return !['hidden', 'submit', 'image', 'button', 'reset'].includes(type) && attrString(node, 'readonly') === undefined;
+}
+
+function isSubmitControl(node: LiveNode): boolean {
+  const type = (attrString(node, 'type') ?? '').toLowerCase();
+  return (node.tag === 'button' && (type === '' || type === 'submit')) ||
+    (node.tag === 'input' && (type === 'submit' || type === 'image'));
+}
+
+class EvidenceStreamProcessor {
+  private dom!: EvidenceDom;
+  private currentOccurrence: RecordedOccurrence | undefined;
+  private activeReaction: ActiveReaction | undefined;
+  private landingWatch: LandingWatch | undefined;
+  private readonly lastSubmitBeforeStep = new Map<number, number>();
+  /** Navigation steps that are the first navigation after their source submit: the only landings seeded from forms already on screen. */
+  private readonly firstNavigationAfterSubmit = new Set<number>();
+  /** Event occurrences bound while the current window is processed — what a failing window marks `undecodable`. */
+  private windowOccurrences: EventOccurrence[] = [];
+
+  constructor(
+    private readonly steps: NeutralStep[],
+    private readonly eventOccurrences: EventOccurrence[],
+    private readonly work: EvidenceWorkMeter,
+    private readonly matchedSubmits: Map<number, RecordedAnchor | undefined>,
+    private readonly submitCoverage: Map<number, NonNullable<NeutralStep['afterSubmit']>['coverage']>,
+    private readonly landingValues: Map<number, NonNullable<NeutralStep['landing']>>,
+  ) {
+    let lastSubmit: number | undefined;
+    let navigatedSinceSubmit = false;
+    for (let i = 0; i < steps.length; i += 1) {
+      if (steps[i]?.kind === 'navigation' && lastSubmit !== undefined) {
+        this.lastSubmitBeforeStep.set(i, lastSubmit);
+        if (!navigatedSinceSubmit) this.firstNavigationAfterSubmit.add(i);
+        navigatedSinceSubmit = true;
+      }
+      if (steps[i]?.kind === 'submit') {
+        lastSubmit = i;
+        navigatedSinceSubmit = false;
+      }
+    }
+  }
+
+  process(windows: ReplayStreamWindow[]): void {
+    // Binding is decided for every window before any evidence is read (the
+    // lineup rule needs all windows: collisions and overlaps). A failure here
+    // binds nothing anywhere.
+    let plans: WindowBindingPlan[];
+    try {
+      plans = planWindowBindings(windows, this.eventOccurrences, this.work);
+    } catch {
+      plans = windows.map(() => ({ pageStarts: new Set<number>(), bindings: [], undecodable: [] }));
+    }
+    // A window whose pages could not be read: the visits its span covers read
+    // `undecodable` (no window binds them).
+    for (const plan of plans) {
+      this.windowOccurrences = plan.undecodable;
+      this.failWindow();
+    }
+    for (let index = 0; index < windows.length; index += 1) {
+      const window = windows[index];
+      if (window === undefined) continue;
+      this.windowOccurrences = [];
+      try {
+        this.processWindow(window, plans[index] ?? { pageStarts: new Set<number>(), bindings: [], undecodable: [] });
+      } catch {
+        this.failWindow();
+      }
+    }
+  }
+
+  private processWindow(window: ReplayStreamWindow, plan: WindowBindingPlan): void {
+    this.dom = new EvidenceDom(this.work);
+    let pageOrdinal = 0;
+    for (let eventIndex = 0; eventIndex < window.events.length; eventIndex += 1) {
+      const event = window.events[eventIndex];
+      this.work.event();
+      const timestampMs = replayEventTimestampMs(event as Record<string, unknown>);
+      const route = recordingRouteMarker(event);
+      const interaction = recordingInteraction(event);
+
+      if (this.activeReaction !== undefined && timestampMs > this.activeReaction.anchor.timestampMs + REACTION_WINDOW_CAP_MS) {
+        this.finishReaction('covered', this.activeReaction.anchor.timestampMs + REACTION_WINDOW_CAP_MS, false);
+      }
+      // A marker starts a page exactly when the pre-pass said so; the one it
+      // absorbed (a page load's own route marker) continues the Meta's page
+      // and closes neither the reaction window nor the landing watch.
+      if (route.isMarker && plan.pageStarts.has(eventIndex)) {
+        if (this.activeReaction !== undefined) this.finishReaction('covered', timestampMs, true);
+        this.finishLandingAtPageChange(timestampMs);
+        this.finishOccurrence();
+        this.startOccurrence(route.url, window.decodeIssues !== undefined && window.decodeIssues.length > 0, plan.bindings[pageOrdinal]);
+        pageOrdinal += 1;
+        this.startLandingWatch(timestampMs);
+        continue;
+      }
+      // The settle window decides only whether `none` may be read as an
+      // absence: once it passes, the landing is judged `settled`, and a form
+      // seen later in the occurrence still counts as presence. The watch ends
+      // at the first recorded interaction (the judgement point when it comes
+      // first) or at the occurrence's end.
+      if (this.landingWatch !== undefined && timestampMs >= this.landingWatch.markerMs + LANDING_SETTLE_MS) {
+        this.judgeLanding(true);
+      }
+      if (interaction !== undefined && this.landingWatch !== undefined) {
+        this.finishLandingWatch(false);
+      }
+      if (interaction !== undefined && this.activeReaction !== undefined) {
+        this.finishReaction('covered', timestampMs, false);
+      }
+      if (interaction?.kind === 'click' && interaction.nodeId !== undefined) this.startAnchor(interaction.nodeId, timestampMs);
+      if (interaction?.kind === 'input' && interaction.nodeId !== undefined && isPlainRecord((event as { data?: unknown }).data)) {
+        const inputText = ((event as { data: Record<string, unknown> }).data).text;
+        if (typeof inputText === 'string') this.dom.applyControlValue(interaction.nodeId, inputText);
+      }
+
+      if (isFullSnapshotEvent(event)) {
+        const data = (event as { data?: unknown }).data;
+        this.dom.resetForFullSnapshot();
+        // A FullSnapshot replaces the screen, and the seed lapses. One rule
+        // decides the never-settled downgrade, for every landing (the first
+        // after a submit included): a root that was read (a blank but valid
+        // document counts) has every form on it read just below, so no form
+        // can sit on screen unread and the downgrade lapses; a root that
+        // cannot be read shows nothing, so it cannot rule out an unread form
+        // and the landing is never `settled`.
+        this.landingWatch?.seededForms.clear();
+        this.dom.loadSnapshot(extractDomRoot(data));
+        if (this.landingWatch !== undefined) this.landingWatch.unseededLiveForms = this.dom.nodeCount === 0;
+        this.observeLandingForms(this.dom.takeDirtyForms());
+        continue;
+      }
+      if (isMutationEvent(event)) {
+        const changes = applyDomMutation(this.dom, event as Record<string, unknown>, this.activeReaction, this.work);
+        if (this.activeReaction !== undefined) this.observeFieldMarks(changes.attributeRoots);
+        if (this.activeReaction !== undefined) this.recordMutationAppearances(changes);
+        this.observeLandingForms(this.dom.takeDirtyForms());
+      }
+      if (this.activeReaction !== undefined && interaction === undefined && timestampMs >= this.activeReaction.anchor.timestampMs + REACTION_WINDOW_CAP_MS) {
+        this.finishReaction('covered', this.activeReaction.anchor.timestampMs + REACTION_WINDOW_CAP_MS, false);
+      }
+    }
+    const lastTimestamp = window.lastTimestampMs;
+    if (this.activeReaction !== undefined) {
+      const cap = this.activeReaction.anchor.timestampMs + REACTION_WINDOW_CAP_MS;
+      if (lastTimestamp >= cap) this.finishReaction('covered', cap, false);
+      else this.finishReaction('clipped', Math.max(this.activeReaction.anchor.timestampMs, lastTimestamp), false);
+    }
+    if (this.landingWatch !== undefined) {
+      this.finishLandingWatch(lastTimestamp >= this.landingWatch.markerMs + LANDING_SETTLE_MS);
+    }
+    this.finishOccurrence();
+  }
+
+  /**
+   * The failure guard: an exception while reading a window marks every step
+   * bound in that window `undecodable` (never a partial or borrowed fact) and
+   * drops its running state, so the next window starts clean.
+   */
+  private failWindow(): void {
+    for (const occurrence of this.windowOccurrences) {
+      for (const stepIndex of occurrence.submitIndices) {
+        this.matchedSubmits.delete(stepIndex);
+        this.submitCoverage.set(stepIndex, 'undecodable');
+      }
+      for (const stepIndex of occurrence.navigationIndices) {
+        this.landingValues.set(stepIndex, { coverage: 'undecodable', relatedOpenForm: 'none', unrelatedOpenForm: 'none' });
+      }
+    }
+    this.activeReaction = undefined;
+    this.landingWatch = undefined;
+    this.currentOccurrence = undefined;
+    this.windowOccurrences = [];
+  }
+
+  /** A recording page starts; it carries the event occurrence the lineup rule bound it to, or none. */
+  private startOccurrence(url: string | undefined, decodeIssues: boolean, eventOccurrence: EventOccurrence | undefined): void {
+    if (eventOccurrence !== undefined) this.windowOccurrences.push(eventOccurrence);
+    this.currentOccurrence = { url, eventOccurrence, decodeIssues, anchors: [] };
+  }
+
+  private finishOccurrence(): void {
+    const occurrence = this.currentOccurrence;
+    if (occurrence === undefined) return;
+    const eventOccurrence = occurrence.eventOccurrence;
+    if (eventOccurrence !== undefined) {
+      if (occurrence.decodeIssues) {
+        for (const stepIndex of eventOccurrence.submitIndices) this.submitCoverage.set(stepIndex, 'undecodable');
+        for (const stepIndex of eventOccurrence.navigationIndices) {
+          this.landingValues.set(stepIndex, { coverage: 'undecodable', relatedOpenForm: 'none', unrelatedOpenForm: 'none' });
+        }
+      } else if (eventOccurrence.submitIndices.length > 0) {
+        if (occurrence.anchors.length === 0) {
+          for (const stepIndex of eventOccurrence.submitIndices) this.submitCoverage.set(stepIndex, 'no-anchor');
+        } else if (occurrence.anchors.length !== eventOccurrence.submitIndices.length) {
+          for (const stepIndex of eventOccurrence.submitIndices) this.submitCoverage.set(stepIndex, 'ambiguous');
+        } else {
+          this.attachAnchors(eventOccurrence.submitIndices, occurrence.anchors);
+        }
+      }
+    }
+    this.currentOccurrence = undefined;
+  }
+
+  /** Equal counts on one page occurrence: the n-th recorded anchor joins the n-th submit, by order only. */
+  private attachAnchors(submitIndices: number[], anchors: RecordedAnchor[]): void {
+    for (let index = 0; index < submitIndices.length; index += 1) {
+      const stepIndex = submitIndices[index];
+      const anchor = anchors[index];
+      if (stepIndex === undefined || anchor === undefined) continue;
+      this.matchedSubmits.set(stepIndex, anchor);
+      this.submitCoverage.set(stepIndex, anchor.reaction?.coverage ?? 'clipped');
+    }
+  }
+
+  private startLandingWatch(timestampMs: number): void {
+    const occurrence = this.currentOccurrence?.eventOccurrence;
+    const stepIndex = occurrence?.navigationIndices[0];
+    if (occurrence === undefined || stepIndex === undefined) return;
+    const step = this.steps[stepIndex];
+    if (step === undefined) return;
+    const sourceSubmitIndex = this.lastSubmitBeforeStep.get(stepIndex);
+    const sourceStep = sourceSubmitIndex === undefined ? undefined : this.steps[sourceSubmitIndex];
+    const sourceAnchor = sourceSubmitIndex === undefined ? undefined : this.matchedSubmits.get(sourceSubmitIndex);
+    // An unanchored source (`sourceAnchor` undefined) is the "submitted form
+    // unknown" reading: every qualifying landing form counts as new.
+    const relation = sourceStep === undefined ? 'unrelated' : flowStepRelation(sourceStep.url, step.url);
+    this.landingWatch = {
+      stepIndex,
+      eventOccurrence: occurrence,
+      sourceSubmitIndex,
+      sourceAnchor,
+      url: step.url,
+      relation,
+      seenRelated: 'none',
+      seenUnrelated: 'none',
+      sawRePresentedForm: false,
+      rePresentedForms: new Set<NodeId>(),
+      seededForms: new Set<NodeId>(),
+      unseededLiveForms: false,
+      judged: false,
+      settled: false,
+      completed: false,
+      markerMs: timestampMs,
+    };
+    // Seed from the live form index: a form already on screen that is never
+    // mutated again is still on the landing. It is read at the judgement
+    // point (if still present then), so a form an SPA removes just after its
+    // route marker never counts; a FullSnapshot clears the seed. Seeded only
+    // when a source submit exists: without one the landing reads no forms.
+    // And only for the first navigation after that submit, so N route
+    // markers over M live forms never cost N × M; a later landing of the same
+    // submit with forms already live is then never `settled` (it cannot rule
+    // out an unread form on screen), unless a FullSnapshot whose root is read
+    // replaces the screen before the judgement point. A FullSnapshot whose
+    // root cannot be read makes any landing, this first one included, never
+    // `settled`.
+    if (sourceSubmitIndex === undefined) return;
+    if (!this.firstNavigationAfterSubmit.has(stepIndex)) {
+      this.landingWatch.unseededLiveForms = this.dom.forms.size > 0;
+      return;
+    }
+    for (const formId of this.dom.forms.keys()) {
+      this.work.formIteration();
+      this.landingWatch.seededForms.add(formId);
+    }
+  }
+
+  /** A landing whose page changes again at or after the 1 s settle window, with no interaction first, settled. */
+  private finishLandingAtPageChange(timestampMs: number): void {
+    const watch = this.landingWatch;
+    if (watch !== undefined) this.finishLandingWatch(timestampMs >= watch.markerMs + LANDING_SETTLE_MS);
+  }
+
+  private observeLandingForms(dirtyForms: Iterable<NodeId>): void {
+    const watch = this.landingWatch;
+    if (watch === undefined || watch.completed || watch.sourceSubmitIndex === undefined || this.currentOccurrence?.decodeIssues) return;
+    for (const formId of dirtyForms) {
+      this.work.formIteration();
+      watch.seededForms.delete(formId);
+      const info = inspectOpenForm(this.dom, formId, this.work);
+      if (info === undefined) {
+        watch.rePresentedForms.delete(formId);
+        continue;
+      }
+      if (watch.sourceAnchor !== undefined && sameNameSet(info.identityNames, watch.sourceAnchor.baseline.identityNames, this.work)) {
+        watch.sawRePresentedForm = true;
+        watch.rePresentedForms.add(formId);
+        continue;
+      }
+      watch.rePresentedForms.delete(formId);
+      if (watch.relation === 'forward') watch.seenRelated = mergeOpenFormValue(watch.seenRelated, info.value);
+      else watch.seenUnrelated = mergeOpenFormValue(watch.seenUnrelated, info.value);
+    }
+  }
+
+  /**
+   * The judgement point: the end of the 1 s settle window (`settled`), or the
+   * first recorded interaction before it. Forms already on screen are read
+   * here (if still present), and the landing error is judged once, here, on
+   * the re-presented forms seen by now. A re-presented form first seen after
+   * this point is presence (`rePresentsSubmittedForm: true`), but its error is
+   * not established (`errorShown` absent): it was not on screen at the
+   * judgement point.
+   */
+  private judgeLanding(settled: boolean): void {
+    const watch = this.landingWatch;
+    if (watch === undefined || watch.completed || watch.judged) return;
+    const seeded = [...watch.seededForms].filter((formId) => this.dom.isPresent(formId));
+    this.observeLandingForms(seeded);
+    watch.seededForms.clear();
+    watch.judged = true;
+    watch.settled = settled && !watch.unseededLiveForms;
+    const sourceAnchor = watch.sourceAnchor;
+    if (sourceAnchor === undefined || this.currentOccurrence?.decodeIssues || !watch.sawRePresentedForm) return;
+    let hasLandingError = false;
+    for (const formId of watch.rePresentedForms) {
+      this.work.formIteration();
+      const info = inspectOpenForm(this.dom, formId, this.work);
+      if (info === undefined || !sameNameSet(info.identityNames, sourceAnchor.baseline.identityNames, this.work)) continue;
+      if (landingFormHasNewError(this.dom, formId, sourceAnchor.baseline, this.work)) {
+        hasLandingError = true;
+        break;
+      }
+    }
+    if (hasLandingError) watch.errorShown = true;
+    else if (watch.settled) watch.errorShown = false;
+  }
+
+  /**
+   * The watch's end: the first recorded interaction, or the occurrence's end.
+   * `settledIfUnjudged` is the judgement when the settle-window point has not
+   * already been reached.
+   */
+  private finishLandingWatch(settledIfUnjudged: boolean): void {
+    const watch = this.landingWatch;
+    if (watch === undefined || watch.completed) return;
+    this.judgeLanding(settledIfUnjudged);
+    watch.completed = true;
+    const occurrence = this.currentOccurrence;
+    let coverage: NonNullable<NeutralStep['landing']>['coverage'];
+    if (occurrence?.decodeIssues) coverage = 'undecodable';
+    else if (watch.settled) coverage = 'settled';
+    else if (watch.sawRePresentedForm || watch.seenRelated !== 'none' || watch.seenUnrelated !== 'none') coverage = 'seen-unsettled';
+    else coverage = 'clipped';
+    const output: NonNullable<NeutralStep['landing']> = {
+      coverage,
+      relatedOpenForm: occurrence?.decodeIssues ? 'none' : watch.seenRelated,
+      unrelatedOpenForm: occurrence?.decodeIssues ? 'none' : watch.seenUnrelated,
+    };
+    if (watch.sourceAnchor !== undefined && !occurrence?.decodeIssues) {
+      output.rePresentsSubmittedForm = watch.sawRePresentedForm;
+      if (watch.sawRePresentedForm && watch.errorShown !== undefined) output.errorShown = watch.errorShown;
+    }
+    this.landingValues.set(watch.stepIndex, output);
+    this.landingWatch = undefined;
+  }
+
+  /**
+   * Field marks read only what they need: an `aria-invalid` change is judged
+   * on the changed control; a `class` change counts only inside the submitted
+   * form (a mark above the form never counts), and then only the submitted
+   * form's editable controls under the changed node are re-read: a wrapper
+   * toggle reads its own controls, never every control of the form. Finding
+   * them reads the smaller side: the changed node's subtree while it holds no
+   * more nodes than the form has editable controls, else each editable
+   * control checked for ancestry under the changed node.
+   */
+  private observeFieldMarks(attributeRoots: Array<{ id: NodeId; keys: string[] }>): void {
+    const active = this.activeReaction;
+    if (active === undefined) return;
+    const formId = active.anchor.formId;
+    for (const change of attributeRoots) {
+      const classChange = change.keys.includes('class');
+      if (!classChange && !change.keys.includes('aria-invalid')) continue;
+      let candidates: Iterable<NodeId> = [change.id];
+      if (classChange) {
+        if (change.id !== formId && this.dom.ownerOf(change.id) !== formId) continue;
+        const editable = active.anchor.baseline.editableControlIds;
+        candidates = change.id === formId ? [...editable] : this.editableControlsUnder(change.id, editable);
+      }
+      for (const id of candidates) {
+        this.work.controlIteration();
+        if (active.fieldMarks.has(id)) continue;
+        const node = this.dom.get(id);
+        if (node === undefined || !isEditableControl(node) || this.dom.ownerOf(id) !== formId) continue;
+        if (!active.anchor.baseline.controlIds.has(id) || active.anchor.baseline.invalidIds.has(id) || !isInvalidControl(this.dom, id, formId, this.work)) continue;
+        active.fieldMarks.set(id, successTokensForNode(this.dom, id, this.work).length > 0);
+      }
+    }
+  }
+
+  /** The submitted form's editable controls under `rootId`, read from the smaller side (see `observeFieldMarks`). */
+  private editableControlsUnder(rootId: NodeId, editable: ReadonlySet<NodeId>): NodeId[] {
+    const under: NodeId[] = [];
+    if (walkSubtreeUpTo(this.dom, rootId, editable.size, this.work, (id) => { if (editable.has(id)) under.push(id); })) return under;
+    const within: NodeId[] = [];
+    for (const id of editable) {
+      this.work.controlIteration();
+      if (this.dom.isWithin(id, rootId)) within.push(id);
+    }
+    return within;
+  }
+
+  private startAnchor(clickedId: NodeId, timestampMs: number): void {
+    const occurrence = this.currentOccurrence;
+    // The recorder names the innermost element under the pointer: climb from
+    // a span or icon inside a button to the button (or input) itself.
+    const nodeId = this.nearestControl(clickedId);
+    const node = nodeId === undefined ? undefined : this.dom.get(nodeId);
+    if (occurrence === undefined || nodeId === undefined || node === undefined || !isSubmitControl(node)) return;
+    const formId = this.dom.ownerOf(nodeId);
+    if (formId === undefined) return;
+    const baseline = snapshotForm(this.dom, formId, this.work);
+    if (baseline === undefined) return;
+    const anchor: RecordedAnchor = { timestampMs, nodeId, formId, baseline };
+    occurrence.anchors.push(anchor);
+    this.activeReaction = {
+      anchor,
+      occurrence,
+      buckets: [[], [], []],
+      removedSlots: new Set<string>(),
+      dialogIds: new Set<NodeId>(),
+      fieldMarks: new Map<NodeId, boolean>(),
+    };
+  }
+
+  /** The clicked node itself when it is a button or input, else its nearest `button`/`input` ancestor (bounded by the page root, counted). */
+  private nearestControl(id: NodeId): NodeId | undefined {
+    let currentId: NodeId | undefined = id;
+    const step = climbGuard(this.dom);
+    while (currentId !== undefined) {
+      step();
+      this.work.iteration();
+      const node = this.dom.get(currentId);
+      if (node === undefined) return undefined;
+      if (node.tag === 'button' || node.tag === 'input') return currentId;
+      if (node.tag === 'form') return undefined;
+      currentId = node.parentId;
+    }
+    return undefined;
+  }
+
+  private recordMutationAppearances(changes: AppliedMutation): void {
+    const active = this.activeReaction;
+    if (active === undefined) return;
+    for (const id of changes.addedIds) {
+      const node = this.dom.get(id);
+      if (node === undefined || isEquivalentReadd(node, this.dom, active, this.work)) continue;
+      if (isDialogNode(node) && this.dom.isVisible(id)) active.dialogIds.add(id);
+      this.recordAppearance(active, node, id, 'added');
+    }
+    for (const [id, before] of changes.beforeStates) {
+      if (changes.addedIdSet.has(id)) continue;
+      const node = this.dom.get(id);
+      if (node === undefined) continue;
+      const visible = this.dom.isVisible(id);
+      const hasText = this.dom.hasVisibleText(id);
+      const how = !before.visible && visible && hasText ? 'shown' : before.visible && visible && !before.hasText && hasText ? 'text-set' : undefined;
+      if (how === undefined) continue;
+      // Same order as the added path: a dialog registers before its own entry is judged.
+      if (isDialogNode(node) && visible) active.dialogIds.add(id);
+      this.recordAppearance(active, node, id, how);
+    }
+  }
+
+  private recordAppearance(active: ActiveReaction, node: LiveNode, nodeId: NodeId, how: 'added' | 'shown' | 'text-set'): void {
+    const value = buildAppearedValue(this.dom, nodeId, how, this.work);
+    if (value === undefined || isInsideNewInteractiveDialog(this.dom, nodeId, active, this.work)) return;
+    const bucket: 0 | 1 | 2 = value.errorTokens.length > 0
+      ? value.successTokens.length > 0 ? 1 : 0
+      : 2;
+    const entries = active.buckets[bucket];
+    if (entries.length < APPEARED_BUCKET_CAP) entries.push({ nodeId, bucket, value });
+  }
+
+  private finishReaction(kind: 'covered' | 'clipped', endMs: number, pageChange: boolean): void {
+    const active = this.activeReaction;
+    if (active === undefined) return;
+    let fields = 0;
+    let goneAtPageChange = 0;
+    for (const [fieldId, successCancelled] of active.fieldMarks) {
+      this.work.controlIteration();
+      if (successCancelled) continue;
+      const stillInvalid = this.dom.isPresent(fieldId) && isInvalidControl(this.dom, fieldId, active.anchor.formId, this.work);
+      if (pageChange && !stillInvalid) goneAtPageChange += 1;
+      else fields += 1;
+    }
+    const appeared: NonNullable<NonNullable<NeutralStep['afterSubmit']>['appeared']> = [];
+    for (const bucket of active.buckets) {
+      for (const entry of bucket) {
+        this.work.controlIteration();
+        if (pageChange && (!this.dom.isPresent(entry.nodeId) || !this.dom.isVisible(entry.nodeId) || !this.dom.hasVisibleText(entry.nodeId))) {
+          if (entry.value.errorTokens.length > 0 && entry.value.successTokens.length === 0) goneAtPageChange += 1;
+          continue;
+        }
+        appeared.push(entry.value);
+        if (appeared.length === APPEARED_OUTPUT_CAP) break;
+      }
+      if (appeared.length === APPEARED_OUTPUT_CAP) break;
+    }
+    const formStillPresent = this.formStillPresent(active.anchor.baseline);
+    active.anchor.reaction = {
+      coverage: kind,
+      windowMs: Math.max(0, Math.min(REACTION_WINDOW_CAP_MS, endMs - active.anchor.timestampMs)),
+      formStillPresent,
+      fieldsMarkedInvalid: fields,
+      appeared,
+      ...(goneAtPageChange === 0 ? {} : { goneAtPageChange }),
+    };
+    this.activeReaction = undefined;
+  }
+
+  private formStillPresent(baseline: FormSnapshot): boolean {
+    if (!this.dom.isPresent(baseline.formId)) return false;
+    const controls = this.dom.formControls(baseline.formId);
+    if (controls === undefined) return false;
+    for (const controlId of baseline.editableControlIds) {
+      this.work.controlIteration();
+      if (controls.has(controlId) && this.dom.isPresent(controlId)) return true;
+    }
+    return false;
+  }
+}
+
+function mergeOpenFormValue(current: 'none' | 'empty' | 'filled', next: 'empty' | 'filled'): 'empty' | 'filled' {
+  return current === 'empty' || next === 'empty' ? 'empty' : 'filled';
+}
+
+function sameNameSet(left: ReadonlyMap<string, number>, right: ReadonlySet<string>, work: EvidenceWorkMeter): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left.keys()) {
+    work.controlIteration();
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
+interface MutationBeforeState { visible: boolean; hasText: boolean }
+interface AppliedMutation {
+  addedIds: NodeId[];
+  addedIdSet: Set<NodeId>;
+  beforeStates: Map<NodeId, MutationBeforeState>;
+  attributeRoots: Array<{ id: NodeId; keys: string[] }>;
+}
+
+function isFullSnapshotEvent(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { type?: unknown }).type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE;
+}
+
+function isMutationEvent(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || (value as { type?: unknown }).type !== RRWEB_INCREMENTAL_EVENT) return false;
+  const data = (value as { data?: unknown }).data;
+  return isPlainRecord(data) && data.source === RRWEB_MUTATION_SOURCE;
+}
+
+function recordingRouteMarker(value: unknown): { isMarker: boolean; meta: boolean; url?: string } {
+  if (typeof value !== 'object' || value === null) return { isMarker: false, meta: false };
+  const event = value as { type?: unknown; data?: unknown };
+  if (event.type === RRWEB_META_EVENT) {
+    const data = isPlainRecord(event.data) ? event.data : {};
+    return { isMarker: true, meta: true, ...(typeof data.href === 'string' ? { url: data.href } : {}) };
+  }
+  if (event.type !== RRWEB_CUSTOM_EVENT || !isPlainRecord(event.data) || event.data.tag !== '$pageview') return { isMarker: false, meta: false };
+  const payload = isPlainRecord(event.data.payload) ? event.data.payload : {};
+  return { isMarker: true, meta: false, ...(typeof payload.href === 'string' ? { url: payload.href } : {}) };
+}
+
+type RecordedInteraction = { kind: 'click' | 'input' | 'submit'; nodeId?: NodeId };
+
+function recordingInteraction(value: unknown): RecordedInteraction | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const event = value as { type?: unknown; data?: unknown };
+  if (event.type === RRWEB_INCREMENTAL_EVENT && isPlainRecord(event.data)) {
+    const data = event.data;
+    const id = (typeof data.id === 'number' || typeof data.id === 'string') ? data.id : undefined;
+    if (data.source === RRWEB_MOUSE_SOURCE && data.type === RRWEB_CLICK) return { kind: 'click', ...(id === undefined ? {} : { nodeId: id }) };
+    if (data.source === RRWEB_INPUT_SOURCE) return { kind: 'input', ...(id === undefined ? {} : { nodeId: id }) };
+  }
+  if (event.type === RRWEB_CUSTOM_EVENT && isPlainRecord(event.data)) {
+    const payload = isPlainRecord(event.data.payload) ? event.data.payload : {};
+    if ((event.data.tag === '$autocapture' || event.data.tag === '$form_submit') && payload.event_type === 'submit') {
+      return { kind: 'submit' };
+    }
+  }
+  return undefined;
+}
+
+function applyDomMutation(
+  dom: EvidenceDom,
+  event: Record<string, unknown>,
+  active: ActiveReaction | undefined,
+  work: EvidenceWorkMeter,
+): AppliedMutation {
+  const data = isPlainRecord(event.data) ? event.data : {};
+  const beforeStates = new Map<NodeId, MutationBeforeState>();
+  const addedIds: NodeId[] = [];
+  const addedIdSet = new Set<NodeId>();
+  const attributeRoots: Array<{ id: NodeId; keys: string[] }> = [];
+  const additions = asPlainRecords(data.adds, work);
+  const attributeChanges = asPlainRecords(data.attributes, work);
+  const removals = asPlainRecords(data.removes, work);
+  const texts = asPlainRecords(data.texts, work);
+
+  // Before-states are read only to judge appearances inside an open reaction
+  // window, so none are recorded outside one. Inside one, an attribute record
+  // keeps only the changed node's own prior state, and only for the keys that
+  // can change visibility; its descendants are filled in lazily below, and
+  // only when the node went from not shown to shown.
+  const recording = active !== undefined;
+  const visibilityRoots: NodeId[] = [];
+  for (const record of attributeChanges) {
+    work.iteration();
+    const id = nodeId(record.id);
+    if (!recording || id === undefined || !changesVisibility(record.attributes)) continue;
+    if (!beforeStates.has(id)) beforeStates.set(id, { visible: dom.isVisible(id), hasText: dom.hasVisibleText(id) });
+    visibilityRoots.push(id);
+  }
+  for (const record of texts) {
+    work.iteration();
+    const id = nodeId(record.id);
+    if (recording && id !== undefined) rememberAncestors(dom, id, beforeStates, work);
+  }
+  for (const record of additions) {
+    work.iteration();
+    const parentId = nodeId(record.parentId);
+    if (parentId !== undefined) {
+      if (recording) rememberAncestors(dom, parentId, beforeStates, work);
+      dom.markContainingFormDirty(parentId);
+    }
+  }
+  for (const record of removals) {
+    work.iteration();
+    const parentId = nodeId(record.parentId);
+    const id = nodeId(record.id);
+    if (recording && parentId !== undefined) rememberAncestors(dom, parentId, beforeStates, work);
+    if (id !== undefined) {
+      if (active !== undefined) rememberRemovalSlots(dom, id, active, work);
+      dom.removeTree(id);
+    }
+  }
+  for (const record of attributeChanges) {
+    work.iteration();
+    const id = nodeId(record.id);
+    if (id === undefined) continue;
+    const attrs = isPlainRecord(record.attributes) ? record.attributes : {};
+    attributeRoots.push({ id, keys: Object.keys(attrs) });
+    dom.applyAttributes(id, attrs);
+  }
+  for (const id of visibilityRoots) {
+    work.iteration();
+    const before = beforeStates.get(id);
+    if (before === undefined || before.visible || !dom.isVisible(id)) continue;
+    // The node was not shown and now is: every descendant was not shown before.
+    walkSubtree(dom, id, work, (descendant) => {
+      if (descendant !== id && !beforeStates.has(descendant)) beforeStates.set(descendant, { visible: false, hasText: false });
+    });
+  }
+  for (const record of texts) {
+    work.iteration();
+    const id = nodeId(record.id);
+    if (id !== undefined) dom.applyText(id, record.value);
+  }
+  for (const record of additions) {
+    work.iteration();
+    const parentId = nodeId(record.parentId);
+    const nextId = nodeId(record.nextId);
+    const rrNode = isRrwebNode(record.node) ? record.node : undefined;
+    if (rrNode === undefined) continue;
+    const rootId = dom.addTree(rrNode, parentId, nextId);
+    if (rootId === undefined) continue;
+    walkSubtree(dom, rootId, work, (id) => {
+      addedIds.push(id);
+      addedIdSet.add(id);
+    });
+  }
+  return { addedIds, addedIdSet, beforeStates, attributeRoots };
+}
+
+function asPlainRecords(value: unknown, work: EvidenceWorkMeter): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  const records: Array<Record<string, unknown>> = [];
+  for (const item of value) {
+    work.iteration();
+    if (isPlainRecord(item)) records.push(item);
+  }
+  return records;
+}
+
+function nodeId(value: unknown): NodeId | undefined {
+  return typeof value === 'number' || typeof value === 'string' ? value : undefined;
+}
+
+/** Only `style`, `class` and `hidden` can change whether a node is shown. */
+function changesVisibility(attributes: unknown): boolean {
+  if (!isPlainRecord(attributes)) return false;
+  return 'style' in attributes || 'class' in attributes || 'hidden' in attributes;
+}
+
+/**
+ * Prior state of a node and its ancestors (an added child or new text can
+ * give an existing empty ancestor its text). One climb collects the chain and
+ * visibility is resolved from the top down, so the cost is the depth, not its
+ * square.
+ */
+function rememberAncestors(
+  dom: EvidenceDom,
+  startId: NodeId,
+  before: Map<NodeId, MutationBeforeState>,
+  work: EvidenceWorkMeter,
+): void {
+  const chain: LiveNode[] = [];
+  let currentId: NodeId | undefined = startId;
+  const step = climbGuard(dom);
+  while (currentId !== undefined) {
+    step();
+    work.iteration();
+    const node = dom.get(currentId);
+    if (node === undefined) break;
+    chain.push(node);
+    currentId = node.parentId;
+  }
+  // A chain that stops at a missing ancestor is detached, so not shown.
+  let visible = currentId === undefined;
+  for (let index = chain.length - 1; index >= 0; index -= 1) {
+    work.iteration();
+    const node = chain[index];
+    if (node === undefined) continue;
+    visible = visible && !node.ownHidden;
+    if (!before.has(node.id)) before.set(node.id, { visible, hasText: visible && node.visibleTextLength > 0 });
+  }
+}
+
+function walkSubtree(dom: EvidenceDom, rootId: NodeId, work: EvidenceWorkMeter, visit: (id: NodeId) => void): void {
+  const stack: NodeId[] = [rootId];
+  const step = climbGuard(dom);
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (id === undefined) continue;
+    work.iteration();
+    const node = dom.get(id);
+    if (node === undefined) continue;
+    step();
+    visit(id);
+    for (let index = node.childIds.length - 1; index >= 0; index -= 1) {
+      work.iteration();
+      const child = node.childIds[index];
+      if (child !== undefined) stack.push(child);
+    }
+  }
+}
+
+/**
+ * `walkSubtree` that gives up as soon as the subtree is known to hold more
+ * than `limit` nodes (visited plus waiting): true when the whole subtree was
+ * visited, false when it stopped early (the caller then reads the other
+ * side). Its work is at most about `limit`, whatever the subtree's size.
+ */
+function walkSubtreeUpTo(dom: EvidenceDom, rootId: NodeId, limit: number, work: EvidenceWorkMeter, visit: (id: NodeId) => void): boolean {
+  const stack: NodeId[] = [rootId];
+  let visited = 0;
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (id === undefined) continue;
+    work.iteration();
+    const node = dom.get(id);
+    if (node === undefined) continue;
+    visited += 1;
+    if (visited + stack.length + node.childIds.length > limit) return false;
+    visit(id);
+    for (let index = node.childIds.length - 1; index >= 0; index -= 1) {
+      work.iteration();
+      const child = node.childIds[index];
+      if (child !== undefined) stack.push(child);
+    }
+  }
+  return true;
+}
+
+function rememberRemovalSlots(dom: EvidenceDom, rootId: NodeId, active: ActiveReaction, work: EvidenceWorkMeter): void {
+  walkSubtree(dom, rootId, work, (id) => {
+    const node = dom.get(id);
+    if (node === undefined || node.type !== RRWEB_ELEMENT_NODE || node.parentId === undefined) return;
+    const parent = dom.get(node.parentId);
+    if (parent === undefined) return;
+    const index = childIndex(parent, id, work);
+    active.removedSlots.add(appearanceSlotKey(node, node.parentId, index));
+  });
+}
+
+function appearanceSlotKey(node: LiveNode, parentId: NodeId, index: number): string {
+  return JSON.stringify([node.tag, rawTokenSet(node), String(parentId), index]);
+}
+
+function rawTokenSet(node: LiveNode): string[] {
+  const values = [
+    attrString(node, 'id'), attrString(node, 'class'), attrString(node, 'data-testid'),
+    attrString(node, 'data-status'), attrString(node, 'data-type'), attrString(node, 'data-variant'), attrString(node, 'data-severity'),
+  ];
+  const tokens = new Set<string>();
+  for (const value of values) for (const token of tokenize(value)) tokens.add(token);
+  return [...tokens].sort();
+}
+
+function isEquivalentReadd(node: LiveNode, dom: EvidenceDom, active: ActiveReaction, work: EvidenceWorkMeter): boolean {
+  if (node.parentId === undefined) return false;
+  const parent = dom.get(node.parentId);
+  if (parent === undefined) return false;
+  const index = childIndex(parent, node.id, work);
+  return active.removedSlots.has(appearanceSlotKey(node, node.parentId, index));
+}
+
+function tokenize(value: string | undefined): string[] {
+  if (value === undefined) return [];
+  return value.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function closedTokens(node: LiveNode, vocabulary: readonly string[]): string[] {
+  const values = [
+    attrString(node, 'id'), attrString(node, 'class'), attrString(node, 'data-testid'),
+    attrString(node, 'data-status'), attrString(node, 'data-type'), attrString(node, 'data-variant'), attrString(node, 'data-severity'),
+  ];
+  const found = new Set<string>();
+  for (const value of values) for (const token of tokenize(value)) found.add(token);
+  return vocabulary.filter((token) => found.has(token));
+}
+
+function errorTokensForNode(node: LiveNode): ErrorToken[] {
+  return closedTokens(node, ERROR_TOKENS) as ErrorToken[];
+}
+
+function successTokensForNode(dom: EvidenceDom, id: NodeId, work: EvidenceWorkMeter): SuccessToken[] {
+  const found = new Set<string>();
+  let currentId: NodeId | undefined = id;
+  let ancestors = 0;
+  const step = climbGuard(dom);
+  while (currentId !== undefined && ancestors < 2) {
+    step();
+    const node = dom.get(currentId);
+    if (node === undefined) break;
+    for (const token of closedTokens(node, SUCCESS_TOKENS)) found.add(token);
+    if (currentId !== id) ancestors += 1;
+    currentId = node.parentId;
+    work.iteration();
+  }
+  return SUCCESS_TOKENS.filter((token) => found.has(token));
+}
+
+function eligibleEntryTag(node: LiveNode): AppearedTag | undefined {
+  if ((APPEARED_TAGS as readonly string[]).includes(node.tag)) return node.tag as AppearedTag;
+  const role = (attrString(node, 'role') ?? '').toLowerCase();
+  const live = attrString(node, 'aria-live');
+  return role === 'alert' || role === 'status' || live !== undefined ? 'other' : undefined;
+}
+
+function buildAppearedValue(
+  dom: EvidenceDom,
+  id: NodeId,
+  how: 'added' | 'shown' | 'text-set',
+  work: EvidenceWorkMeter,
+): NonNullable<NonNullable<NeutralStep['afterSubmit']>['appeared']>[number] | undefined {
+  const node = dom.get(id);
+  if (node === undefined || node.type !== RRWEB_ELEMENT_NODE || !dom.isVisible(id)) return undefined;
+  if (node.ownInteractive) return undefined;
+  const tag = eligibleEntryTag(node);
+  if (tag === undefined) return undefined;
+  const errorTokens = errorTokensForNode(node);
+  const successTokens = successTokensForNode(dom, id, work);
+  const roleValue = (attrString(node, 'role') ?? '').toLowerCase();
+  const liveValue = (attrString(node, 'aria-live') ?? '').toLowerCase();
+  const role = roleValue === 'alert' || roleValue === 'status' ? roleValue : undefined;
+  const live = liveValue === 'assertive' || liveValue === 'polite' ? liveValue : undefined;
+  if (how !== 'added' && !dom.hasVisibleText(id)) return undefined;
+  if (how !== 'added' && errorTokens.length === 0 && successTokens.length === 0 && role === undefined && live === undefined) return undefined;
+  if (tag === 'other' && !dom.hasVisibleText(id)) return undefined;
+  return {
+    how,
+    tag,
+    ...(role === undefined ? {} : { role }),
+    ...(live === undefined ? {} : { live }),
+    errorTokens,
+    successTokens,
+  };
+}
+
+function isDialogNode(node: LiveNode): boolean {
+  const role = (attrString(node, 'role') ?? '').toLowerCase();
+  return node.tag === 'dialog' || role === 'dialog' || role === 'alertdialog';
+}
+
+function isInsideNewInteractiveDialog(dom: EvidenceDom, id: NodeId, active: ActiveReaction, work: EvidenceWorkMeter): boolean {
+  let currentId: NodeId | undefined = id;
+  const step = climbGuard(dom);
+  while (currentId !== undefined) {
+    step();
+    work.iteration();
+    const node = dom.get(currentId);
+    if (node === undefined) return false;
+    if (active.dialogIds.has(currentId) && isDialogNode(node) && dom.hasInteractiveDescendant(currentId)) return true;
+    currentId = node.parentId;
+  }
+  return false;
+}
+
+function classTokens(node: LiveNode): Set<string> {
+  return new Set((attrString(node, 'class') ?? '').split(/\s+/).filter(Boolean).map((token) => token.toLowerCase()));
+}
+
+function isInvalidControl(dom: EvidenceDom, id: NodeId, formId: NodeId, work: EvidenceWorkMeter): boolean {
+  let currentId: NodeId | undefined = id;
+  const step = climbGuard(dom);
+  while (currentId !== undefined) {
+    step();
+    const node = dom.get(currentId);
+    if (node === undefined) return false;
+    if (currentId === id && (attrString(node, 'aria-invalid') ?? '').toLowerCase() === 'true') return true;
+    const classes = classTokens(node);
+    for (const token of ERROR_CLASS_TOKENS) {
+      work.iteration();
+      if (classes.has(token)) return true;
+    }
+    if (currentId === formId) return false;
+    currentId = node.parentId;
+  }
+  return false;
+}
+
+interface OpenFormInfo {
+  identityNames: ReadonlyMap<string, number>;
+  value: 'empty' | 'filled';
+}
+
+/** A live main-content form with a submit-capable control, read from its running totals (O(1) plus the main-content climb). */
+function inspectOpenForm(dom: EvidenceDom, formId: NodeId, work: EvidenceWorkMeter): OpenFormInfo | undefined {
+  const form = dom.get(formId);
+  const stats = dom.formStats.get(formId);
+  work.controlIteration();
+  if (form === undefined || form.tag !== 'form' || stats === undefined || stats.submitControls <= 0 || !isMainContent(dom, formId, work)) return undefined;
+  const value = stats.countedControls > 0 && stats.emptyControls * 2 > stats.countedControls ? 'empty' : 'filled';
+  return { identityNames: stats.identityNames, value };
+}
+
+function isCountedControl(node: LiveNode): boolean {
+  if (node.tag === 'textarea' || node.tag === 'select') return true;
+  if (node.tag !== 'input') return false;
+  const type = (attrString(node, 'type') ?? '').trim().toLowerCase();
+  return !UNCOUNTED_INPUT_TYPES.has(type);
+}
+
+function controlIdentityName(node: LiveNode): string | undefined {
+  const name = attrString(node, 'name');
+  if (name !== undefined && name.length > 0) return name;
+  const id = attrString(node, 'id');
+  return id !== undefined && id.length > 0 ? id : undefined;
+}
+
+function isMainContent(dom: EvidenceDom, formId: NodeId, work: EvidenceWorkMeter): boolean {
+  let currentId: NodeId | undefined = formId;
+  const step = climbGuard(dom);
+  while (currentId !== undefined) {
+    step();
+    work.iteration();
+    const node = dom.get(currentId);
+    if (node === undefined) return false;
+    const role = (attrString(node, 'role') ?? '').toLowerCase();
+    if (node.tag === 'header' || node.tag === 'nav' || node.tag === 'footer' || node.tag === 'aside' || role === 'search' || role === 'complementary') return false;
+    currentId = node.parentId;
+  }
+  return true;
+}
+
+function snapshotForm(dom: EvidenceDom, formId: NodeId, work: EvidenceWorkMeter): FormSnapshot | undefined {
+  const controls = dom.formControls(formId);
+  if (dom.get(formId)?.tag !== 'form' || controls === undefined) return undefined;
+  const controlIds = new Set<NodeId>();
+  const editableControlIds = new Set<NodeId>();
+  const identityNames = new Set<string>();
+  const invalidIds = new Set<NodeId>();
+  const invalidNames = new Set<string>();
+  for (const controlId of controls) {
+    work.controlIteration();
+    const control = dom.get(controlId);
+    if (control === undefined) continue;
+    controlIds.add(controlId);
+    if (control.tag === 'input' || control.tag === 'textarea' || control.tag === 'select') {
+      const name = controlIdentityName(control);
+      if (name !== undefined) identityNames.add(name);
+    }
+    if (isEditableControl(control)) {
+      editableControlIds.add(controlId);
+      if (isInvalidControl(dom, controlId, formId, work)) {
+        invalidIds.add(controlId);
+        const name = controlIdentityName(control);
+        if (name !== undefined) invalidNames.add(name);
+      }
+    }
+  }
+  const errorMessageCounts = new Map<string, number>();
+  walkSubtree(dom, formId, work, (id) => {
+    const node = dom.get(id);
+    if (node === undefined || node.type !== RRWEB_ELEMENT_NODE || !dom.isVisible(id) || !dom.hasVisibleText(id) || node.ownInteractive) return;
+    const tag = eligibleEntryTag(node);
+    const errors = errorTokensForNode(node);
+    const successes = successTokensForNode(dom, id, work);
+    if (tag === undefined || errors.length === 0 || successes.length > 0) return;
+    const signature = JSON.stringify([tag, errors]);
+    errorMessageCounts.set(signature, (errorMessageCounts.get(signature) ?? 0) + 1);
+  });
+  return { formId, controlIds, editableControlIds, identityNames, invalidIds, invalidNames, errorMessageCounts };
+}
+
+function landingFormHasNewError(dom: EvidenceDom, formId: NodeId, baseline: FormSnapshot, work: EvidenceWorkMeter): boolean {
+  const current = snapshotForm(dom, formId, work);
+  if (current === undefined) return false;
+  for (const [signature, count] of current.errorMessageCounts) {
+    work.controlIteration();
+    if (count > (baseline.errorMessageCounts.get(signature) ?? 0)) return true;
+  }
+  for (const name of current.invalidNames) {
+    work.controlIteration();
+    if (!baseline.invalidNames.has(name)) return true;
+  }
+  return false;
+}
+
+
 
 // ---------------------------------------------------------------------------
 // Demo — fetch the real enriched session and print its NeutralSession form.

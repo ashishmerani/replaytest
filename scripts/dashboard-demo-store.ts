@@ -82,7 +82,12 @@ export function buildDemoStore(): DemoStore {
     needsReview: { count: 0 },
     completionCounts: {
       completed: journeys.filter((journey) => journey.status === 'completed').reduce((total, journey) => total + journey.sessionCount, 0),
+      // Events-only counts: no `completedWitnessed` or `errorAfterSubmit`, because an events-only
+      // scan cannot measure either (the count line then shows neither).
+      abandonedMidFlow: journeys.filter((journey) => journey.status === 'abandoned-mid-flow').reduce((total, journey) => total + journey.sessionCount, 0),
       navigated: journeys.filter((journey) => journey.status === 'navigated').reduce((total, journey) => total + journey.sessionCount, 0),
+      submitted: journeys.filter((journey) => journey.status === 'submitted').reduce((total, journey) => total + journey.sessionCount, 0),
+      abandoned: journeys.filter((journey) => journey.status === 'abandoned').reduce((total, journey) => total + journey.sessionCount, 0),
     },
     appScope: { scope: { app: 'demo-workspace', prefixes: ['https://demo.example'] }, excludedSessions: 0 },
     excludedByScope: 0,

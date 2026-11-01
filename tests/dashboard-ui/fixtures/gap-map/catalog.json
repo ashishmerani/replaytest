@@ -64,8 +64,7 @@
               "action": {
                 "kind": "reconcile-link",
                 "label": "This plan was replaced by a newer one — review the newer plan.",
-                "command": "replaytest reconcile old-billing",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                "command": "replaytest reconcile old-billing"
               },
               "routeLinkState": "linked-plan-superseded",
               "linkState": "linked-plan-superseded"
@@ -277,8 +276,7 @@
             "action": {
               "kind": "reconcile-link",
               "label": "This plan was replaced by a newer one — review the newer plan.",
-              "command": "replaytest reconcile old-billing",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "command": "replaytest reconcile old-billing"
             },
             "routeLinkState": "linked-plan-superseded"
           },
@@ -297,8 +295,7 @@
                 "action": {
                   "kind": "reconcile-link",
                   "label": "This plan was replaced by a newer one — review the newer plan.",
-                  "command": "replaytest reconcile old-billing",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "command": "replaytest reconcile old-billing"
                 },
                 "routeLinkState": "linked-plan-superseded",
                 "linkState": "linked-plan-superseded"
@@ -320,8 +317,7 @@
                 "action": {
                   "kind": "reconcile-link",
                   "label": "This plan was replaced by a newer one — review the newer plan.",
-                  "command": "replaytest reconcile old-billing",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "command": "replaytest reconcile old-billing"
                 },
                 "routeLinkState": "linked-plan-superseded",
                 "linkState": "linked-plan-superseded"
@@ -435,8 +431,7 @@
             "action": {
               "kind": "reconcile-link",
               "label": "This plan was replaced by a newer one — review the newer plan.",
-              "command": "replaytest reconcile old-billing",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "command": "replaytest reconcile old-billing"
             }
           },
           "kinds": [
@@ -453,8 +448,7 @@
                 "action": {
                   "kind": "reconcile-link",
                   "label": "This plan was replaced by a newer one — review the newer plan.",
-                  "command": "replaytest reconcile old-billing",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "command": "replaytest reconcile old-billing"
                 }
               }
             }
@@ -473,8 +467,7 @@
                 "action": {
                   "kind": "reconcile-link",
                   "label": "This plan was replaced by a newer one — review the newer plan.",
-                  "command": "replaytest reconcile old-billing",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "command": "replaytest reconcile old-billing"
                 }
               }
             }

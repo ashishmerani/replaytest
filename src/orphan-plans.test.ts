@@ -1,3 +1,4 @@
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import { test } from 'node:test';
@@ -29,7 +30,7 @@ function sidecar(
       journeyIndex: 0,
       signature,
       generatedAt,
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
       ...sourceOverrides,
     },
     start: '/login.html',

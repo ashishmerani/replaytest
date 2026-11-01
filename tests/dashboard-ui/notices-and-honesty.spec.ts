@@ -53,7 +53,19 @@ test.describe('notices and honesty blocks', () => {
     await expect(info).toBeHidden();
     await trigger.click();
     await expect(info).toBeVisible();
-    await expect(info).toContainText('built before your journey-matching rules changed');
+    await expect(info).toContainText('This plan was built by an earlier version of replaytest, which grouped visits differently.');
+    await expect(info).toContainText('Tests still run unchanged');
+    // One plan is listed, so the card speaks of "this plan" (the plural form is checked below).
+    await expect(info).toContainText('Some journeys this plan covered may say “No test yet” until the plan is re-run.');
+    // The card carries the two-sentence clearing text; the full clearing steps live in the
+    // dashboard guide, never in this popover.
+    await expect(info).toContainText('Re-running plan rewrites the plan, so edits made to it are replaced. The dashboard guide lists what to do if plan refuses or the session can no longer be fetched.');
+    await expect(info).not.toContainText('--force');
+    await expect(info).not.toContainText('reconcile --apply');
+    await expect(info).not.toContainText('run regenerate, then accept');
+    await expect(info).not.toContainText('Out of date');
+    // The reason sits inside an ⓘ popover, so it never opens with a second ⓘ.
+    await expect(info).not.toContainText('ⓘ This plan');
     await page.keyboard.press('Escape');
     await expect(info).toBeHidden();
 
@@ -67,14 +79,18 @@ test.describe('notices and honesty blocks', () => {
         needsReview: {
           count: 2,
           plans: [
-            { slug: 'fixture-legacy', kind: 'older-url-semantics', note: 'Built under older signature rules.', replanCommand: 'replaytest plan fixture-user-legacy' },
-            { slug: 'fixture-newly-stale', kind: 'older-url-semantics', note: 'Went stale after the last visit.', replanCommand: 'replaytest plan fixture-user-newly-stale' },
+            { slug: 'fixture-legacy', kind: 'older-url-semantics', note: 'Built under different URL rules.', reasons: [{ kind: 'older-url-semantics', note: 'ⓘ This plan was built under different URL rules.' }, { kind: 'older-journey-boundaries', note: 'ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.' }], replanCommand: 'replaytest plan fixture-user-legacy' },
+            { slug: 'fixture-newly-stale', kind: 'older-url-semantics', note: 'Built under different URL rules.', reasons: [{ kind: 'older-url-semantics', note: 'ⓘ This plan was built under different URL rules.' }], replanCommand: 'replaytest plan fixture-user-newly-stale' },
           ],
         },
       }),
     }));
     await gotoAndSettle(page, dashboardBaseUrl);
     await expect(card).toContainText('2 plans need review');
+    const pluralInfo = page.locator(`#${await trigger.getAttribute('aria-controls')}`);
+    await trigger.click();
+    await expect(pluralInfo).toBeVisible();
+    await expect(pluralInfo).toContainText('Some journeys these plans covered may say “No test yet” until the plans are re-run.');
   });
 
   // "A dismissal still works for the visit when storage refuses" concerned the needs-review

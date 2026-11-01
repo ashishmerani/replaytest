@@ -179,6 +179,10 @@ export async function drawerMicroLabels(page: Page): Promise<ShapeVerdict> {
       labels: [...document.querySelectorAll('#dash-drawer-panel-overview .dash-drawer-summary-label')].map((node) => (node.textContent ?? '').trim()),
       kicker: read(document.querySelector('.dash-drawer-eyebrow')),
       meta: ((document.querySelector('.dash-drawer-summary')?.textContent) ?? '').trim(),
+      metaParts: [...(document.querySelector('.dash-drawer-summary')?.children ?? [])].map((node) => ({
+        kind: node.classList.contains('dash-drawer-summary-sep') ? 'sep' : node.classList.contains('dash-drawer-summary-fact') ? 'fact' : 'other',
+        text: (node.textContent ?? '').trim(),
+      })),
     };
   });
   const notes: string[] = [];
@@ -190,10 +194,20 @@ export async function drawerMicroLabels(page: Page): Promise<ShapeVerdict> {
   }
   if (seen.labels.join('|') !== 'Status|Coverage') notes.push(`the two tile labels read "${seen.labels.join('|')}", not "Status|Coverage"`);
   if (seen.kicker === null || seen.kicker.transform !== 'uppercase') notes.push('the JOURNEY DETAILS kicker lost its uppercase treatment');
-  // Real separator spans put one ` · ` between every pair of facts, with no leading or trailing
-  // separator. Reading `textContent` exercises the same channel that carries those DOM glyphs.
-  const evenText = /^[^·]+(?: · [^·]+)+$/u.test(seen.meta);
-  if (!evenText) notes.push(`the meta line does not separate every pair of facts with one " · ": "${seen.meta}"`);
+  // Real separator spans put one ` · ` between every pair of fact spans, with no leading or trailing
+  // separator. The check reads the span structure, not the joined text: a status label can carry its
+  // own " · " ("Completed · finish not checked"), so a text-only regex could not tell four facts from
+  // five. The joined `textContent` must still read facts joined by " · " — the channel a reader sees.
+  const parts = seen.metaParts;
+  const facts = parts.filter((part) => part.kind === 'fact');
+  const alternates = parts.length >= 3 && parts.length % 2 === 1
+    && parts.every((part, index) => part.kind === (index % 2 === 0 ? 'fact' : 'sep'));
+  const separatorsHold = parts.filter((part) => part.kind === 'sep').every((part) => part.text === '·');
+  const factsHold = facts.every((part) => part.text.length > 0);
+  const joinedText = seen.meta.replace(/\s+/gu, ' ') === facts.map((part) => part.text).join(' · ');
+  if (!(alternates && separatorsHold && factsHold && joinedText)) {
+    notes.push(`the meta line does not separate every pair of facts with one " · ": "${seen.meta}" (${parts.map((part) => `${part.kind}:${part.text}`).join(' | ')})`);
+  }
   await page.keyboard.press('Escape');
   return notes.length === 0
     ? { ok: true, detail: `${seen.headings.length} sentence-case headings · labels ${seen.labels.join('|')} · meta "${seen.meta}"` }

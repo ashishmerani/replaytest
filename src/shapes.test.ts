@@ -62,6 +62,8 @@ test('stable core shape names are closed and validate exactly', () => {
 
 test('form-submit-signal: exact rows distinguish match, no-match, and not-assessed', () => {
   assert.equal(classifyCoreShape(exactRow({ status: 'completed' }), 'form-submit-signal').kind, 'matches');
+  assert.equal(classifyCoreShape(exactRow({ status: 'abandoned-mid-flow' }), 'form-submit-signal').kind, 'matches');
+  assert.equal(classifyCoreShape(exactRow({ status: 'error-after-submit' }), 'form-submit-signal').kind, 'matches');
   assert.equal(classifyCoreShape(exactRow({ status: 'abandoned' }), 'form-submit-signal').kind, 'no-match');
   assert.equal(classifyCoreShape(exactRow({ status: undefined }), 'form-submit-signal').kind, 'not-assessed');
 });

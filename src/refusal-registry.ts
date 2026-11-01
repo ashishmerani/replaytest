@@ -505,7 +505,7 @@ export const REFUSAL_REGISTRY = [
     tier: 'A',
     cases: [{ description: 'No namespaced or unambiguous bare code matches the input.', message: 'No recognized refusal code matches "{{input}}".' }],
     override: noOverride,
-    nextSteps: [{ description: 'List the codes available in this release.', command: 'replaytest explain --list' }],
+    nextSteps: [{ description: 'List the available refusal codes.', command: 'replaytest explain --list' }],
   },
   {
     verb: 'regenerate',
@@ -552,12 +552,27 @@ export const REFUSAL_REGISTRY = [
     cases: [
       { description: 'The fresh-traffic scan itself failed before candidates could be assessed.', message: 'Fresh traffic could not be scanned ({{error}}). Searched the last {{sinceHours}}h in {{scope}} for signature "{{signature}}" (Tier A same-signature: {{tierACandidates}}; Tier B successor variants: {{tierBVariants}}). {{staleRecovery}}' },
       { description: 'The scan completed but found no plannable fresh candidate.', message: 'No plannable fresh candidate was found.{{entryNote}} Searched the last {{sinceHours}}h in {{scope}} for signature "{{signature}}" (Tier A same-signature: {{tierACandidates}}; Tier B successor variants: {{tierBVariants}}).{{crossOriginWithheld}} {{staleRecovery}}' },
+      { description: 'A fresh candidate matched, but its journey could not be placed in the session\'s journey list, so nothing was written.', message: 'Cannot regenerate safely: this journey could not be matched to its place in the recorded session. Re-plan it from the retained session.{{crossOriginWithheld}}' },
     ],
     override: noOverride,
     nextSteps: [
       { description: 'Search a wider time window.', command: 'replaytest regenerate <slug> --since-hours <hours>' },
       { description: 'Re-plan from a retained source session if one is available.', command: 'replaytest plan <distinctId>' },
     ],
+  },
+  {
+    verb: 'regenerate',
+    code: 'segmentation-changed',
+    contentStatus: 'explained',
+    message: 'Cannot regenerate: none of the fresh sessions checked holds "{{signature}}", or a successor of it, as a single journey — this plan was built by an earlier version of replaytest, so its journey may have been split or extended. Re-plan it from the retained session.',
+    meaning: 'None of the fresh sessions checked contains the journey shape recorded by this plan, or a successor of it, under the current visit and wizard-step boundaries.',
+    evidenceClass: 'emitted-code',
+    jsonVisible: true,
+    exitCode: 1,
+    tier: 'A',
+    cases: [{ description: 'Every fresh candidate was checked and none holds the plan journey, or a successor of it, as a single journey under the current journey boundaries.', message: 'Cannot regenerate: none of the fresh sessions checked holds "{{signature}}", or a successor of it, as a single journey — this plan was built by an earlier version of replaytest, so its journey may have been split or extended. Re-plan it from the retained session.' }],
+    override: noOverride,
+    nextSteps: [{ description: 'Create a fresh plan from the retained source session.', command: 'replaytest plan <distinctId> --session <sessionId>' }],
   },
   {
     verb: 'regenerate',
@@ -923,11 +938,15 @@ export const REFUSAL_REGISTRY = [
     tier: 'A',
     cases: [
       { description: 'The original session is unavailable and the plan has no recorded signature.', message: 'Cannot triage: the original session is no longer available and this plan has no recorded signature - regenerate the plan.' },
-      { description: 'The original session no longer contains the recorded completed journey.', message: 'Cannot triage: the original session no longer contains the recorded completed journey and this plan has no recorded signature - regenerate the plan.' },
-      { description: 'The matching journey is a merged multi-create route that triage does not use.', message: 'Cannot triage: the recorded journey is now recognized as navigated, but it contains more than one input-then-new-route commit — several creates merged into one journey because journeys are still split on form submits. Planning it would name the test after the last record while its steps create the first, and list every created record as data to seed first. Splitting merged creates is not built yet, so this journey is skipped rather than planned wrongly. Nothing is wrong with the session — regenerate the plan from a session whose create stands alone.' },
+      { description: 'The original session no longer contains the recorded journey.', message: 'Cannot triage: the original session no longer contains the recorded journey and this plan has no recorded signature - regenerate the plan.' },
+      { description: 'The plan was built by an earlier version of replaytest and has no recorded signature, so its saved journey position cannot be trusted.', message: 'Cannot triage: this plan was built by an earlier version of replaytest and has no recorded signature, so its saved journey position may now point at a different journey - re-plan it from its retained session.' },
+      { description: 'The matching journey is a merged multi-create route that triage does not use.', message: 'Cannot triage: the recorded journey is now recognized as navigated, but it contains more than one input-then-new-route commit — several creates merged into one journey because journeys are split on form submits. Planning it would name the test after the last record while its steps create the first, and list every created record as data to seed first. This journey is skipped rather than planned wrongly. Nothing is wrong with the session — regenerate the plan from a session whose create stands alone.' },
     ],
     override: noOverride,
-    nextSteps: [{ description: 'Create a proposal from fresh traffic after the plan has a usable recorded journey.', command: 'replaytest regenerate <slug>' }],
+    nextSteps: [
+      { description: 'Create a proposal from fresh traffic after the plan has a usable recorded journey.', command: 'replaytest regenerate <slug>' },
+      { description: 'Re-plan a plan built by an earlier version of replaytest from its retained session.', command: 'replaytest plan <distinctId> --session <sessionId>' },
+    ],
   },
   {
     verb: 'triage',

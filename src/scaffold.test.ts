@@ -3,6 +3,7 @@
  * an OS temp directory, so no live `.replaytest/**` data is touched.
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
@@ -43,7 +44,7 @@ function sidecar(overrides: Partial<Sidecar> = {}): Sidecar {
       journeyIndex: 0,
       signature: '/cart > /checkout > /confirmation',
       generatedAt: '2026-08-10T12:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: '/cart',
     steps: [{ action: 'click', label: 'Pay now', locator: "getByRole('button', { name: 'Pay now' })", isSubmit: true }],

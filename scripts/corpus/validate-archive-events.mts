@@ -83,7 +83,7 @@ function readArchiveFile(archiveDir: string, manifestPath: string): Buffer | und
 
 function degradationMessages(messages: string[]): string[] {
   return messages.filter((message) =>
-    /No completed journeys found|No archived session found|events file is missing|Offline planning requires|failed (?:sha256|size) verification|plan command exited/.test(
+    /No journey in this session can be planned|No completed journeys found|No archived session found|events file is missing|Offline planning requires|failed (?:sha256|size) verification|plan command exited/.test(
       message,
     ),
   );

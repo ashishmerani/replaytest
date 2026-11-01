@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines -- The release workflow copies only this one module into the release artifact, so every helper the publish and release jobs run must live in this file. */
 
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -203,7 +204,11 @@ export function evaluateReleasePoint(input: ReleasePointInput): ReleasePointResu
 
 type ChangelogSection = { version: string; date: string; headingLine: number; text: string; lineCount: number };
 
-function fenceDelimiter(line: string): { char: '`' | '~'; width: number } | undefined {
+// The CHANGELOG reading rules below (fences, headings, section ends, the trailing link block,
+// Unreleased link lines) are exported
+// so the production promotion (scripts/promotion/text-hygiene.mts) reads sections the same way.
+// This module itself imports nothing outside node: the release workflow runs a lone copy of it.
+export function fenceDelimiter(line: string): { char: '`' | '~'; width: number } | undefined {
   const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
   if (match === null) return undefined;
   const token = match[1] ?? '';
@@ -213,7 +218,7 @@ function fenceDelimiter(line: string): { char: '`' | '~'; width: number } | unde
   return { char, width: token.length };
 }
 
-function closesFence(line: string, open: { char: '`' | '~'; width: number }): boolean {
+export function closesFence(line: string, open: { char: '`' | '~'; width: number }): boolean {
   const match = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
   if (match === null) return false;
   const token = match[1] ?? '';
@@ -226,17 +231,60 @@ function dateIsReal(value: string): boolean {
   return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
-function compareBlockStart(lines: readonly string[], start: number, end: number): number | undefined {
+/**
+ * Where the trailing link block of lines[start..end) starts: the first line from which every
+ * non-blank line to `end` is a link line, or undefined when there is none. A link line is a
+ * release link (`[0.1.0]: https://…`) or an Unreleased link unless `isLinkLine` says otherwise.
+ */
+export function compareBlockStart(
+  lines: readonly string[],
+  start: number,
+  end: number,
+  isLinkLine: (line: string) => boolean = isChangelogLinkDefinition,
+): number | undefined {
   for (let index = start; index < end; index += 1) {
     const line = lines[index] ?? '';
-    if (!/^\[[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[1-9][0-9]*)?\]: https:\/\/\S+$/.test(line)) continue;
+    if (!isLinkLine(line)) continue;
     const remaining = lines.slice(index, end).filter((candidate) => candidate.trim() !== '');
-    if (remaining.length > 0 && remaining.every((candidate) => /^\[[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[1-9][0-9]*)?\]: https:\/\/\S+$/.test(candidate))) return index;
+    if (remaining.length > 0 && remaining.every(isLinkLine)) return index;
   }
   return undefined;
 }
 
-function sectionLines(lines: readonly string[], start: number): { end: number; fenceError?: number } {
+function isChangelogLinkDefinition(line: string): boolean {
+  return /^\[[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[1-9][0-9]*)?\]: https:\/\/\S+$/.test(line)
+    || isUnreleasedLinkDefinition(line);
+}
+
+/**
+ * The label of a link reference definition line (`[label]: …`, indented up to three
+ * spaces), or undefined when the line is not one. The destination and title are not read.
+ */
+export function linkReferenceLabel(line: string): string | undefined {
+  return /^ {0,3}\[([^\]]+)\]:/.exec(line)?.[1];
+}
+
+/**
+ * Whether the line is a link reference definition for the Unreleased label, matched
+ * loosely: up to three leading spaces, any case, spaces inside the brackets, with or
+ * without a space after the colon, and with or without a title.
+ */
+export function isUnreleasedLinkDefinition(line: string): boolean {
+  return linkReferenceLabel(line)?.trim().toLowerCase() === 'unreleased';
+}
+
+/**
+ * The bracketed label and the text after it for a column-0 `## [label]` heading, or
+ * undefined for any other line. Whether the label is a version is the caller's call
+ * (parseVersion); the heading may carry any trailing text.
+ */
+export function changelogHeading(line: string): { label: string; rest: string } | undefined {
+  const match = /^## \[([^\]]+)\]/.exec(line);
+  if (match === null) return undefined;
+  return { label: match[1] ?? '', rest: line.slice(match[0].length) };
+}
+
+export function sectionLines(lines: readonly string[], start: number): { end: number; fenceError?: number } {
   let open: { char: '`' | '~'; width: number; line: number } | undefined;
   for (let index = start; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
@@ -330,13 +378,16 @@ function validateSection(section: ChangelogSection): void {
 export function extractChangelogSection(raw: string, version: string): ChangelogSection {
   parseVersion(version);
   const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  const target = '## [' + version + ']';
-  const starts = lines.flatMap((line, index) => line.startsWith(target) && (line[target.length] === ' ' || line[target.length] === '-' || line[target.length] === undefined) ? [index] : []);
+  // A valid version never contains "]", so the heading label is the whole version.
+  const starts = lines.flatMap((line, index) => {
+    const heading = changelogHeading(line);
+    if (heading === undefined || heading.label !== version) return [];
+    return heading.rest === '' || heading.rest[0] === ' ' || heading.rest[0] === '-' ? [index] : [];
+  });
   if (starts.length !== 1) throw new ReleasePlanError('CHANGELOG.md must contain exactly one heading for ' + version + '; found ' + starts.length + '.');
   const headingIndex = starts[0] ?? -1;
-  const heading = lines[headingIndex] ?? '';
-  const headingMatch = /^## \[([^\]]+)\] - (\d{4}-\d{2}-\d{2})$/.exec(heading);
-  if (headingMatch === null || headingMatch[1] !== version || !dateIsReal(headingMatch[2] ?? '')) {
+  const dateMatch = /^ - (\d{4}-\d{2}-\d{2})$/.exec(changelogHeading(lines[headingIndex] ?? '')?.rest ?? '');
+  if (dateMatch === null || !dateIsReal(dateMatch[1] ?? '')) {
     throw new ReleasePlanError('The CHANGELOG.md heading for ' + version + ' must include a real YYYY-MM-DD date at line ' + (headingIndex + 1) + '.');
   }
   const boundaries = sectionLines(lines, headingIndex + 1);
@@ -345,7 +396,7 @@ export function extractChangelogSection(raw: string, version: string): Changelog
   const body = lines.slice(headingIndex + 1, end);
   const section: ChangelogSection = {
     version,
-    date: headingMatch[2] ?? '',
+    date: dateMatch[1] ?? '',
     headingLine: headingIndex + 1,
     text: body.join('\n').replace(/\n+$/, ''),
     lineCount: body.length,
@@ -601,6 +652,26 @@ export function verifyExpectedHash(filePath: string, expected: string, label: st
   const actual = sha256(fs.readFileSync(filePath));
   if (actual !== expected) throw new ReleasePlanError('The ' + label + ' hash differs: expected ' + expected + ', got ' + actual + '.');
   return actual;
+}
+
+/**
+ * The one package path that both the dry run and the real publish hand to npm,
+ * read from the same release-candidate layout. The ./ prefix matters: npm reads
+ * a bare "release-candidate/x.tgz" as a GitHub owner/repo shorthand (the first
+ * live release failed that way), and a bare file name is not the path the
+ * publish job uses.
+ */
+export function packagePathFor(fileNames: readonly string[]): string {
+  const packages = fileNames.filter((name) => name.endsWith('.tgz'));
+  if (packages.length !== 1) throw new ReleasePlanError('Expected exactly one package file in release-candidate; found ' + packages.length + '.');
+  const name = packages[0] ?? '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.tgz$/.test(name)) throw new ReleasePlanError('The package file name is not a plain file name: ' + name + '.');
+  return './release-candidate/' + name;
+}
+
+function candidatePackagePath(root: string): string {
+  const directory = path.join(root, 'release-candidate');
+  return packagePathFor(fs.readdirSync(directory).filter((name) => fs.statSync(path.join(directory, name)).isFile()));
 }
 
 function normalizeNewlines(value: string): string {
@@ -859,11 +930,13 @@ function runManifest(root: string): number {
   return 0;
 }
 
-function classifyPublish(_root: string): number {
+function classifyPublish(root: string): number {
   const name = 'replaytest';
   const version = env('VERSION');
   const channel = channelFor(version, env('NPM_TAG'));
   const tarball = env('TARBALL');
+  const packagePath = candidatePackagePath(root);
+  if (tarball !== packagePath) throw new ReleasePlanError('The package path is ' + JSON.stringify(tarball) + ' but must be ' + packagePath + ', the path a dry-run dispatch checks; nothing was published.');
   const expectedSha = env('EXPECTED_TARBALL_SHA256');
   const expectedSha512 = env('EXPECTED_TARBALL_SHA512');
   verifyExpectedHash(tarball, expectedSha, 'package');
@@ -1068,6 +1141,7 @@ function main(): number {
     if (command === 'summary') return runSummary(root);
     if (command === 'manifest') return runManifest(root);
     if (command === 'classify-publish') return classifyPublish(root);
+    if (command === 'package-path') { process.stdout.write(candidatePackagePath(root)); return 0; }
     if (command === 'release') return runRelease(root);
     throw new ReleasePlanError('Unknown release-plan command.');
   } catch (error) {

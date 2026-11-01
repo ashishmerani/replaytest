@@ -13,7 +13,7 @@ import {
   type RankedFamily,
   type TopLevelEntry,
 } from './families.js';
-import type { JourneyStatus } from './journeys.js';
+import type { JourneyFinality, JourneyStatus, MidFlowEvidence } from './journeys.js';
 import type { NeutralSession, NeutralStep } from './neutral-session.js';
 import type { CoarseSession } from './providers/posthog-adapter.js';
 import {
@@ -31,7 +31,15 @@ function ids(prefix: string, count: number): string[] {
 function candidate(
   signature: string,
   sessionIds: string[],
-  opts: { status?: JourneyStatus; provenance?: 'exact' | 'coarse'; rank?: number } = {},
+  opts: {
+    status?: JourneyStatus;
+    provenance?: 'exact' | 'coarse';
+    rank?: number;
+    finality?: JourneyFinality;
+    stoppedAtStep?: number;
+    midFlowEvidence?: MidFlowEvidence;
+    plannable?: true;
+  } = {},
 ): FamilyCandidate {
   const journey: RankedJourney = {
     rank: opts.rank ?? 1,
@@ -39,6 +47,10 @@ function candidate(
     sessionCount: sessionIds.length,
     provenance: opts.provenance ?? 'exact',
     ...(opts.status === undefined ? {} : { status: opts.status }),
+    ...(opts.finality === undefined ? {} : { finality: opts.finality }),
+    ...(opts.stoppedAtStep === undefined ? {} : { stoppedAtStep: opts.stoppedAtStep }),
+    ...(opts.midFlowEvidence === undefined ? {} : { midFlowEvidence: opts.midFlowEvidence }),
+    ...(opts.plannable === true ? { plannable: true as const } : {}),
     representativeDistinctId: `user-${signature}`,
     representativeSessionId: sessionIds[0],
     examplePaths: [signature],
@@ -60,16 +72,25 @@ function paths(signature: string): string[] {
   return signature.split(' > ');
 }
 
-test('statusRank places navigated below submitted and above abandoned', () => {
+test('statusRank pins the complete plannable-first order', () => {
   assert.deepEqual(
-    (['completed', 'submitted', 'navigated', 'abandoned'] as const).map((status) => statusRank(status)),
-    [3, 2, 1, 0],
+    (['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'] as const)
+      .map((status) => statusRank(status)),
+    [6, 5, 4, 3, 2, 1],
   );
 });
 
-test('a family headline is a MAX over members, so a disagreeing family carries the mix that produced it', () => {
-  // Five navigated members plus one stray submitted would otherwise headline as
-  // "Submitted" with nothing anywhere recording the other five.
+test('family status mix keeps the same order as statusRank', () => {
+  const ordered = familyStatusMix([
+    ...(['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'] as const)
+      .map((status, index) => candidate(`/flow-${index}`, ids(`status-${index}`, 1), { status }).journey),
+  ]);
+  assert.deepEqual(Object.keys(ordered ?? {}), ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned']);
+});
+
+test('a family headline is a rank-preferred member, so a disagreeing family carries the mix and headline evidence', () => {
+  // Five navigated members plus one submitted member illustrate why the family
+  // mix must retain both statuses alongside its rank-preferred headline.
   const members: RankedJourney[] = [
     ...ids('nav-sig', 5).map((signature, index) =>
       candidate(`/a > /b > ${signature}`, ids(`nav-${index}`, 2), { status: 'navigated' }).journey),
@@ -377,7 +398,7 @@ test('a>b>a>b heads both a>b and b>a fragments in one family', () => {
   assert.equal(family.sessionCount, 6);
 });
 
-test('planTarget is completed-only: highest count, then deeper route; absent without completed evidence', () => {
+test('planTarget prefers completed then stopped-mid-flow members, then count and route depth', () => {
   const head = '/a > /b > /c';
   const shallow = '/a > /b';
 
@@ -393,12 +414,25 @@ test('planTarget is completed-only: highest count, then deeper route; absent wit
   ]);
   assert.equal(familyEntries(tiePrefersDepth)[0].planTarget?.signature, head);
 
-  const noCompletedMember = groupIntoFamilies([
-    candidate(head, ids('submitted', 3), { status: 'submitted' }),
-    candidate(shallow, ids('abandoned', 2), { status: 'abandoned' }),
+  const stoppedMidFlow = groupIntoFamilies([
+    candidate(head, ids('mid-head', 3), {
+      status: 'abandoned-mid-flow', stoppedAtStep: 2, midFlowEvidence: 'typed-on-next-step', plannable: true,
+    }),
+    candidate(shallow, ids('mid-shallow', 2), { status: 'navigated' }),
   ]);
-  assert.equal(familyEntries(noCompletedMember)[0].planTarget, undefined);
-  assert.equal(familyEntries(noCompletedMember)[0].status, 'submitted');
+  const midFamily = familyEntries(stoppedMidFlow)[0];
+  assert.equal(midFamily.planTarget?.signature, head);
+  assert.equal(midFamily.status, 'abandoned-mid-flow');
+  assert.equal(midFamily.stoppedAtStep, 2);
+  assert.equal(midFamily.midFlowEvidence, 'typed-on-next-step');
+  assert.equal(midFamily.members[0]?.plannable, true, 'the ranked mid-flow member remains the family plan target');
+
+  const completedStillWins = groupIntoFamilies([
+    candidate(head, ids('completed-head', 2), { status: 'completed', finality: 'witnessed' }),
+    candidate(shallow, ids('mid-flow-shallow', 4), { status: 'abandoned-mid-flow' }),
+  ]);
+  assert.equal(familyEntries(completedStillWins)[0].planTarget?.signature, head);
+  assert.equal(familyEntries(completedStillWins)[0].finality, 'witnessed');
 });
 
 test('coarse grouping has the same structural membership as exact grouping', () => {

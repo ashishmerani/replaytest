@@ -8,7 +8,7 @@
     "journeyIndex": 1,
     "signature": "/flows/feedback-1 > /flows/feedback-1/step1 > /flows/feedback-1/step2",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
   "start": "/flows/feedback-1",
   "steps": [

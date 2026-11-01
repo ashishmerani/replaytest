@@ -223,6 +223,9 @@ export interface SuiteHealthDiagnosis {
     completed: number;
     navigated: number;
     nonCompleted: number;
+    completedWitnessed?: number;
+    abandonedMidFlow?: number;
+    errorAfterSubmit?: number;
     sinceHours?: number;
     replaySessionIds: string[];
   };
@@ -1326,6 +1329,11 @@ function numberValue(record: Record<string, unknown> | undefined, key: string): 
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function optionalNonNegativeNumberValue(record: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = record?.[key];
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 function arrayOfRecords(record: Record<string, unknown> | undefined, key: string): Record<string, unknown>[] {
   const value = record?.[key];
   return Array.isArray(value) ? value.filter(isRecord) : [];
@@ -1433,28 +1441,19 @@ function diagnosisFor(
   const evidence = recordValue(item.report, 'evidence');
   const status = recordValue(evidence, 'statusDistribution');
   const window = recordValue(item.report, 'window');
-  const completed = numberValue(status, 'completed');
-  const navigated = numberValue(status, 'navigated');
-  // Navigated is an independently witnessed class, not a healthy completion
-  // or a regression failure for this completion-focused diagnosis.
-  const nonCompleted = numberValue(status, 'submitted') + numberValue(status, 'abandoned');
-  const replaySessionIds = arrayOfRecords(status, 'nonCompleted')
-    .map((entry) => entry.sessionId)
-    .filter((sessionId): sessionId is string => typeof sessionId === 'string');
-  const selector = recordValue(evidence, 'selectorFreshness');
-  const selectorChanges = arrayOfRecords(selector, 'changed').flatMap((change) =>
-    typeof change.oldLocator === 'string' && typeof change.freshLocator === 'string'
-      ? [{ oldLocator: change.oldLocator, freshLocator: change.freshLocator }]
-      : [],
-  );
+  const { completed, completedWitnessed, nonCompleted, navigated, abandonedMidFlow, errorAfterSubmit, planStoppedMidFlow, replaySessionIds } = failureStatusCounts(status);
+  const selectorChanges = selectorChangesFrom(evidence);
   const flowShiftWatch = flowShiftWatchFrom(item.report?.flowShiftWatch);
   const freshnessFloor = freshnessFloorFrom(item.report?.freshnessFloor);
   const stale = lastHealRunIsStale(envelope, latestRun);
   const summary = verdictSummary(
     item.verdict,
     completed,
+    completedWitnessed,
     nonCompleted,
     navigated,
+    abandonedMidFlow ?? 0,
+    errorAfterSubmit ?? 0, planStoppedMidFlow,
     typeof window?.sinceHours === 'number' ? window.sinceHours : undefined,
     flowShiftWatch,
     freshnessFloor,
@@ -1465,7 +1464,16 @@ function diagnosisFor(
     ...(envelope?.generatedAt === undefined ? {} : { generatedAt: envelope.generatedAt }),
     verdict: item.verdict,
     summary: stale ? 'Re-run heal required — this diagnosis predates the latest recorded test run.' : summary,
-    evidence: { completed, navigated, nonCompleted, ...(typeof window?.sinceHours === 'number' ? { sinceHours: window.sinceHours } : {}), replaySessionIds },
+    evidence: {
+      completed,
+      navigated,
+      nonCompleted,
+      ...(completedWitnessed === undefined ? {} : { completedWitnessed }),
+      ...(abandonedMidFlow === undefined ? {} : { abandonedMidFlow }),
+      ...(errorAfterSubmit === undefined ? {} : { errorAfterSubmit }),
+      ...(typeof window?.sinceHours === 'number' ? { sinceHours: window.sinceHours } : {}),
+      replaySessionIds,
+    },
     ...(selectorChanges.length === 0 ? {} : { selectorChanges }),
     ...(flowShiftWatch === undefined ? {} : { flowShiftWatch }),
     ...(freshnessFloor === undefined ? {} : { freshnessFloor }),
@@ -1494,6 +1502,50 @@ function freshnessFloorFrom(value: unknown): TriageFreshnessFloor | undefined {
 }
 
 /**
+ * The diagnosis's status figures from the report's `statusDistribution`. Error after submit is a
+ * failure beside Submitted and Abandoned; Navigated is neither. Stopped mid-flow is neither for a
+ * plan that recorded a completed journey, and reaches the plan's final page for a plan that itself
+ * stopped mid-flow (the report's `planOutcome`, the same rule triage counts with). The three newer
+ * keys stay absent when the report did not carry them, so an older report is never read as
+ * "zero measured".
+ */
+function failureStatusCounts(status: Record<string, unknown> | undefined): {
+  completed: number;
+  completedWitnessed?: number;
+  nonCompleted: number;
+  navigated: number;
+  abandonedMidFlow?: number;
+  errorAfterSubmit?: number;
+  planStoppedMidFlow: boolean;
+  replaySessionIds: string[];
+} {
+  const errorAfterSubmit = optionalNonNegativeNumberValue(status, 'errorAfterSubmit');
+  const completedWitnessed = optionalNonNegativeNumberValue(status, 'completedWitnessed');
+  const abandonedMidFlow = optionalNonNegativeNumberValue(status, 'abandonedMidFlow');
+  return {
+    planStoppedMidFlow: status?.planOutcome === 'abandoned-mid-flow',
+    completed: numberValue(status, 'completed'),
+    ...(completedWitnessed === undefined ? {} : { completedWitnessed }),
+    nonCompleted: numberValue(status, 'submitted') + numberValue(status, 'abandoned') + (errorAfterSubmit ?? 0),
+    navigated: numberValue(status, 'navigated'),
+    ...(abandonedMidFlow === undefined ? {} : { abandonedMidFlow }),
+    ...(errorAfterSubmit === undefined ? {} : { errorAfterSubmit }),
+    replaySessionIds: arrayOfRecords(status, 'nonCompleted')
+      .map((entry) => entry.sessionId)
+      .filter((sessionId): sessionId is string => typeof sessionId === 'string'),
+  };
+}
+
+function selectorChangesFrom(evidence: Record<string, unknown> | undefined): Array<{ oldLocator: string; freshLocator: string }> {
+  const selector = recordValue(evidence, 'selectorFreshness');
+  return arrayOfRecords(selector, 'changed').flatMap((change) =>
+    typeof change.oldLocator === 'string' && typeof change.freshLocator === 'string'
+      ? [{ oldLocator: change.oldLocator, freshLocator: change.freshLocator }]
+      : [],
+  );
+}
+
+/**
  * wording: witnessed counts, never a causal claim about users.
  *
  * `navigated` is carried structurally everywhere else in this module but used
@@ -1505,8 +1557,12 @@ function freshnessFloorFrom(value: unknown): TriageFreshnessFloor | undefined {
 function verdictSummary(
   verdict: string,
   completed: number,
+  completedWitnessed: number | undefined,
   nonCompleted: number,
   navigated: number,
+  abandonedMidFlow: number,
+  errorAfterSubmit: number,
+  planStoppedMidFlow: boolean,
   sinceHours: number | undefined,
   flowShiftWatch: FlowShiftWatch | undefined,
   freshnessFloor: TriageFreshnessFloor | undefined,
@@ -1518,10 +1574,27 @@ function verdictSummary(
       : 'A fresh locator is available for matching traffic on this recorded route, but most of the traffic we sampled now takes a different route — a flow-shift watch. The locator fix still applies on this route; re-check as traffic shifts.';
   }
   if (verdict === 'regression-evidence') {
-    const navigatedClause = navigated > 0
-      ? `, and ${navigated} navigated (typed input then a new landing, with no witnessed submit — counted as neither)`
+    // Two plain sentences: what passed and what did not, then what counts as neither.
+    const checkedText = completedWitnessed === undefined ? '' : ` (${completedWitnessed} with the finish checked)`;
+    const errorText = errorAfterSubmit > 0 ? `, ${errorAfterSubmit} of them with an error after submit` : '';
+    const windowText = sinceHours === undefined ? '' : ` (last ${sinceHours}h window)`;
+    // A plan that itself stopped mid-flow counts a fresh Stopped mid-flow match as reaching its
+    // final page, as triage does (`reachedPlanFinalPage`); only a completed plan counts it as neither.
+    const midFlowReached = planStoppedMidFlow && abandonedMidFlow > 0;
+    const passedText = midFlowReached
+      ? `${completed + abandonedMidFlow} reached the plan's final page`
+      : `${completed} completed${checkedText}`;
+    const reachedSentence = midFlowReached
+      ? ` Of the ${completed + abandonedMidFlow}, ${completed} completed${checkedText} and ${abandonedMidFlow} stopped mid-flow, as the recorded journey did.`
       : '';
-    return `In the sampled matching journeys, ${completed} completed and ${nonCompleted} did not${navigatedClause}${sinceHours === undefined ? '' : ` (last ${sinceHours}h window)`}.`;
+    const neither = [
+      ...(abandonedMidFlow > 0 && !midFlowReached ? [`${abandonedMidFlow} stopped mid-flow`] : []),
+      // Navigated is an independently witnessed class, not a healthy completion
+      // or a regression failure for this completion-focused diagnosis.
+      ...(navigated > 0 ? [`${navigated} navigated (typed input then a new landing, with no submit seen)`] : []),
+    ];
+    const neitherSentence = neither.length === 0 ? '' : ` Another ${neither.join(' and ')}, which count as neither.`;
+    return `In the sampled matching journeys, ${passedText} and ${nonCompleted} did not${errorText}${windowText}.${reachedSentence}${neitherSentence}`;
   }
   if (verdict === 'healthy') {
     return flowShiftWatch === undefined

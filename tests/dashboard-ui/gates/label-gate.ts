@@ -22,7 +22,11 @@ import type { Locator, Page } from '@playwright/test';
  * caveat, and the current render cuts it to ` · estimated` (see `renderedVocabulary` below).
  */
 export const CHIP_WORDS: ReadonlySet<string> = new Set([
-  'Completed', 'Navigated', 'Submitted', 'Abandoned', 'Unknown', 'Mixed',
+  // The status words are the status labels the page renders. Bare `Completed` left the set: every completed row
+  // now reads with its finish state, and an events-only scan (both gate fixtures) is always
+  // "finish not checked". The other new labels (finish checked, Stopped mid-flow, Error after
+  // submit) are not rendered by the fixtures, and this set is two-directional, so they stay out.
+  'Completed · finish not checked', 'Navigated', 'Submitted', 'Abandoned', 'Unknown', 'Mixed',
   'No test yet', 'Planned', 'Scaffolded', 'Executed', 'Passing', 'Maybe in your suite', '⚠ Needs a look',
 ]);
 

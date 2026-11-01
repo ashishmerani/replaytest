@@ -903,7 +903,7 @@ test('buildHelpText: documents plan --session / --sample / --force and scaffold 
   const help = buildHelpText();
   assert.ok(help.includes('plan <distinctId> [--from-archive <dir>] [--session <sessionId>] [--sample N] [--force] [--allow-cross-origin]'));
   assert.ok(help.includes('pass --sample 0 to disable'));
-  assert.ok(help.includes('sidecar owned by a different or unknown journey unless --force'));
+  assert.ok(help.includes('sidecar when its session, journey position, or recorded flow shape differs, or when it cannot be read, unless --force'));
   assert.ok(help.includes('--force'));
   assert.ok(help.includes('--out'));
   assert.ok(help.includes('triage <slug> [--sample N] [--since-hours N] [--app <name>] [--propose] [--force] [--json]'));

@@ -27,8 +27,11 @@
       "count": 0
     },
     "completionCounts": {
-      "completed": 225,
-      "navigated": 0
+      "completed": 127,
+      "abandonedMidFlow": 75,
+      "navigated": 69,
+      "submitted": 42,
+      "abandoned": 38
     },
     "appScope": {
       "scope": {
@@ -48,7 +51,8 @@
         "signature": "/workspace/orders > /workspace/orders/complete",
         "sessionCount": 26,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-01",
         "representativeSessionId": "demo-session-01",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -66,17 +70,19 @@
       },
       {
         "rank": 2,
-        "signature": "/workspace/inventory > /workspace/inventory/complete",
+        "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
         "sessionCount": 25,
         "provenance": "exact",
-        "status": "completed",
+        "status": "abandoned-mid-flow",
+        "stoppedAtStep": 2,
+        "plannable": true,
         "representativeDistinctId": "demo-user-02",
         "representativeSessionId": "demo-session-02",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
         "representativeEndedAt": "2026-09-20T12:00:00.000Z",
         "examplePaths": [
-          "/workspace/inventory",
-          "/workspace/inventory/complete"
+          "/workspace/inventory/step/1",
+          "/workspace/inventory/step/2"
         ],
         "planned": true,
         "planSlug": "demo-inventory",
@@ -90,6 +96,7 @@
         "sessionCount": 24,
         "provenance": "exact",
         "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-03",
         "representativeSessionId": "demo-session-03",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -110,7 +117,8 @@
         "signature": "/workspace/returns > /workspace/returns/complete",
         "sessionCount": 23,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "navigated",
+        "plannable": true,
         "representativeDistinctId": "demo-user-04",
         "representativeSessionId": "demo-session-04",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -132,6 +140,7 @@
         "sessionCount": 22,
         "provenance": "exact",
         "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-05",
         "representativeSessionId": "demo-session-05",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -153,6 +162,7 @@
         "sessionCount": 21,
         "provenance": "exact",
         "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-06",
         "representativeSessionId": "demo-session-06",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -167,17 +177,19 @@
       },
       {
         "rank": 7,
-        "signature": "/workspace/alerts > /workspace/alerts/complete",
+        "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
         "sessionCount": 20,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "abandoned-mid-flow",
+        "stoppedAtStep": 2,
+        "plannable": true,
         "representativeDistinctId": "demo-user-07",
         "representativeSessionId": "demo-session-07",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
         "representativeEndedAt": "2026-09-20T12:00:00.000Z",
         "examplePaths": [
-          "/workspace/alerts",
-          "/workspace/alerts/complete"
+          "/workspace/alerts/step/1",
+          "/workspace/alerts/step/2"
         ],
         "planned": false,
         "tested": false,
@@ -188,7 +200,7 @@
         "signature": "/workspace/billing > /workspace/billing/complete",
         "sessionCount": 19,
         "provenance": "exact",
-        "status": "completed",
+        "status": "navigated",
         "representativeDistinctId": "demo-user-08",
         "representativeSessionId": "demo-session-08",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -206,7 +218,7 @@
         "signature": "/workspace/customers > /workspace/customers/complete",
         "sessionCount": 18,
         "provenance": "exact",
-        "status": "completed",
+        "status": "submitted",
         "representativeDistinctId": "demo-user-09",
         "representativeSessionId": "demo-session-09",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -224,7 +236,7 @@
         "signature": "/workspace/catalog > /workspace/catalog/complete",
         "sessionCount": 17,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "abandoned",
         "representativeDistinctId": "demo-user-10",
         "representativeSessionId": "demo-session-10",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -243,6 +255,7 @@
         "sessionCount": 16,
         "provenance": "exact",
         "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-11",
         "representativeSessionId": "demo-session-11",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -257,17 +270,19 @@
       },
       {
         "rank": 12,
-        "signature": "/workspace/locations > /workspace/locations/complete",
+        "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
         "sessionCount": 15,
         "provenance": "exact",
-        "status": "completed",
+        "status": "abandoned-mid-flow",
+        "stoppedAtStep": 2,
+        "plannable": true,
         "representativeDistinctId": "demo-user-12",
         "representativeSessionId": "demo-session-12",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
         "representativeEndedAt": "2026-09-20T12:00:00.000Z",
         "examplePaths": [
-          "/workspace/locations",
-          "/workspace/locations/complete"
+          "/workspace/locations/step/1",
+          "/workspace/locations/step/2"
         ],
         "planned": false,
         "tested": false,
@@ -278,7 +293,7 @@
         "signature": "/workspace/suppliers > /workspace/suppliers/complete",
         "sessionCount": 14,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "navigated",
         "representativeDistinctId": "demo-user-13",
         "representativeSessionId": "demo-session-13",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -296,7 +311,7 @@
         "signature": "/workspace/carriers > /workspace/carriers/complete",
         "sessionCount": 13,
         "provenance": "exact",
-        "status": "completed",
+        "status": "submitted",
         "representativeDistinctId": "demo-user-14",
         "representativeSessionId": "demo-session-14",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -314,7 +329,7 @@
         "signature": "/workspace/invoices > /workspace/invoices/complete",
         "sessionCount": 12,
         "provenance": "exact",
-        "status": "completed",
+        "status": "abandoned",
         "representativeDistinctId": "demo-user-15",
         "representativeSessionId": "demo-session-15",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -332,7 +347,8 @@
         "signature": "/workspace/refunds > /workspace/refunds/complete",
         "sessionCount": 11,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-16",
         "representativeSessionId": "demo-session-16",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -347,17 +363,19 @@
       },
       {
         "rank": 17,
-        "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+        "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
         "sessionCount": 10,
         "provenance": "exact",
-        "status": "completed",
+        "status": "abandoned-mid-flow",
+        "stoppedAtStep": 2,
+        "plannable": true,
         "representativeDistinctId": "demo-user-17",
         "representativeSessionId": "demo-session-17",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
         "representativeEndedAt": "2026-09-20T12:00:00.000Z",
         "examplePaths": [
-          "/workspace/warehouses",
-          "/workspace/warehouses/complete"
+          "/workspace/warehouses/step/1",
+          "/workspace/warehouses/step/2"
         ],
         "planned": false,
         "tested": false,
@@ -368,7 +386,7 @@
         "signature": "/workspace/pricing > /workspace/pricing/complete",
         "sessionCount": 9,
         "provenance": "exact",
-        "status": "completed",
+        "status": "navigated",
         "representativeDistinctId": "demo-user-18",
         "representativeSessionId": "demo-session-18",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -404,7 +422,7 @@
         "signature": "/workspace/forecasts > /workspace/forecasts/complete",
         "sessionCount": 7,
         "provenance": "exact",
-        "status": "completed",
+        "status": "abandoned",
         "representativeDistinctId": "demo-user-20",
         "representativeSessionId": "demo-session-20",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -423,6 +441,7 @@
         "sessionCount": 6,
         "provenance": "exact",
         "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-21",
         "representativeSessionId": "demo-session-21",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -437,17 +456,19 @@
       },
       {
         "rank": 22,
-        "signature": "/workspace/contracts > /workspace/contracts/complete",
+        "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
         "sessionCount": 5,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "abandoned-mid-flow",
+        "stoppedAtStep": 2,
+        "plannable": true,
         "representativeDistinctId": "demo-user-22",
         "representativeSessionId": "demo-session-22",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
         "representativeEndedAt": "2026-09-20T12:00:00.000Z",
         "examplePaths": [
-          "/workspace/contracts",
-          "/workspace/contracts/complete"
+          "/workspace/contracts/step/1",
+          "/workspace/contracts/step/2"
         ],
         "planned": false,
         "tested": false,
@@ -458,7 +479,7 @@
         "signature": "/workspace/receiving > /workspace/receiving/complete",
         "sessionCount": 4,
         "provenance": "exact",
-        "status": "completed",
+        "status": "navigated",
         "representativeDistinctId": "demo-user-23",
         "representativeSessionId": "demo-session-23",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -476,7 +497,7 @@
         "signature": "/workspace/packing > /workspace/packing/complete",
         "sessionCount": 3,
         "provenance": "exact",
-        "status": "completed",
+        "status": "submitted",
         "representativeDistinctId": "demo-user-24",
         "representativeSessionId": "demo-session-24",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -494,7 +515,7 @@
         "signature": "/workspace/manifests > /workspace/manifests/complete",
         "sessionCount": 2,
         "provenance": "exact",
-        "status": "submitted",
+        "status": "abandoned",
         "representativeDistinctId": "demo-user-25",
         "representativeSessionId": "demo-session-25",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -513,6 +534,7 @@
         "sessionCount": 1,
         "provenance": "exact",
         "status": "completed",
+        "finality": "unchecked",
         "representativeDistinctId": "demo-user-26",
         "representativeSessionId": "demo-session-26",
         "representativeStartedAt": "2026-09-20T12:00:00.000Z",
@@ -574,7 +596,7 @@
               "rank": 1
             },
             {
-              "signature": "/workspace/alerts > /workspace/alerts/complete",
+              "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
               "sessionCount": 20,
               "sessionCountLabel": "20 user sessions did this",
               "fidelity": "exact",
@@ -583,39 +605,17 @@
               "representative": {
                 "distinctId": "demo-user-07",
                 "sessionId": "demo-session-07",
-                "status": "submitted"
+                "status": "abandoned-mid-flow"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                "kind": "review-stopped-mid-flow",
+                "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                 "command": "replaytest plan demo-user-07 --session demo-session-07",
                 "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
               "rank": 2
-            },
-            {
-              "signature": "/workspace/billing > /workspace/billing/complete",
-              "sessionCount": 19,
-              "sessionCountLabel": "19 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-08",
-                "sessionId": "demo-session-08",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-08 --session demo-session-08",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 3
             },
             {
               "signature": "/workspace/customers > /workspace/customers/complete",
@@ -627,39 +627,16 @@
               "representative": {
                 "distinctId": "demo-user-09",
                 "sessionId": "demo-session-09",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-09 --session demo-session-09",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 4
-            },
-            {
-              "signature": "/workspace/catalog > /workspace/catalog/complete",
-              "sessionCount": 17,
-              "sessionCountLabel": "17 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-10",
-                "sessionId": "demo-session-10",
                 "status": "submitted"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                "command": "replaytest plan demo-user-10 --session demo-session-10",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                "kind": "review-not-plannable",
+                "label": "Submitted and Abandoned journeys cannot be planned.",
+                "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
               },
               "suiteInventoryState": "complete",
-              "rank": 5
+              "rank": 3
             },
             {
               "signature": "/workspace/shipments > /workspace/shipments/complete",
@@ -681,10 +658,10 @@
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 6
+              "rank": 4
             },
             {
-              "signature": "/workspace/locations > /workspace/locations/complete",
+              "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
               "sessionCount": 15,
               "sessionCountLabel": "15 user sessions did this",
               "fidelity": "exact",
@@ -693,39 +670,17 @@
               "representative": {
                 "distinctId": "demo-user-12",
                 "sessionId": "demo-session-12",
-                "status": "completed"
+                "status": "abandoned-mid-flow"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                "kind": "review-stopped-mid-flow",
+                "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                 "command": "replaytest plan demo-user-12 --session demo-session-12",
                 "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 7
-            },
-            {
-              "signature": "/workspace/suppliers > /workspace/suppliers/complete",
-              "sessionCount": 14,
-              "sessionCountLabel": "14 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-13",
-                "sessionId": "demo-session-13",
-                "status": "submitted"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                "command": "replaytest plan demo-user-13 --session demo-session-13",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 8
+              "rank": 5
             },
             {
               "signature": "/workspace/carriers > /workspace/carriers/complete",
@@ -737,39 +692,16 @@
               "representative": {
                 "distinctId": "demo-user-14",
                 "sessionId": "demo-session-14",
-                "status": "completed"
+                "status": "submitted"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-14 --session demo-session-14",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                "kind": "review-not-plannable",
+                "label": "Submitted and Abandoned journeys cannot be planned.",
+                "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
               },
               "suiteInventoryState": "complete",
-              "rank": 9
-            },
-            {
-              "signature": "/workspace/invoices > /workspace/invoices/complete",
-              "sessionCount": 12,
-              "sessionCountLabel": "12 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-15",
-                "sessionId": "demo-session-15",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-15 --session demo-session-15",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 10
+              "rank": 6
             },
             {
               "signature": "/workspace/refunds > /workspace/refunds/complete",
@@ -781,20 +713,20 @@
               "representative": {
                 "distinctId": "demo-user-16",
                 "sessionId": "demo-session-16",
-                "status": "submitted"
+                "status": "completed"
               },
               "action": {
                 "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
                 "command": "replaytest plan demo-user-16 --session demo-session-16",
                 "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 11
+              "rank": 7
             },
             {
-              "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+              "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
               "sessionCount": 10,
               "sessionCountLabel": "10 user sessions did this",
               "fidelity": "exact",
@@ -803,39 +735,17 @@
               "representative": {
                 "distinctId": "demo-user-17",
                 "sessionId": "demo-session-17",
-                "status": "completed"
+                "status": "abandoned-mid-flow"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                "kind": "review-stopped-mid-flow",
+                "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                 "command": "replaytest plan demo-user-17 --session demo-session-17",
                 "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 12
-            },
-            {
-              "signature": "/workspace/pricing > /workspace/pricing/complete",
-              "sessionCount": 9,
-              "sessionCountLabel": "9 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-18",
-                "sessionId": "demo-session-18",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-18 --session demo-session-18",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 13
+              "rank": 8
             },
             {
               "signature": "/workspace/promotions > /workspace/promotions/complete",
@@ -850,36 +760,13 @@
                 "status": "submitted"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                "command": "replaytest plan demo-user-19 --session demo-session-19",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                "kind": "review-not-plannable",
+                "label": "Submitted and Abandoned journeys cannot be planned.",
+                "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
               },
               "suiteInventoryState": "complete",
-              "rank": 14
-            },
-            {
-              "signature": "/workspace/forecasts > /workspace/forecasts/complete",
-              "sessionCount": 7,
-              "sessionCountLabel": "7 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-20",
-                "sessionId": "demo-session-20",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-20 --session demo-session-20",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 15
+              "rank": 9
             },
             {
               "signature": "/workspace/audits > /workspace/audits/complete",
@@ -901,10 +788,10 @@
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 16
+              "rank": 10
             },
             {
-              "signature": "/workspace/contracts > /workspace/contracts/complete",
+              "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
               "sessionCount": 5,
               "sessionCountLabel": "5 user sessions did this",
               "fidelity": "exact",
@@ -913,39 +800,17 @@
               "representative": {
                 "distinctId": "demo-user-22",
                 "sessionId": "demo-session-22",
-                "status": "submitted"
+                "status": "abandoned-mid-flow"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                "kind": "review-stopped-mid-flow",
+                "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                 "command": "replaytest plan demo-user-22 --session demo-session-22",
                 "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 17
-            },
-            {
-              "signature": "/workspace/receiving > /workspace/receiving/complete",
-              "sessionCount": 4,
-              "sessionCountLabel": "4 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-23",
-                "sessionId": "demo-session-23",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-23 --session demo-session-23",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 18
+              "rank": 11
             },
             {
               "signature": "/workspace/packing > /workspace/packing/complete",
@@ -957,39 +822,16 @@
               "representative": {
                 "distinctId": "demo-user-24",
                 "sessionId": "demo-session-24",
-                "status": "completed"
-              },
-              "action": {
-                "kind": "review-and-plan",
-                "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                "command": "replaytest plan demo-user-24 --session demo-session-24",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "rank": 19
-            },
-            {
-              "signature": "/workspace/manifests > /workspace/manifests/complete",
-              "sessionCount": 2,
-              "sessionCountLabel": "2 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "no-known-link",
-              "representative": {
-                "distinctId": "demo-user-25",
-                "sessionId": "demo-session-25",
                 "status": "submitted"
               },
               "action": {
-                "kind": "review-and-plan",
-                "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                "command": "replaytest plan demo-user-25 --session demo-session-25",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                "kind": "review-not-plannable",
+                "label": "Submitted and Abandoned journeys cannot be planned.",
+                "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
               },
               "suiteInventoryState": "complete",
-              "rank": 20
+              "rank": 12
             },
             {
               "signature": "/workspace/exceptions > /workspace/exceptions/complete",
@@ -1011,7 +853,7 @@
                 "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
               },
               "suiteInventoryState": "complete",
-              "rank": 21
+              "rank": 13
             }
           ],
           "knownLinks": [
@@ -1025,7 +867,7 @@
               "representative": {
                 "distinctId": "demo-user-01",
                 "sessionId": "demo-session-01",
-                "status": "submitted"
+                "status": "completed"
               },
               "action": {
                 "kind": "review-linked-plan",
@@ -1039,7 +881,7 @@
               "specFileExists": true
             },
             {
-              "signature": "/workspace/inventory > /workspace/inventory/complete",
+              "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
               "sessionCount": 25,
               "sessionCountLabel": "25 user sessions did this",
               "fidelity": "exact",
@@ -1048,7 +890,7 @@
               "representative": {
                 "distinctId": "demo-user-02",
                 "sessionId": "demo-session-02",
-                "status": "completed"
+                "status": "abandoned-mid-flow"
               },
               "action": {
                 "kind": "review-linked-plan",
@@ -1082,29 +924,6 @@
               },
               "suiteInventoryState": "complete",
               "planSlug": "demo-dispatch",
-              "specFileExists": true
-            },
-            {
-              "signature": "/workspace/returns > /workspace/returns/complete",
-              "sessionCount": 23,
-              "sessionCountLabel": "23 user sessions did this",
-              "fidelity": "exact",
-              "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-              "linkState": "linked-scaffolded-spec",
-              "representative": {
-                "distinctId": "demo-user-04",
-                "sessionId": "demo-session-04",
-                "status": "submitted"
-              },
-              "action": {
-                "kind": "review-linked-plan",
-                "label": "Open the linked plan and its test to confirm they still match this journey.",
-                "command": "replaytest plan demo-user-04 --session demo-session-04",
-                "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-              },
-              "suiteInventoryState": "complete",
-              "planSlug": "demo-returns",
               "specFileExists": true
             },
             {
@@ -1161,7 +980,7 @@
               "representative": {
                 "distinctId": "demo-user-01",
                 "sessionId": "demo-session-01",
-                "status": "submitted"
+                "status": "completed"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1173,7 +992,7 @@
               "reason": "This exact row has no single-URL journey-depth evidence."
             },
             {
-              "signature": "/workspace/inventory > /workspace/inventory/complete",
+              "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
               "sessionCount": 25,
               "sessionCountLabel": "25 user sessions did this",
               "fidelity": "not-assessed",
@@ -1183,7 +1002,7 @@
               "representative": {
                 "distinctId": "demo-user-02",
                 "sessionId": "demo-session-02",
-                "status": "completed"
+                "status": "abandoned-mid-flow"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1227,7 +1046,7 @@
               "representative": {
                 "distinctId": "demo-user-04",
                 "sessionId": "demo-session-04",
-                "status": "submitted"
+                "status": "navigated"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1283,7 +1102,7 @@
               "reason": "This exact row has no single-URL journey-depth evidence."
             },
             {
-              "signature": "/workspace/alerts > /workspace/alerts/complete",
+              "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
               "sessionCount": 20,
               "sessionCountLabel": "20 user sessions did this",
               "fidelity": "not-assessed",
@@ -1293,7 +1112,7 @@
               "representative": {
                 "distinctId": "demo-user-07",
                 "sessionId": "demo-session-07",
-                "status": "submitted"
+                "status": "abandoned-mid-flow"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1315,7 +1134,7 @@
               "representative": {
                 "distinctId": "demo-user-08",
                 "sessionId": "demo-session-08",
-                "status": "completed"
+                "status": "navigated"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1337,7 +1156,7 @@
               "representative": {
                 "distinctId": "demo-user-09",
                 "sessionId": "demo-session-09",
-                "status": "completed"
+                "status": "submitted"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1359,7 +1178,7 @@
               "representative": {
                 "distinctId": "demo-user-10",
                 "sessionId": "demo-session-10",
-                "status": "submitted"
+                "status": "abandoned"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1393,7 +1212,7 @@
               "reason": "This exact row has no single-URL journey-depth evidence."
             },
             {
-              "signature": "/workspace/locations > /workspace/locations/complete",
+              "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
               "sessionCount": 15,
               "sessionCountLabel": "15 user sessions did this",
               "fidelity": "not-assessed",
@@ -1403,7 +1222,7 @@
               "representative": {
                 "distinctId": "demo-user-12",
                 "sessionId": "demo-session-12",
-                "status": "completed"
+                "status": "abandoned-mid-flow"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1425,7 +1244,7 @@
               "representative": {
                 "distinctId": "demo-user-13",
                 "sessionId": "demo-session-13",
-                "status": "submitted"
+                "status": "navigated"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1447,7 +1266,7 @@
               "representative": {
                 "distinctId": "demo-user-14",
                 "sessionId": "demo-session-14",
-                "status": "completed"
+                "status": "submitted"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1469,7 +1288,7 @@
               "representative": {
                 "distinctId": "demo-user-15",
                 "sessionId": "demo-session-15",
-                "status": "completed"
+                "status": "abandoned"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1491,7 +1310,7 @@
               "representative": {
                 "distinctId": "demo-user-16",
                 "sessionId": "demo-session-16",
-                "status": "submitted"
+                "status": "completed"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1503,7 +1322,7 @@
               "reason": "This exact row has no single-URL journey-depth evidence."
             },
             {
-              "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+              "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
               "sessionCount": 10,
               "sessionCountLabel": "10 user sessions did this",
               "fidelity": "not-assessed",
@@ -1513,7 +1332,7 @@
               "representative": {
                 "distinctId": "demo-user-17",
                 "sessionId": "demo-session-17",
-                "status": "completed"
+                "status": "abandoned-mid-flow"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1535,7 +1354,7 @@
               "representative": {
                 "distinctId": "demo-user-18",
                 "sessionId": "demo-session-18",
-                "status": "completed"
+                "status": "navigated"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1579,7 +1398,7 @@
               "representative": {
                 "distinctId": "demo-user-20",
                 "sessionId": "demo-session-20",
-                "status": "completed"
+                "status": "abandoned"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1613,7 +1432,7 @@
               "reason": "This exact row has no single-URL journey-depth evidence."
             },
             {
-              "signature": "/workspace/contracts > /workspace/contracts/complete",
+              "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
               "sessionCount": 5,
               "sessionCountLabel": "5 user sessions did this",
               "fidelity": "not-assessed",
@@ -1623,7 +1442,7 @@
               "representative": {
                 "distinctId": "demo-user-22",
                 "sessionId": "demo-session-22",
-                "status": "submitted"
+                "status": "abandoned-mid-flow"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1645,7 +1464,7 @@
               "representative": {
                 "distinctId": "demo-user-23",
                 "sessionId": "demo-session-23",
-                "status": "completed"
+                "status": "navigated"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1667,7 +1486,7 @@
               "representative": {
                 "distinctId": "demo-user-24",
                 "sessionId": "demo-session-24",
-                "status": "completed"
+                "status": "submitted"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1689,7 +1508,7 @@
               "representative": {
                 "distinctId": "demo-user-25",
                 "sessionId": "demo-session-25",
-                "status": "submitted"
+                "status": "abandoned"
               },
               "action": {
                 "kind": "resolve-unavailable-evidence",
@@ -1758,7 +1577,7 @@
             "representative": {
               "distinctId": "demo-user-01",
               "sessionId": "demo-session-01",
-              "status": "submitted"
+              "status": "completed"
             },
             "action": {
               "kind": "review-linked-plan",
@@ -1786,7 +1605,7 @@
                 "representative": {
                   "distinctId": "demo-user-01",
                   "sessionId": "demo-session-01",
-                  "status": "submitted"
+                  "status": "completed"
                 },
                 "action": {
                   "kind": "review-linked-plan",
@@ -1816,7 +1635,7 @@
                 "representative": {
                   "distinctId": "demo-user-01",
                   "sessionId": "demo-session-01",
-                  "status": "submitted"
+                  "status": "completed"
                 },
                 "action": {
                   "kind": "review-linked-plan",
@@ -1845,7 +1664,7 @@
                 "representative": {
                   "distinctId": "demo-user-01",
                   "sessionId": "demo-session-01",
-                  "status": "submitted"
+                  "status": "completed"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -1860,13 +1679,13 @@
           ]
         },
         {
-          "signature": "/workspace/inventory > /workspace/inventory/complete",
+          "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
           "sessionCount": 25,
           "rank": 2,
           "coverage": "knownLinks",
           "confidence": "exact",
           "row": {
-            "signature": "/workspace/inventory > /workspace/inventory/complete",
+            "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
             "sessionCount": 25,
             "sessionCountLabel": "25 user sessions did this",
             "fidelity": "exact",
@@ -1875,7 +1694,7 @@
             "representative": {
               "distinctId": "demo-user-02",
               "sessionId": "demo-session-02",
-              "status": "completed"
+              "status": "abandoned-mid-flow"
             },
             "action": {
               "kind": "review-linked-plan",
@@ -1894,7 +1713,7 @@
               "coverage": "knownLinks",
               "assessed": true,
               "row": {
-                "signature": "/workspace/inventory > /workspace/inventory/complete",
+                "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
                 "sessionCount": 25,
                 "sessionCountLabel": "25 user sessions did this",
                 "fidelity": "exact",
@@ -1903,7 +1722,7 @@
                 "representative": {
                   "distinctId": "demo-user-02",
                   "sessionId": "demo-session-02",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "review-linked-plan",
@@ -1924,7 +1743,7 @@
               "coverage": "knownLinks",
               "assessed": true,
               "row": {
-                "signature": "/workspace/inventory > /workspace/inventory/complete",
+                "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
                 "sessionCount": 25,
                 "sessionCountLabel": "25 user sessions did this",
                 "fidelity": "exact",
@@ -1933,7 +1752,7 @@
                 "representative": {
                   "distinctId": "demo-user-02",
                   "sessionId": "demo-session-02",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "review-linked-plan",
@@ -1952,7 +1771,7 @@
               "coverage": "notAssessed",
               "assessed": false,
               "row": {
-                "signature": "/workspace/inventory > /workspace/inventory/complete",
+                "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
                 "sessionCount": 25,
                 "sessionCountLabel": "25 user sessions did this",
                 "fidelity": "not-assessed",
@@ -1962,7 +1781,7 @@
                 "representative": {
                   "distinctId": "demo-user-02",
                   "sessionId": "demo-session-02",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -2098,89 +1917,31 @@
           "sessionCount": 23,
           "rank": 4,
           "coverage": "knownLinks",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/returns > /workspace/returns/complete",
             "sessionCount": 23,
             "sessionCountLabel": "23 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "linked-scaffolded-spec",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "linked-scaffolded-spec",
             "representative": {
               "distinctId": "demo-user-04",
               "sessionId": "demo-session-04",
-              "status": "submitted"
+              "status": "navigated"
             },
             "action": {
-              "kind": "review-linked-plan",
-              "label": "Open the linked plan and its test to confirm they still match this journey.",
-              "command": "replaytest plan demo-user-04 --session demo-session-04",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "planSlug": "demo-returns",
-            "specFileExists": true
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "knownLinks",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/returns > /workspace/returns/complete",
-                "sessionCount": 23,
-                "sessionCountLabel": "23 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "linked-scaffolded-spec",
-                "representative": {
-                  "distinctId": "demo-user-04",
-                  "sessionId": "demo-session-04",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-linked-plan",
-                  "label": "Open the linked plan and its test to confirm they still match this journey.",
-                  "command": "replaytest plan demo-user-04 --session demo-session-04",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "planSlug": "demo-returns",
-                "specFileExists": true
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "knownLinks",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/returns > /workspace/returns/complete",
-                "sessionCount": 23,
-                "sessionCountLabel": "23 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "linked-scaffolded-spec",
-                "representative": {
-                  "distinctId": "demo-user-04",
-                  "sessionId": "demo-session-04",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-linked-plan",
-                  "label": "Open the linked plan and its test to confirm they still match this journey.",
-                  "command": "replaytest plan demo-user-04 --session demo-session-04",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "planSlug": "demo-returns",
-                "specFileExists": true
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -2196,7 +1957,7 @@
                 "representative": {
                   "distinctId": "demo-user-04",
                   "sessionId": "demo-session-04",
-                  "status": "submitted"
+                  "status": "navigated"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -2442,13 +2203,13 @@
           ]
         },
         {
-          "signature": "/workspace/alerts > /workspace/alerts/complete",
+          "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
           "sessionCount": 20,
           "rank": 7,
           "coverage": "noKnownLink",
           "confidence": "exact",
           "row": {
-            "signature": "/workspace/alerts > /workspace/alerts/complete",
+            "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
             "sessionCount": 20,
             "sessionCountLabel": "20 user sessions did this",
             "fidelity": "exact",
@@ -2457,11 +2218,11 @@
             "representative": {
               "distinctId": "demo-user-07",
               "sessionId": "demo-session-07",
-              "status": "submitted"
+              "status": "abandoned-mid-flow"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+              "kind": "review-stopped-mid-flow",
+              "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
               "command": "replaytest plan demo-user-07 --session demo-session-07",
               "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
@@ -2475,7 +2236,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/alerts > /workspace/alerts/complete",
+                "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
                 "sessionCount": 20,
                 "sessionCountLabel": "20 user sessions did this",
                 "fidelity": "exact",
@@ -2484,11 +2245,11 @@
                 "representative": {
                   "distinctId": "demo-user-07",
                   "sessionId": "demo-session-07",
-                  "status": "submitted"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-07 --session demo-session-07",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
@@ -2504,7 +2265,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/alerts > /workspace/alerts/complete",
+                "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
                 "sessionCount": 20,
                 "sessionCountLabel": "20 user sessions did this",
                 "fidelity": "exact",
@@ -2513,11 +2274,11 @@
                 "representative": {
                   "distinctId": "demo-user-07",
                   "sessionId": "demo-session-07",
-                  "status": "submitted"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-07 --session demo-session-07",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
@@ -2531,7 +2292,7 @@
               "coverage": "notAssessed",
               "assessed": false,
               "row": {
-                "signature": "/workspace/alerts > /workspace/alerts/complete",
+                "signature": "/workspace/alerts/step/1 > /workspace/alerts/step/2",
                 "sessionCount": 20,
                 "sessionCountLabel": "20 user sessions did this",
                 "fidelity": "not-assessed",
@@ -2541,7 +2302,7 @@
                 "representative": {
                   "distinctId": "demo-user-07",
                   "sessionId": "demo-session-07",
-                  "status": "submitted"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -2560,86 +2321,31 @@
           "sessionCount": 19,
           "rank": 8,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/billing > /workspace/billing/complete",
             "sessionCount": 19,
             "sessionCountLabel": "19 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-08",
               "sessionId": "demo-session-08",
-              "status": "completed"
+              "status": "navigated"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-08 --session demo-session-08",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 3
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/billing > /workspace/billing/complete",
-                "sessionCount": 19,
-                "sessionCountLabel": "19 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-08",
-                  "sessionId": "demo-session-08",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-08 --session demo-session-08",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 3
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/billing > /workspace/billing/complete",
-                "sessionCount": 19,
-                "sessionCountLabel": "19 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-08",
-                  "sessionId": "demo-session-08",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-08 --session demo-session-08",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 3
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -2655,7 +2361,7 @@
                 "representative": {
                   "distinctId": "demo-user-08",
                   "sessionId": "demo-session-08",
-                  "status": "completed"
+                  "status": "navigated"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -2685,17 +2391,16 @@
             "representative": {
               "distinctId": "demo-user-09",
               "sessionId": "demo-session-09",
-              "status": "completed"
+              "status": "submitted"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-09 --session demo-session-09",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "review-not-plannable",
+              "label": "Submitted and Abandoned journeys cannot be planned.",
+              "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 4
+            "rank": 3
           },
           "kinds": [
             {
@@ -2712,17 +2417,16 @@
                 "representative": {
                   "distinctId": "demo-user-09",
                   "sessionId": "demo-session-09",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-09 --session demo-session-09",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 4
+                "rank": 3
               }
             }
           ],
@@ -2741,17 +2445,16 @@
                 "representative": {
                   "distinctId": "demo-user-09",
                   "sessionId": "demo-session-09",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-09 --session demo-session-09",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 4
+                "rank": 3
               }
             },
             {
@@ -2769,7 +2472,7 @@
                 "representative": {
                   "distinctId": "demo-user-09",
                   "sessionId": "demo-session-09",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -2788,86 +2491,31 @@
           "sessionCount": 17,
           "rank": 10,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/catalog > /workspace/catalog/complete",
             "sessionCount": 17,
             "sessionCountLabel": "17 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-10",
               "sessionId": "demo-session-10",
-              "status": "submitted"
+              "status": "abandoned"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-              "command": "replaytest plan demo-user-10 --session demo-session-10",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 5
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/catalog > /workspace/catalog/complete",
-                "sessionCount": 17,
-                "sessionCountLabel": "17 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-10",
-                  "sessionId": "demo-session-10",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-10 --session demo-session-10",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 5
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/catalog > /workspace/catalog/complete",
-                "sessionCount": 17,
-                "sessionCountLabel": "17 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-10",
-                  "sessionId": "demo-session-10",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-10 --session demo-session-10",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 5
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -2883,7 +2531,7 @@
                 "representative": {
                   "distinctId": "demo-user-10",
                   "sessionId": "demo-session-10",
-                  "status": "submitted"
+                  "status": "abandoned"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -2923,7 +2571,7 @@
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 6
+            "rank": 4
           },
           "kinds": [
             {
@@ -2950,7 +2598,7 @@
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 6
+                "rank": 4
               }
             }
           ],
@@ -2979,7 +2627,7 @@
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 6
+                "rank": 4
               }
             },
             {
@@ -3012,13 +2660,13 @@
           ]
         },
         {
-          "signature": "/workspace/locations > /workspace/locations/complete",
+          "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
           "sessionCount": 15,
           "rank": 12,
           "coverage": "noKnownLink",
           "confidence": "exact",
           "row": {
-            "signature": "/workspace/locations > /workspace/locations/complete",
+            "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
             "sessionCount": 15,
             "sessionCountLabel": "15 user sessions did this",
             "fidelity": "exact",
@@ -3027,17 +2675,17 @@
             "representative": {
               "distinctId": "demo-user-12",
               "sessionId": "demo-session-12",
-              "status": "completed"
+              "status": "abandoned-mid-flow"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+              "kind": "review-stopped-mid-flow",
+              "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
               "command": "replaytest plan demo-user-12 --session demo-session-12",
               "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 7
+            "rank": 5
           },
           "kinds": [
             {
@@ -3045,7 +2693,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/locations > /workspace/locations/complete",
+                "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
                 "sessionCount": 15,
                 "sessionCountLabel": "15 user sessions did this",
                 "fidelity": "exact",
@@ -3054,17 +2702,17 @@
                 "representative": {
                   "distinctId": "demo-user-12",
                   "sessionId": "demo-session-12",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-12 --session demo-session-12",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 7
+                "rank": 5
               }
             }
           ],
@@ -3074,7 +2722,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/locations > /workspace/locations/complete",
+                "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
                 "sessionCount": 15,
                 "sessionCountLabel": "15 user sessions did this",
                 "fidelity": "exact",
@@ -3083,17 +2731,17 @@
                 "representative": {
                   "distinctId": "demo-user-12",
                   "sessionId": "demo-session-12",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-12 --session demo-session-12",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 7
+                "rank": 5
               }
             },
             {
@@ -3101,7 +2749,7 @@
               "coverage": "notAssessed",
               "assessed": false,
               "row": {
-                "signature": "/workspace/locations > /workspace/locations/complete",
+                "signature": "/workspace/locations/step/1 > /workspace/locations/step/2",
                 "sessionCount": 15,
                 "sessionCountLabel": "15 user sessions did this",
                 "fidelity": "not-assessed",
@@ -3111,7 +2759,7 @@
                 "representative": {
                   "distinctId": "demo-user-12",
                   "sessionId": "demo-session-12",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3130,86 +2778,31 @@
           "sessionCount": 14,
           "rank": 13,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/suppliers > /workspace/suppliers/complete",
             "sessionCount": 14,
             "sessionCountLabel": "14 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-13",
               "sessionId": "demo-session-13",
-              "status": "submitted"
+              "status": "navigated"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-              "command": "replaytest plan demo-user-13 --session demo-session-13",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 8
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/suppliers > /workspace/suppliers/complete",
-                "sessionCount": 14,
-                "sessionCountLabel": "14 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-13",
-                  "sessionId": "demo-session-13",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-13 --session demo-session-13",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 8
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/suppliers > /workspace/suppliers/complete",
-                "sessionCount": 14,
-                "sessionCountLabel": "14 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-13",
-                  "sessionId": "demo-session-13",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-13 --session demo-session-13",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 8
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -3225,7 +2818,7 @@
                 "representative": {
                   "distinctId": "demo-user-13",
                   "sessionId": "demo-session-13",
-                  "status": "submitted"
+                  "status": "navigated"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3255,17 +2848,16 @@
             "representative": {
               "distinctId": "demo-user-14",
               "sessionId": "demo-session-14",
-              "status": "completed"
+              "status": "submitted"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-14 --session demo-session-14",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "review-not-plannable",
+              "label": "Submitted and Abandoned journeys cannot be planned.",
+              "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 9
+            "rank": 6
           },
           "kinds": [
             {
@@ -3282,17 +2874,16 @@
                 "representative": {
                   "distinctId": "demo-user-14",
                   "sessionId": "demo-session-14",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-14 --session demo-session-14",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 9
+                "rank": 6
               }
             }
           ],
@@ -3311,17 +2902,16 @@
                 "representative": {
                   "distinctId": "demo-user-14",
                   "sessionId": "demo-session-14",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-14 --session demo-session-14",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 9
+                "rank": 6
               }
             },
             {
@@ -3339,7 +2929,7 @@
                 "representative": {
                   "distinctId": "demo-user-14",
                   "sessionId": "demo-session-14",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3358,86 +2948,31 @@
           "sessionCount": 12,
           "rank": 15,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/invoices > /workspace/invoices/complete",
             "sessionCount": 12,
             "sessionCountLabel": "12 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-15",
               "sessionId": "demo-session-15",
-              "status": "completed"
+              "status": "abandoned"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-15 --session demo-session-15",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 10
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/invoices > /workspace/invoices/complete",
-                "sessionCount": 12,
-                "sessionCountLabel": "12 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-15",
-                  "sessionId": "demo-session-15",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-15 --session demo-session-15",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 10
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/invoices > /workspace/invoices/complete",
-                "sessionCount": 12,
-                "sessionCountLabel": "12 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-15",
-                  "sessionId": "demo-session-15",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-15 --session demo-session-15",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 10
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -3453,7 +2988,7 @@
                 "representative": {
                   "distinctId": "demo-user-15",
                   "sessionId": "demo-session-15",
-                  "status": "completed"
+                  "status": "abandoned"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3483,17 +3018,17 @@
             "representative": {
               "distinctId": "demo-user-16",
               "sessionId": "demo-session-16",
-              "status": "submitted"
+              "status": "completed"
             },
             "action": {
               "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
               "command": "replaytest plan demo-user-16 --session demo-session-16",
               "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 11
+            "rank": 7
           },
           "kinds": [
             {
@@ -3510,17 +3045,17 @@
                 "representative": {
                   "distinctId": "demo-user-16",
                   "sessionId": "demo-session-16",
-                  "status": "submitted"
+                  "status": "completed"
                 },
                 "action": {
                   "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
                   "command": "replaytest plan demo-user-16 --session demo-session-16",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 11
+                "rank": 7
               }
             }
           ],
@@ -3539,17 +3074,17 @@
                 "representative": {
                   "distinctId": "demo-user-16",
                   "sessionId": "demo-session-16",
-                  "status": "submitted"
+                  "status": "completed"
                 },
                 "action": {
                   "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
                   "command": "replaytest plan demo-user-16 --session demo-session-16",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 11
+                "rank": 7
               }
             },
             {
@@ -3567,7 +3102,7 @@
                 "representative": {
                   "distinctId": "demo-user-16",
                   "sessionId": "demo-session-16",
-                  "status": "submitted"
+                  "status": "completed"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3582,13 +3117,13 @@
           ]
         },
         {
-          "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+          "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
           "sessionCount": 10,
           "rank": 17,
           "coverage": "noKnownLink",
           "confidence": "exact",
           "row": {
-            "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+            "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
             "sessionCount": 10,
             "sessionCountLabel": "10 user sessions did this",
             "fidelity": "exact",
@@ -3597,17 +3132,17 @@
             "representative": {
               "distinctId": "demo-user-17",
               "sessionId": "demo-session-17",
-              "status": "completed"
+              "status": "abandoned-mid-flow"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+              "kind": "review-stopped-mid-flow",
+              "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
               "command": "replaytest plan demo-user-17 --session demo-session-17",
               "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 12
+            "rank": 8
           },
           "kinds": [
             {
@@ -3615,7 +3150,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+                "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
                 "sessionCount": 10,
                 "sessionCountLabel": "10 user sessions did this",
                 "fidelity": "exact",
@@ -3624,17 +3159,17 @@
                 "representative": {
                   "distinctId": "demo-user-17",
                   "sessionId": "demo-session-17",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-17 --session demo-session-17",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 12
+                "rank": 8
               }
             }
           ],
@@ -3644,7 +3179,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+                "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
                 "sessionCount": 10,
                 "sessionCountLabel": "10 user sessions did this",
                 "fidelity": "exact",
@@ -3653,17 +3188,17 @@
                 "representative": {
                   "distinctId": "demo-user-17",
                   "sessionId": "demo-session-17",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-17 --session demo-session-17",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 12
+                "rank": 8
               }
             },
             {
@@ -3671,7 +3206,7 @@
               "coverage": "notAssessed",
               "assessed": false,
               "row": {
-                "signature": "/workspace/warehouses > /workspace/warehouses/complete",
+                "signature": "/workspace/warehouses/step/1 > /workspace/warehouses/step/2",
                 "sessionCount": 10,
                 "sessionCountLabel": "10 user sessions did this",
                 "fidelity": "not-assessed",
@@ -3681,7 +3216,7 @@
                 "representative": {
                   "distinctId": "demo-user-17",
                   "sessionId": "demo-session-17",
-                  "status": "completed"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3700,86 +3235,31 @@
           "sessionCount": 9,
           "rank": 18,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/pricing > /workspace/pricing/complete",
             "sessionCount": 9,
             "sessionCountLabel": "9 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-18",
               "sessionId": "demo-session-18",
-              "status": "completed"
+              "status": "navigated"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-18 --session demo-session-18",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 13
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/pricing > /workspace/pricing/complete",
-                "sessionCount": 9,
-                "sessionCountLabel": "9 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-18",
-                  "sessionId": "demo-session-18",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-18 --session demo-session-18",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 13
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/pricing > /workspace/pricing/complete",
-                "sessionCount": 9,
-                "sessionCountLabel": "9 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-18",
-                  "sessionId": "demo-session-18",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-18 --session demo-session-18",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 13
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -3795,7 +3275,7 @@
                 "representative": {
                   "distinctId": "demo-user-18",
                   "sessionId": "demo-session-18",
-                  "status": "completed"
+                  "status": "navigated"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -3828,14 +3308,13 @@
               "status": "submitted"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-              "command": "replaytest plan demo-user-19 --session demo-session-19",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "review-not-plannable",
+              "label": "Submitted and Abandoned journeys cannot be planned.",
+              "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 14
+            "rank": 9
           },
           "kinds": [
             {
@@ -3855,14 +3334,13 @@
                   "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-19 --session demo-session-19",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 14
+                "rank": 9
               }
             }
           ],
@@ -3884,14 +3362,13 @@
                   "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-19 --session demo-session-19",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 14
+                "rank": 9
               }
             },
             {
@@ -3928,86 +3405,31 @@
           "sessionCount": 7,
           "rank": 20,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/forecasts > /workspace/forecasts/complete",
             "sessionCount": 7,
             "sessionCountLabel": "7 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-20",
               "sessionId": "demo-session-20",
-              "status": "completed"
+              "status": "abandoned"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-20 --session demo-session-20",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 15
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/forecasts > /workspace/forecasts/complete",
-                "sessionCount": 7,
-                "sessionCountLabel": "7 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-20",
-                  "sessionId": "demo-session-20",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-20 --session demo-session-20",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 15
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/forecasts > /workspace/forecasts/complete",
-                "sessionCount": 7,
-                "sessionCountLabel": "7 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-20",
-                  "sessionId": "demo-session-20",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-20 --session demo-session-20",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 15
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -4023,7 +3445,7 @@
                 "representative": {
                   "distinctId": "demo-user-20",
                   "sessionId": "demo-session-20",
-                  "status": "completed"
+                  "status": "abandoned"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -4063,7 +3485,7 @@
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 16
+            "rank": 10
           },
           "kinds": [
             {
@@ -4090,7 +3512,7 @@
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 16
+                "rank": 10
               }
             }
           ],
@@ -4119,7 +3541,7 @@
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 16
+                "rank": 10
               }
             },
             {
@@ -4152,13 +3574,13 @@
           ]
         },
         {
-          "signature": "/workspace/contracts > /workspace/contracts/complete",
+          "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
           "sessionCount": 5,
           "rank": 22,
           "coverage": "noKnownLink",
           "confidence": "exact",
           "row": {
-            "signature": "/workspace/contracts > /workspace/contracts/complete",
+            "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
             "sessionCount": 5,
             "sessionCountLabel": "5 user sessions did this",
             "fidelity": "exact",
@@ -4167,17 +3589,17 @@
             "representative": {
               "distinctId": "demo-user-22",
               "sessionId": "demo-session-22",
-              "status": "submitted"
+              "status": "abandoned-mid-flow"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+              "kind": "review-stopped-mid-flow",
+              "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
               "command": "replaytest plan demo-user-22 --session demo-session-22",
               "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 17
+            "rank": 11
           },
           "kinds": [
             {
@@ -4185,7 +3607,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/contracts > /workspace/contracts/complete",
+                "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
                 "sessionCount": 5,
                 "sessionCountLabel": "5 user sessions did this",
                 "fidelity": "exact",
@@ -4194,17 +3616,17 @@
                 "representative": {
                   "distinctId": "demo-user-22",
                   "sessionId": "demo-session-22",
-                  "status": "submitted"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-22 --session demo-session-22",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 17
+                "rank": 11
               }
             }
           ],
@@ -4214,7 +3636,7 @@
               "coverage": "noKnownLink",
               "assessed": true,
               "row": {
-                "signature": "/workspace/contracts > /workspace/contracts/complete",
+                "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
                 "sessionCount": 5,
                 "sessionCountLabel": "5 user sessions did this",
                 "fidelity": "exact",
@@ -4223,17 +3645,17 @@
                 "representative": {
                   "distinctId": "demo-user-22",
                   "sessionId": "demo-session-22",
-                  "status": "submitted"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
+                  "kind": "review-stopped-mid-flow",
+                  "label": "We saw the user reach the next step of this flow. A plan can check that step change, not the whole flow. Watch one session first.",
                   "command": "replaytest plan demo-user-22 --session demo-session-22",
                   "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 17
+                "rank": 11
               }
             },
             {
@@ -4241,7 +3663,7 @@
               "coverage": "notAssessed",
               "assessed": false,
               "row": {
-                "signature": "/workspace/contracts > /workspace/contracts/complete",
+                "signature": "/workspace/contracts/step/1 > /workspace/contracts/step/2",
                 "sessionCount": 5,
                 "sessionCountLabel": "5 user sessions did this",
                 "fidelity": "not-assessed",
@@ -4251,7 +3673,7 @@
                 "representative": {
                   "distinctId": "demo-user-22",
                   "sessionId": "demo-session-22",
-                  "status": "submitted"
+                  "status": "abandoned-mid-flow"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -4270,86 +3692,31 @@
           "sessionCount": 4,
           "rank": 23,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/receiving > /workspace/receiving/complete",
             "sessionCount": 4,
             "sessionCountLabel": "4 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-23",
               "sessionId": "demo-session-23",
-              "status": "completed"
+              "status": "navigated"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-23 --session demo-session-23",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 18
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/receiving > /workspace/receiving/complete",
-                "sessionCount": 4,
-                "sessionCountLabel": "4 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-23",
-                  "sessionId": "demo-session-23",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-23 --session demo-session-23",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 18
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/receiving > /workspace/receiving/complete",
-                "sessionCount": 4,
-                "sessionCountLabel": "4 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-23",
-                  "sessionId": "demo-session-23",
-                  "status": "completed"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-23 --session demo-session-23",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 18
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -4365,7 +3732,7 @@
                 "representative": {
                   "distinctId": "demo-user-23",
                   "sessionId": "demo-session-23",
-                  "status": "completed"
+                  "status": "navigated"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -4395,17 +3762,16 @@
             "representative": {
               "distinctId": "demo-user-24",
               "sessionId": "demo-session-24",
-              "status": "completed"
+              "status": "submitted"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-              "command": "replaytest plan demo-user-24 --session demo-session-24",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "review-not-plannable",
+              "label": "Submitted and Abandoned journeys cannot be planned.",
+              "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 19
+            "rank": 12
           },
           "kinds": [
             {
@@ -4422,17 +3788,16 @@
                 "representative": {
                   "distinctId": "demo-user-24",
                   "sessionId": "demo-session-24",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-24 --session demo-session-24",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 19
+                "rank": 12
               }
             }
           ],
@@ -4451,17 +3816,16 @@
                 "representative": {
                   "distinctId": "demo-user-24",
                   "sessionId": "demo-session-24",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
-                  "kind": "review-and-plan",
-                  "label": "Watch one of these sessions, then generate a test plan from it if it looks right.",
-                  "command": "replaytest plan demo-user-24 --session demo-session-24",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+                  "kind": "review-not-plannable",
+                  "label": "Submitted and Abandoned journeys cannot be planned.",
+                  "command": "replaytest gaps --shape form-submit-signal --since-hours 720",
+                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720"
                 },
                 "suiteInventoryState": "complete",
-                "rank": 19
+                "rank": 12
               }
             },
             {
@@ -4479,7 +3843,7 @@
                 "representative": {
                   "distinctId": "demo-user-24",
                   "sessionId": "demo-session-24",
-                  "status": "completed"
+                  "status": "submitted"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -4498,86 +3862,31 @@
           "sessionCount": 2,
           "rank": 25,
           "coverage": "noKnownLink",
-          "confidence": "exact",
+          "confidence": "not-assessed",
           "row": {
             "signature": "/workspace/manifests > /workspace/manifests/complete",
             "sessionCount": 2,
             "sessionCountLabel": "2 user sessions did this",
-            "fidelity": "exact",
-            "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-            "linkState": "no-known-link",
+            "fidelity": "not-assessed",
+            "evidence": "We couldn't count steps for this row — it needs the detailed scan.",
+            "linkState": "not-assessed",
+            "routeLinkState": "no-known-link",
             "representative": {
               "distinctId": "demo-user-25",
               "sessionId": "demo-session-25",
-              "status": "submitted"
+              "status": "abandoned"
             },
             "action": {
-              "kind": "review-and-plan",
-              "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-              "command": "replaytest plan demo-user-25 --session demo-session-25",
-              "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-              "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
+              "kind": "resolve-unavailable-evidence",
+              "label": "Fix the missing evidence first (see the note on this row).",
+              "command": "replaytest gaps --shape deep-wizard --since-hours 720",
+              "resumeCommand": "replaytest gaps --shape deep-wizard --since-hours 720"
             },
             "suiteInventoryState": "complete",
-            "rank": 20
+            "reason": "This exact row has no single-URL journey-depth evidence."
           },
-          "kinds": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/manifests > /workspace/manifests/complete",
-                "sessionCount": 2,
-                "sessionCountLabel": "2 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-25",
-                  "sessionId": "demo-session-25",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-25 --session demo-session-25",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 20
-              }
-            }
-          ],
+          "kinds": [],
           "records": [
-            {
-              "shape": "form-submit-signal",
-              "coverage": "noKnownLink",
-              "assessed": true,
-              "row": {
-                "signature": "/workspace/manifests > /workspace/manifests/complete",
-                "sessionCount": 2,
-                "sessionCountLabel": "2 user sessions did this",
-                "fidelity": "exact",
-                "evidence": "We saw these users submit a form on this page. (That's the click — it doesn't tell us whether the server saved anything.)",
-                "linkState": "no-known-link",
-                "representative": {
-                  "distinctId": "demo-user-25",
-                  "sessionId": "demo-session-25",
-                  "status": "submitted"
-                },
-                "action": {
-                  "kind": "review-and-plan",
-                  "label": "We saw this directly — but after the submit, these visits either stayed put or landed on the same page they started from (only the address is spelled differently). Watch one session, then generate a test plan if it looks right.",
-                  "command": "replaytest plan demo-user-25 --session demo-session-25",
-                  "resumeCommand": "replaytest gaps --shape form-submit-signal --since-hours 720",
-                  "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
-                },
-                "suiteInventoryState": "complete",
-                "rank": 20
-              }
-            },
             {
               "shape": "deep-wizard",
               "coverage": "notAssessed",
@@ -4593,7 +3902,7 @@
                 "representative": {
                   "distinctId": "demo-user-25",
                   "sessionId": "demo-session-25",
-                  "status": "submitted"
+                  "status": "abandoned"
                 },
                 "action": {
                   "kind": "resolve-unavailable-evidence",
@@ -4633,7 +3942,7 @@
               "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
             },
             "suiteInventoryState": "complete",
-            "rank": 21
+            "rank": 13
           },
           "kinds": [
             {
@@ -4660,7 +3969,7 @@
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 21
+                "rank": 13
               }
             }
           ],
@@ -4689,7 +3998,7 @@
                   "warning": "This test will submit form data when it runs. Point it at a staging site or seeded test data — never at production."
                 },
                 "suiteInventoryState": "complete",
-                "rank": 21
+                "rank": 13
               }
             },
             {
@@ -5052,11 +4361,11 @@
         "slug": "demo-inventory",
         "sidecar": {
           "title": "Review inventory",
-          "start": "/workspace/inventory",
+          "start": "/workspace/inventory/step/1",
           "source": {
             "distinctId": "demo-user-02",
             "sessionId": "demo-session-02",
-            "signature": "/workspace/inventory > /workspace/inventory/complete",
+            "signature": "/workspace/inventory/step/1 > /workspace/inventory/step/2",
             "journeyIndex": 1,
             "generatedAt": "2026-09-20T12:00:00.000Z",
             "tool": "replaytest"

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { emitArtifact } from '../../artifact-registry.js';
 import { buildUnconfiguredHint, isConfigured } from '../../provider-config.js';
 import { fetchNeutralSessionsWithDomEnrichment, getProviderConfigStatus, type ProviderConfigStatus } from '../../providers/posthog-adapter.js';
-import { segmentJourneys, type JourneyStatus } from '../../journeys.js';
+import { segmentJourneys, type JourneyFinality, type JourneyStatus } from '../../journeys.js';
 import type { NeutralSession } from '../../neutral-session.js';
 import { attributeExceptions, type AttributedExceptions } from '../../journey-evidence.js';
 import { buildReproSpec } from '../../repro-builder.js';
@@ -15,6 +15,7 @@ import { REPRODUCTIONS_DIR } from '../paths.js';
 import { dedupeSlug, slugifyJourneyRoute } from '../slug.js';
 import { buildPlanSessionNotFoundMessage, selectPlanSession } from '../plan-session.js';
 import { formatJourneyStatusToken } from '../terminal-format.js';
+import { formatOutcomeCoverageLine } from '../../completion-evidence.js';
 import { buildScaffoldExistsError, shouldRefuseScaffoldTarget } from './scaffold.js';
 
 // ---------------------------------------------------------------------------
@@ -46,7 +47,7 @@ export function buildNoJourneysFoundMessage(): string {
   return (
     'No journeys found in the session — nothing to reproduce. ' +
     `This session recorded no clicks, inputs, or submits; pick a different session with \`${TOOL_NAME} sessions\` ` +
-    '(look for completed/navigated/submitted activity) and re-run repro against it.'
+    '(look for completed, stopped mid-flow, navigated, or submitted activity) and re-run repro against it.'
   );
 }
 
@@ -123,9 +124,21 @@ function resolveReproRunDeps(deps: ReproRunDeps): ReproFetchers & {
 interface ReproWriteTarget {
   slug: string;
   status: JourneyStatus;
+  finality?: JourneyFinality;
+  stoppedAtStep?: number;
+  outcomeCoverage?: 'not-captured' | 'not-recognised';
   spec: string;
   specPath: string;
   specDisplay: string;
+}
+
+/** The customer-visible status and optional recording outcome lines for one repro target. */
+export function formatReproStatusOutput(target: Pick<ReproWriteTarget, 'status' | 'finality' | 'stoppedAtStep' | 'outcomeCoverage'>): string[] {
+  const outcomeLine = formatOutcomeCoverageLine(target.outcomeCoverage);
+  return [
+    formatJourneyStatusToken(target.status, target.finality, target.stoppedAtStep),
+    ...(outcomeLine === undefined ? [] : [outcomeLine]),
+  ];
 }
 
 /**
@@ -194,7 +207,16 @@ export async function runRepro(argv: string[], deps: ReproRunDeps = {}): Promise
       : path.join(resolvedDeps.reproductionsDir, `${slug}.repro.spec.ts`);
     const specDisplay = args.out !== undefined ? args.out : `tests/reproductions/${slug}.repro.spec.ts`;
 
-    return { slug, status: journey.status, spec, specPath, specDisplay };
+    return {
+      slug,
+      status: journey.status,
+      ...(journey.finality === undefined ? {} : { finality: journey.finality }),
+      ...(journey.stoppedAtStep === undefined ? {} : { stoppedAtStep: journey.stoppedAtStep }),
+      ...(journey.outcomeCoverage === undefined ? {} : { outcomeCoverage: journey.outcomeCoverage }),
+      spec,
+      specPath,
+      specDisplay,
+    };
   });
 
   const refusals = targets.filter((target) => shouldRefuseScaffoldTarget(args, fs.existsSync(target.specPath)));
@@ -207,6 +229,8 @@ export async function runRepro(argv: string[], deps: ReproRunDeps = {}): Promise
   for (const target of targets) {
     fs.mkdirSync(path.dirname(target.specPath), { recursive: true });
     emitArtifact('repro-spec', target.specPath, target.spec);
-    resolvedDeps.log(`Wrote ${target.specDisplay} (${formatJourneyStatusToken(target.status)})`);
+    const [statusLine, ...outcomeLines] = formatReproStatusOutput(target);
+    resolvedDeps.log(`Wrote ${target.specDisplay} (${statusLine})`);
+    for (const line of outcomeLines) resolvedDeps.log(line);
   }
 }

@@ -6,6 +6,7 @@
  * With `^`/`$` present the sibling is safe; with anchoring lost it is matched.
  */
 
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
@@ -30,7 +31,7 @@ function liveSidecar(): Sidecar {
     title: 'Checkout confirmation',
     source: {
       distinctId: 'user-1', sessionId: 'session-1', journeyIndex: 0, signature: SIG,
-      generatedAt: '2026-07-01T12:00:00.000Z', tool: 'replaytest@0.1.0',
+      generatedAt: '2026-07-01T12:00:00.000Z', tool: toolIdentifier(),
       emptySearches: [emptySearch('2026-08-10T12:00:00.000Z'), emptySearch('2026-08-15T12:00:00.000Z')],
     },
     start: '/cart',

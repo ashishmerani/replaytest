@@ -975,6 +975,12 @@ export interface HealCollectOptions {
   /** Registry slugs loaded once by the CLI command boundary. */
   handFinishedSlugs?: ReadonlySet<string>;
   stealScanLock?: boolean;
+  /**
+   * Progress channel threaded to each per-slug `collectTriageReport`, so every
+   * slug states how many recordings it is about to read, and the expected
+   * wait, before the first read.
+   */
+  progress?: (line: string) => void;
 }
 
 function sidecarJsonPath(plansDir: string, slug: string): string {
@@ -1486,6 +1492,7 @@ async function collectHealFileSummaryBuckets(args: {
           workspaceRoot: args.workspaceRoot,
           workspaceIdentity: args.workspaceIdentity,
           stealScanLock: args.opts.stealScanLock,
+          progress: args.opts.progress,
         }),
       );
     } catch (err) {
@@ -1665,6 +1672,16 @@ interface ProcessSlugInput {
   workspaceRoot: string;
   workspaceIdentity: WorkspacePathIdentity;
   stealScanLock?: boolean;
+  progress?: (line: string) => void;
+}
+
+const TRIAGE_READ_PREFIX = 'Triage: reading ';
+
+/** Triage's recording-read line, said for one slug of a heal batch: "Triage for <slug>: reading …". */
+export function healTriageProgress(progress: (line: string) => void, slug: string): (line: string) => void {
+  return (line) => progress(
+    line.startsWith(TRIAGE_READ_PREFIX) ? `Triage for ${slug}: reading ${line.slice(TRIAGE_READ_PREFIX.length)}` : line,
+  );
 }
 
 function healSlugOutcomeContext(input: ProcessSlugInput, drift: PlanDriftState) {
@@ -1759,6 +1776,9 @@ async function processSlug(input: ProcessSlugInput): Promise<HealSlugOutcome> {
     appScope: input.appScope,
     lockConsumer: 'heal',
     ...(input.stealScanLock === true ? { stealScanLock: true } : {}),
+    // The read count and the expected wait are said before the first read.
+    // A heal run triages several slugs, so the read line names the slug.
+    ...(input.progress === undefined ? {} : { progress: healTriageProgress(input.progress, input.slug) }),
   });
 
   if (reportOrRefusal.kind === 'refusal') {

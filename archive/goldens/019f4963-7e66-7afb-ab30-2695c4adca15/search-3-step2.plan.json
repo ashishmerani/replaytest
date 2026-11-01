@@ -6,120 +6,12 @@
     "sessionId": "019f4963-7e66-7afb-ab30-2695c4adca15",
     "origin": "http://localhost:8000",
     "journeyIndex": 0,
-    "signature": "/flows/wizard-6-step1.html > /flows/search-3-step1.html > /flows/search-3-step2.html",
+    "signature": "/flows/search-3-step1.html > /flows/search-3-step2.html",
     "generatedAt": "__EVAL_NORMALIZED_GENERATED_AT__",
-    "tool": "replaytest@0.1.0"
+    "tool": "replaytest@__EVAL_NORMALIZED_TOOL_VERSION__"
   },
-  "start": "/flows/wizard-6-step1.html",
+  "start": "/flows/search-3-step1.html",
   "steps": [
-    {
-      "action": "fill",
-      "label": "Full name",
-      "locator": "getByTestId('wizard-6-fld-name')",
-      "placeholder": true,
-      "url": "/flows/wizard-6-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('textbox', { name: 'Full name' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Full name')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#fld-name')"
-        }
-      ],
-      "inputType": "text",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "click",
-      "label": "Input",
-      "locator": "getByTestId('wizard-6-fld-1-2')",
-      "url": "/flows/wizard-6-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('radio', { name: 'Mail' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Mail')"
-        }
-      ],
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Mail",
-      "locator": "getByTestId('wizard-6-fld-1-2')",
-      "url": "/flows/wizard-6-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('radio', { name: 'Mail' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Mail')"
-        }
-      ],
-      "inputType": "radio",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Additional note",
-      "locator": "getByTestId('wizard-6-fld-2')",
-      "placeholder": true,
-      "url": "/flows/wizard-6-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('textbox', { name: 'Additional note' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Additional note')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#fld-2')"
-        }
-      ],
-      "inputType": "text",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
-    {
-      "action": "fill",
-      "label": "Email address",
-      "locator": "getByTestId('wizard-6-fld-3')",
-      "placeholder": true,
-      "url": "/flows/wizard-6-step1.html",
-      "selectorAlternates": [
-        {
-          "strategy": "role",
-          "locator": "getByRole('textbox', { name: 'Email address' })"
-        },
-        {
-          "strategy": "label",
-          "locator": "getByLabel('Email address')"
-        },
-        {
-          "strategy": "id",
-          "locator": "locator('#fld-3')"
-        }
-      ],
-      "inputType": "email",
-      "elementTag": "input",
-      "selectorConfidence": "confident"
-    },
     {
       "action": "fill",
       "label": "Search query",

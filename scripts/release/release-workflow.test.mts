@@ -26,6 +26,8 @@ import {
   RELEASE_SCRIPT_SHA256,
   RELEASE_STEP_ENV_KEYS,
   RELEASE_WRITE_GRANTS,
+  DRY_RUN_PUBLISH_COMMAND,
+  PUBLISH_COMMAND,
 } from './release-workflow-policy.mts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -73,13 +75,16 @@ test('the complete workflow has a zero-finding baseline', () => {
   assert.deepEqual(checkReleaseWorkflows(realFiles()), []);
 });
 
-test('the publish job hands npm a ./-prefixed package path, never a bare owner/repo-shaped one', () => {
+test('the dry run and the publish job take the npm package path only from the shared release-plan helper', () => {
   // npm parses a bare "release-candidate/x.tgz" as a GitHub shorthand and tries git ls-remote
-  // (the first live 0.1.0 run failed this way before anything was published).
+  // (the first live 0.1.0 run failed this way before anything was published). Both jobs ask
+  // the same module for the path, so the dry run checks the value the live publish uses.
   const text = realFiles().get(RELEASE_WORKFLOW)!;
+  const shared = 'TARBALL="$(node release-candidate/release-plan.mts package-path)"';
   const publishJob = text.slice(text.indexOf('\n  publish:\n'), text.indexOf('\n  release:\n'));
-  const assignments = publishJob.split('\n').filter((line) => /^\s*TARBALL=/.test(line));
-  assert.deepEqual(assignments.map((line) => line.trim()), ['TARBALL="./${CANDIDATES[0]}"']);
+  const assignments = (body: string): string[] => body.split('\n').filter((line) => /^\s*TARBALL=/.test(line)).map((line) => line.trim());
+  assert.deepEqual(assignments(publishJob), [shared]);
+  assert.deepEqual(assignments(readNamedStepScript(text, 'preflight', 'Dry-run the publish command')!), [shared]);
   assert.match(publishJob, /npm publish "\$TARBALL"/);
 });
 
@@ -153,11 +158,11 @@ test('unknown jobs, missing env rows, and policy lookups without a row fail clos
   assert.ok(text.includes('  release:\n'));
 });
 
-test('npm_tag is an exact required choice with only next and latest, defaulting to next', () => {
+test('npm_tag is an exact required choice with only next and latest, defaulting to latest', () => {
   const original = realFiles();
-  const input = '        type: choice\n        options:\n          - next\n          - latest\n        default: next\n        required: true';
+  const input = '        type: choice\n        options:\n          - next\n          - latest\n        default: latest\n        required: true';
   const badShapes = [
-    input.replace('default: next', 'default: latest'),
+    input.replace('default: latest', 'default: next'),
     input.replace('          - latest\n', '          - latest\n          - beta\n'),
     input.replace('type: choice', 'type: string'),
     input.replace('        required: true', '        required: false'),
@@ -168,12 +173,30 @@ test('npm_tag is an exact required choice with only next and latest, defaulting 
   expectReleasePin(plant(original, '      version:\n', '      extra_input:\n        type: string\n        required: true\n      version:\n'), 5, 'an unknown workflow input');
 });
 
-test('publish is a single literal command with the selected distribution tag', () => {
+test('real and dry-run publish use the same package path and selected distribution tag', () => {
   const original = realFiles();
-  const line = '            npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag "$EXPECTED_DIST_TAG"';
-  expectReleasePin(plant(original, line, '            npm publish "$TARBALL" --provenance --access public --ignore-scripts'), 9, 'publish without --tag');
-  expectReleasePin(plant(original, line, '            npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag latest'), 9, 'publish with a hard-coded latest tag');
-  expectReleasePin(plant(original, line, line + '\n            npm publish "$TARBALL" --provenance --access public --ignore-scripts --tag "$EXPECTED_DIST_TAG"'), 9, 'a second npm publish literal');
+  const text = original.get(RELEASE_WORKFLOW)!;
+  assert.equal(DRY_RUN_PUBLISH_COMMAND, `${PUBLISH_COMMAND} --dry-run`);
+  const dryRunScript = readNamedStepScript(text, 'preflight', 'Dry-run the publish command')!;
+  assert.match(dryRunScript, /if \[ "\$DRY_RUN" = "true" \]; then/);
+  assert.match(dryRunScript, /EXPECTED_DIST_TAG="\$DIST_TAG"/);
+  assert.match(dryRunScript, new RegExp(DRY_RUN_PUBLISH_COMMAND.replaceAll('$', '\\$')));
+  assert.match(readNamedStepScript(text, 'publish', 'Check the registry, then publish')!, new RegExp(PUBLISH_COMMAND.replaceAll('$', '\\$')));
+  expectReleasePin(plant(original, '            ' + DRY_RUN_PUBLISH_COMMAND, '            ' + DRY_RUN_PUBLISH_COMMAND.replace('"$TARBALL"', '"other.tgz"')), 9, 'dry-run with a different package path');
+  expectReleasePin(plant(original, '            ' + DRY_RUN_PUBLISH_COMMAND, '            ' + DRY_RUN_PUBLISH_COMMAND.replace('"$EXPECTED_DIST_TAG"', 'latest')), 9, 'dry-run with a hard-coded tag');
+  expectReleasePin(plant(original, '            ' + DRY_RUN_PUBLISH_COMMAND, '            ' + PUBLISH_COMMAND), 9, 'dry-run without --dry-run');
+  expectReleasePin(plant(original, '            ' + PUBLISH_COMMAND, '            ' + PUBLISH_COMMAND.replace('"$EXPECTED_DIST_TAG"', 'latest')), 9, 'real publish with a hard-coded tag');
+});
+
+test('publish failure copy distinguishes a possible duplicate from what is known', () => {
+  const original = realFiles();
+  const text = original.get(RELEASE_WORKFLOW)!;
+  const script = readNamedStepScript(text, 'publish', 'Check the registry, then publish')!;
+  const hint = 'Publishing failed; see the npm message above. One possible cause is that this version is already published. If npm says so, wait a few minutes and use Re-run failed jobs; the re-run checks the registry first.';
+  assert.ok(script.includes(hint));
+  assert.doesNotMatch(script, /the package is live|npm refused the publish/);
+  expectReleasePin(plant(original, hint, 'Publishing failed; this version is already published.'), 19, 'publish failure guidance that states a duplicate as fact');
+  expectReleasePin(plant(original, hint, 'Publishing failed; see the npm message above. One possible cause is that this version is already published.'), 19, 'publish failure guidance without its next step');
 });
 
 test('the three write grants are exact and any new grant fails', () => {
@@ -469,7 +492,7 @@ test('pin 8: the tag job may write to the repository and do nothing else', () =>
   );
 });
 
-test('pin 9: the publish command carries its three flags and nothing fetches code outside the lockfile', () => {
+test('pin 9: the real publish command carries its three flags and nothing fetches code outside the lockfile', () => {
   expectPin(
     mutate(realFiles(), RELEASE_WORKFLOW, 'npm publish "$TARBALL" --provenance --access public --ignore-scripts', 'npm publish "$TARBALL" --access public --ignore-scripts'),
     9,
@@ -915,7 +938,7 @@ test('release job env keys are exact for each job, including additions, removals
 test('release step env sets are exact at every step, with BUNDLE_PATH only on the bundle save', () => {
   const text = realFiles().get(RELEASE_WORKFLOW)!;
   const steps = text.split('\n').filter((line) => /^      - /.test(line));
-  assert.equal(steps.length, 36);
+  assert.equal(steps.length, 37);
   for (const step of steps) {
     for (const name of ['BASH_ENV', 'LOCAL_ONLY', 'TARBALL_SHA256']) {
       expectPin(mutate(realFiles(), RELEASE_WORKFLOW, step, `${step}\n        env: { ${name}: injected }`), 22, `${step} ${name}`);
@@ -1177,7 +1200,7 @@ test('pin 19: a shell COMMENT cannot stand in for the safety step it names', () 
   expectPin(decoyed, 19, 'the real registry check deleted and its needle satisfied by a decoy comment');
 });
 
-test('pin 9: the publish command is one exact line, not a list of flags to look for', () => {
+test('pin 9: publish commands are exact lines, not a list of flags to look for', () => {
   expectPin(
     mutate(realFiles(), RELEASE_WORKFLOW, '          npm publish "$TARBALL" --provenance', '          echo npm publish "$TARBALL" --provenance'),
     9,

@@ -28,7 +28,6 @@ import { test, expect } from '@playwright/test';
 // Recording findings (from the session data — surfaced, never assertions):
 //   - Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.
 //   - This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.
-//   - 1 page transition had no witnessed trigger interaction (/flows/settings-8) — the recording saw the navigation but not the click/input that caused it (autocapture can drop a click when the page unloads quickly). This flow cannot reproduce that hop on its own — add the real navigation step (the control's click, or a direct goto) before relying on it.
 
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -38,8 +37,7 @@ test('Step3', async ({ page }) => {
     if (msg.type() === 'error') consoleErrors.push(msg.text());
   });
 
-  await page.goto('/customers/new');
-  // TODO: replaytest-marker: missing-navigation-hop — add the real trigger for the witnessed transition to /flows/settings-8 before relying on this flow.
+  await page.goto('/flows/settings-8');
   // recorded action 1: fill "Full name"
   await page.getByRole('textbox', { name: 'Full name' }).fill('example'); // replaytest-marker: placeholder-value — placeholder value
   // recorded action 2: fill "Work email"

@@ -29,6 +29,7 @@ import { test, expect } from '@playwright/test';
 //   - Session capture masks and drops sensitive fields (e.g. card numbers, passwords), so the recording may not carry every value this submit needs — if the replayed submit does not reach the expected page, a masked field the recording never captured needs its value added above it.
 //   - This flow performs writes (form submissions). Run generated tests against a safe environment — point TARGET_APP_URL at staging/seeded data, never production.
 //   - The asserted page text comes from one session — verify it is not user-specific before relying on it.
+//   - This test checks the step change to /flows/promo-1/step/2, not the whole flow.
 
 test.use({ viewport: { width: 1280, height: 720 } });
 

@@ -1,3 +1,4 @@
+import { toolIdentifier } from './tool-identifier.js';
 import type { TestContext } from "node:test";
 import { makeTempDir } from './test-support/temp-dir.test-support.js';
 import assert from 'node:assert/strict';
@@ -435,7 +436,7 @@ test('every live plan-family writer refuses at its real write path while a journ
     source: {
       distinctId: 'orders-user', sessionId: 'orders-session', journeyIndex: 0,
       signature: '/dashboard > /orders/:id/pay > /orders/:id/confirmation',
-      generatedAt: '2026-08-24T00:00:00.000Z', tool: 'replaytest@0.1.0',
+      generatedAt: '2026-08-24T00:00:00.000Z', tool: toolIdentifier(),
     },
     start: '/dashboard',
     steps: [{ action: 'click', label: 'Pay now', locator: "getByRole('button', { name: 'Pay now' })", isSubmit: true }],
@@ -576,7 +577,7 @@ test('retirement awareness covers legacy, ghost, unreadable, journal, sibling, a
   assert.doesNotMatch(retiredDoorSentence('ghost', ghost!), /already-retired/);
   const plans = path.join(root, '.replaytest', 'plans');
   fs.mkdirSync(plans, { recursive: true });
-  fs.writeFileSync(path.join(plans, 'ghost.plan.json'), JSON.stringify({ version: 1, title: 'live ghost sidecar', source: { distinctId: 'u', sessionId: 's', journeyIndex: 0, signature: '/ghost', generatedAt: '2026-08-24T00:00:00.000Z', tool: 'replaytest@0.1.0' }, start: '/ghost', steps: [], assertions: [] }), 'utf8');
+  fs.writeFileSync(path.join(plans, 'ghost.plan.json'), JSON.stringify({ version: 1, title: 'live ghost sidecar', source: { distinctId: 'u', sessionId: 's', journeyIndex: 0, signature: '/ghost', generatedAt: '2026-08-24T00:00:00.000Z', tool: toolIdentifier() }, start: '/ghost', steps: [], assertions: [] }), 'utf8');
   const ghostWithLiveSidecar = retirePlan({
     slug: 'ghost', confirmRetire: true, noEvidence: true, plansDir: plans, generatedTestsDir: path.join(root, 'tests', 'generated'), reproductionsDir: path.join(root, 'tests', 'reproductions'), framesDir: path.join(root, '.replaytest', 'frames'), retiredDir: retired, workspaceRoot: root,
     specEmittedHashesPath: path.join(root, '.replaytest', 'state', 'spec-emitted-hashes.json'), selectorAppliesPath: path.join(root, '.replaytest', 'state', 'selector-applies.json'), triageEvidenceDir: path.join(root, '.replaytest', 'state', 'triage-latest'), healLatestPath: path.join(root, '.replaytest', 'state', 'heal-latest.json'),
@@ -640,7 +641,7 @@ test('EXDEV copy-delete probes discard partial temps, finish copied rows, and re
     };
   };
   const sidecar = {
-    version: 1, title: 'EXDEV fixture', source: { distinctId: 'user', sessionId: 'session', journeyIndex: 0, signature: '/a', generatedAt: '2026-08-01T00:00:00.000Z', tool: 'replaytest@0.1.0' },
+    version: 1, title: 'EXDEV fixture', source: { distinctId: 'user', sessionId: 'session', journeyIndex: 0, signature: '/a', generatedAt: '2026-08-01T00:00:00.000Z', tool: toolIdentifier() },
     start: '/a', steps: [], assertions: [],
   };
   const root = scratch(t);

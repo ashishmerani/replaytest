@@ -503,7 +503,7 @@ export function formatGapMapTable(
     }
     appendGapLane(lines, 'No test yet (ranked — start here)', section.noKnownLink, completeSection.noKnownLink.length, outputCap !== undefined);
     appendGapLane(lines, 'Already has a test', section.knownLinks, completeSection.knownLinks.length, outputCap !== undefined);
-    appendGapLane(lines, 'Has a test — needs review', section.needsReview, completeSection.needsReview.length, outputCap !== undefined);
+    appendGapLane(lines, 'Plan needs review', section.needsReview, completeSection.needsReview.length, outputCap !== undefined);
     appendGapLane(lines, 'Has a test — out of date', section.superseded, completeSection.superseded.length, outputCap !== undefined);
     appendGapLane(lines, 'Might be covered by one of your own tests', section.possibleSuiteMatches, completeSection.possibleSuiteMatches.length, outputCap !== undefined);
     appendGapLane(lines, "Couldn't check", section.notAssessed, completeSection.notAssessed.length, outputCap !== undefined);
@@ -594,7 +594,7 @@ function appendGapLane(
 // ---------------------------------------------------------------------------
 
 const GAPS_STORED_BUILD_REMEDY =
-  'Run `replaytest gaps` (a live scan — no --stored) to build the local coarse store; a slice seals after two scans, at least 10 minutes apart (by default), see the same number of sessions for it. `replaytest sessions` and the dashboard scan build the same store. Run `replaytest scan-status` to see what\'s already saved; "How scanning works" in the docs explains the cost model.';
+  'Run `replaytest gaps` (a live scan — no --stored) to build the local coarse store; a slice seals after two scans, at least 10 minutes apart (by default), see the same number of sessions for it. The Sessions scan, from `replaytest sessions` or the dashboard, builds the same store. Run `replaytest scan-status` to see what\'s already saved; "How scanning works" in the docs explains the cost model.';
 
 /**
  * Offline-refusal text for `gaps --stored`, mirroring `buildStoredSnapshotRefusal`'s

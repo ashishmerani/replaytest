@@ -1,23 +1,25 @@
-# Test: Search 7 step2
+# Test: 4
 
-**Provenance:** source: file archive (archive), archived 2026-07-11T19:57:22.265Z; single-session -- aggregation requires the live corpus
+**Provenance:** source: file archive (archive), archived 2026-07-11T19:18:44.700Z; single-session -- aggregation requires the live corpus
 
-**Starting point:** /flows/search-7-step1.html
+**Starting point:** /flows/search-2
 **Viewport:** 1280×720
 
 ## Steps
-1. Go to /flows/search-7-step1.html
+1. Go to /flows/search-2
 2. Fill in the "Search query" field (placeholder value) `getByRole('textbox', { name: 'Search query' })`
-3. Fill in the "Additional note" field (placeholder value) `getByRole('textbox', { name: 'Additional note' })`
-4. Fill in the "Category" field `getByLabel('Category')`
-5. Fill in the "Email address" field (placeholder value) `getByRole('textbox', { name: 'Email address' })`
-6. Fill in the "Quantity" field (placeholder value) `getByRole('spinbutton', { name: 'Quantity' })`
+3. Fill in the "Quantity 2" field (placeholder value) `getByRole('spinbutton', { name: 'Quantity 2' })`
+4. Fill in the "Additional notes 3" field (placeholder value) `getByLabel('Additional notes 3')`
+5. Fill in the "Enable option 4" field `getByRole('checkbox', { name: 'Enable option 4' })`
+6. Click "Input" `getByRole('checkbox', { name: 'Enable option 4' })`
 7. Fill in the "Search query" field (placeholder value) `getByRole('textbox', { name: 'Search query' })`
 8. Click "Search" (submits the form) `getByRole('button', { name: 'Search' })`
+9. Click "Wireless Keyboard" `getByRole('button', { name: 'Wireless Keyboard' })`
+10. Click "Confirm selection" `getByRole('button', { name: 'Confirm selection' })`
 
 ## Expected outcome
-- The final URL is /flows/search-7-step2.html
-- The page shows "Search 7 — Results"
+- The final URL matches /flows/search-2/step/:id (witnessed: /flows/search-2/step/4)
+- The page's title is "Acme Ops Console"
 - No console errors occur (witnessed-clean — the session recording confirms 0 console errors)
 
 ## Notes

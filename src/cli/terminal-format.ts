@@ -1,18 +1,39 @@
 import { formatLocalTime } from '../local-time.js';
-import type { JourneyStatus } from '../journeys.js';
+import { assertNeverJourneyStatus, type JourneyFinality, type JourneyStatus } from '../journeys.js';
 import type { ExactScanCapMetadata } from '../selection.js';
 import { formatScannedOfTotal } from '../triage.js';
 import { formatSessionScanWindow } from './help.js';
 
 const JOURNEY_STATUS_DISPLAY_LABELS: Record<JourneyStatus, string> = {
-  completed: 'Completed',
+  completed: 'Completed · finish not checked',
   navigated: 'Navigated',
   submitted: 'Submitted',
   abandoned: 'Abandoned',
+  'abandoned-mid-flow': 'Stopped mid-flow',
+  'error-after-submit': 'Error after submit',
 };
 
-export function formatJourneyStatusToken(status: JourneyStatus | undefined): string {
-  return status === undefined ? '' : JOURNEY_STATUS_DISPLAY_LABELS[status];
+export function formatJourneyStatusToken(
+  status: JourneyStatus | undefined,
+  finality?: JourneyFinality,
+  stoppedAtStep?: number,
+): string {
+  if (status === undefined) return '';
+  switch (status) {
+    case 'completed':
+      return finality === 'witnessed' ? 'Completed · finish checked' : JOURNEY_STATUS_DISPLAY_LABELS.completed;
+    case 'abandoned-mid-flow':
+      return stoppedAtStep === undefined
+        ? JOURNEY_STATUS_DISPLAY_LABELS[status]
+        : `${JOURNEY_STATUS_DISPLAY_LABELS[status]} (at step ${stoppedAtStep})`;
+    case 'navigated':
+    case 'submitted':
+    case 'error-after-submit':
+    case 'abandoned':
+      return JOURNEY_STATUS_DISPLAY_LABELS[status];
+    default:
+      return assertNeverJourneyStatus(status, 'terminal display');
+  }
 }
 
 /** Terminal text has no hover affordance, so retain the source instant alongside its viewer-local projection. */

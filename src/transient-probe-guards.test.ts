@@ -401,10 +401,12 @@ function trackedProbePaths(root = repoRoot): string[] {
 const LIVE_SRC_WRITE_ALLOWLIST = new Map([
   ['scripts/maintenance/maintenance.test.ts', 'workspace() creates an OS-temp fixture root for parked-trigger evidence shapes.'],
   ['scripts/promotion/sync-to-stage.test.mts', 'Promotion parity fixtures live beneath a tempDirForFile OS-temp root.'],
+  ['scripts/promotion/pii-check.test.mts', 'laneClone() returns a clone beneath a tempDirForFile OS-temp root; the lane cases plant files inside it.'],
   ['scripts/release/pack-install-consume.test.mjs', 'makeScratchRepo() creates an OS-temp repository-shaped fixture.'],
   ['src/benchmark/run-manifest.test.ts', 'The CLI failure-path staging call creates an OS-temp fixture root.'],
   ['src/quality-gates.test.ts', 'The staged mutation builds an fs.mkdtempSync fixture tree.'],
   ['src/quality-gates-dev-only.test.ts', 'Development-only copy and process-copy probes use a test-scoped fixture tree.'],
+  ['src/sidecar.test.ts', 'The tool-identifier regression writes an alternate package.json into a makeTempDir OS-temp fixture.'],
   ['src/test-roster.test.ts', 'The non-Git discovery row creates an fs.mkdtempSync fixture tree.'],
   ['src/transient-probe-guards.test.ts', 'The leftover-owner mutation builds an fs.mkdtempSync fixture tree.'],
 ]);
@@ -428,8 +430,9 @@ function isAllowedFixtureWrite(relativePath: string, source: ts.SourceFile, scop
   // Each helper named here allocates beneath an fs.mkdtempSync or tempDirForFile root; the promotion test's
   // retraction cases build committed scratch repositories through createCommittedFixture()
   // (the fixture root is the module-level mkdtemp) and write `<root>/src/...` inside them.
-  // stageSourceTree() likewise constructs an OS-temp fixture before its caller writes into it.
-  return /(?:fs\.mkdtempSync|\b(?:makeTempDir|tempDirForFile|workspace|makeScratchRepo|createCommittedFixture|stageSourceTree)\s*\()/.test(scope.getText(source));
+  // stageSourceTree() likewise constructs an OS-temp fixture before its caller writes into it,
+  // and the PII check's laneClone() returns a clone beneath its file's tempDirForFile root.
+  return /(?:fs\.mkdtempSync|\b(?:makeTempDir|tempDirForFile|workspace|makeScratchRepo|createCommittedFixture|stageSourceTree|laneClone)\s*\()/.test(scope.getText(source));
 }
 
 /**
@@ -575,18 +578,23 @@ const TEMP_DIR_CENSUS_EXPECTED: readonly {
   { relativePath: 'scripts/docs-fixtures/fixtures.test.mts', helperRouted: 10, embedded: 0, devTreeOnly: false },
   { relativePath: 'scripts/eval/eval-goldens-check.test.mts', helperRouted: 2, embedded: 0, devTreeOnly: false },
   { relativePath: 'scripts/eval/eval-goldens.test.mjs', helperRouted: 1, embedded: 0, devTreeOnly: false },
+  { relativePath: 'scripts/eval/visit-answer-key.test.mts', helperRouted: 3, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/lanes/lane.test.mjs', helperRouted: 2, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/maintenance/maintenance.test.ts', helperRouted: 2, embedded: 0, devTreeOnly: true },
   // Helper-routed roots cover the unnested `.replaytest` copy, absent state,
-  // rotation, and immutable run SHA fixtures.
-  { relativePath: 'scripts/promotion/linux-browser-probe.test.mts', helperRouted: 4, embedded: 0, devTreeOnly: true },
+  // rotation, immutable run SHA, Docker-timeout fake executable, and
+  // inspect-timeout build-context fixtures.
+  { relativePath: 'scripts/promotion/linux-browser-probe.test.mts', helperRouted: 6, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/promotion/label-scan.test.mts', helperRouted: 1, embedded: 0, devTreeOnly: true },
+  // One helper-routed root: the throwaway clone each lane-path case runs the real CLI in.
+  { relativePath: 'scripts/promotion/pii-check.test.mts', helperRouted: 1, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/promotion/pre-sync-battery.test.mts', helperRouted: 8, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/promotion/preflight.test.mts', helperRouted: 1, embedded: 0, devTreeOnly: true },
+  { relativePath: 'scripts/promotion/prod-plan.test.mts', helperRouted: 7, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/promotion/seed-assemble.test.mts', helperRouted: 6, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/promotion/sync-to-stage.test.mts', helperRouted: 37, embedded: 0, devTreeOnly: true },
   { relativePath: 'scripts/release/pack-install-consume.test.mjs', helperRouted: 1, embedded: 0, devTreeOnly: false },
-  { relativePath: 'scripts/release/release-plan.test.mts', helperRouted: 13, embedded: 0, devTreeOnly: false },
+  { relativePath: 'scripts/release/release-plan.test.mts', helperRouted: 15, embedded: 0, devTreeOnly: false },
   { relativePath: 'scripts/stranger-run/redact-twin-window.test.mts', helperRouted: 1, embedded: 0, devTreeOnly: true },
   { relativePath: 'src/accept.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/artifact-registry.test.ts', helperRouted: 3, embedded: 0, devTreeOnly: false },
@@ -598,14 +606,20 @@ const TEMP_DIR_CENSUS_EXPECTED: readonly {
   { relativePath: 'src/benchmark/provider-isolation.test.ts', helperRouted: 4, embedded: 1, devTreeOnly: true },
   { relativePath: 'src/benchmark/run-manifest.test.ts', helperRouted: 7, embedded: 0, devTreeOnly: true },
   { relativePath: 'src/benchmark/run-webarena-renders.test.ts', helperRouted: 3, embedded: 2, devTreeOnly: true },
+  // Four helper-routed roots: the plans folders of the mid-flow plan, the
+  // journeyIndex runs, the signature-comparison run and the moved-on run.
+  { relativePath: 'src/classifier-integration.test.ts', helperRouted: 4, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli-output-snapshots.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli-verb-outcomes.test.ts', helperRouted: 2, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli.test.ts', helperRouted: 2, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/fix-selector.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
+  // One helper-routed root: the plans and frames folders of the out-of-range --steps exit-code case.
+  { relativePath: 'src/cli/verbs/frames.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/gaps.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/heal.test.ts', helperRouted: 2, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/init.test.ts', helperRouted: 4, embedded: 0, devTreeOnly: false },
-  { relativePath: 'src/cli/verbs/plan.test.ts', helperRouted: 15, embedded: 0, devTreeOnly: false },
+  // 17: the segment-once scale pin added one helper-routed plans folder.
+  { relativePath: 'src/cli/verbs/plan.test.ts', helperRouted: 17, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/reconcile.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/regenerate.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/cli/verbs/repro.test.ts', helperRouted: 4, embedded: 0, devTreeOnly: false },
@@ -620,10 +634,11 @@ const TEMP_DIR_CENSUS_EXPECTED: readonly {
   { relativePath: 'src/context-budget-winddown-hook.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: true },
   { relativePath: 'src/dashboard/server.test.ts', helperRouted: 16, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/dist-seam.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
+  { relativePath: 'src/frames-render.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/frames.test.ts', helperRouted: 3, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/generated-spec-headers.test-support.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/heal-run-hashes-reporter.test.ts', helperRouted: 5, embedded: 0, devTreeOnly: false },
-  { relativePath: 'src/heal.test.ts', helperRouted: 50, embedded: 0, devTreeOnly: false },
+  { relativePath: 'src/heal.test.ts', helperRouted: 51, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/offline-suite-consistency.test.ts', helperRouted: 2, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/orphan-plans.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/pack-contract.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
@@ -645,8 +660,10 @@ const TEMP_DIR_CENSUS_EXPECTED: readonly {
   { relativePath: 'src/retire-slug-nonvacuity.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/retire-slug-regexp.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/sampled-register.test.ts', helperRouted: 2, embedded: 0, devTreeOnly: false },
+  { relativePath: 'src/scan-cache-identity.test.ts', helperRouted: 4, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/scaffold.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/selector-apply.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
+  { relativePath: 'src/sidecar.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/spec-emitted-hashes.test.ts', helperRouted: 14, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/staged-copy.test-support.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },
   { relativePath: 'src/state-lock.acceptance.test.ts', helperRouted: 1, embedded: 0, devTreeOnly: false },

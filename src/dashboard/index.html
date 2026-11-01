@@ -455,8 +455,10 @@
   .badge-danger { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-border); }
   .badge-neutral { background: var(--neutral-bg); color: var(--neutral-text); border-color: var(--neutral-border); }
   .badge-status-completed { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+  .badge-status-abandoned-mid-flow { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }
   .badge-status-navigated { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }
   .badge-status-submitted { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
+  .badge-status-error-after-submit { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-border); }
   .badge-status-abandoned { background: var(--neutral-bg); color: var(--neutral-text); border-color: var(--neutral-border); }
   .badge-status-coarse { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
   .badge-witnessed-clean { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
@@ -473,15 +475,17 @@
      own glyph into their text, and the connection chip has one of its own. */
   span.badge-success::before, span.badge-warning::before, span.badge-danger::before,
   span.badge-status-completed::before, span.badge-status-navigated::before,
-  span.badge-status-submitted::before, span.badge-status-abandoned::before,
+  span.badge-status-abandoned-mid-flow::before, span.badge-status-submitted::before,
+  span.badge-status-error-after-submit::before, span.badge-status-abandoned::before,
   span.badge-status-coarse::before, span.badge-witnessed-clean::before,
   span.badge-witnessed-inferred::before, span.badge-witnessed-dirty::before {
     margin-right: 4px; font-weight: 700;
   }
   span.badge-success::before, span.badge-status-completed::before, span.badge-witnessed-clean::before { content: '✓'; }
   span.badge-warning::before, span.badge-status-submitted::before, span.badge-status-coarse::before { content: '▲'; }
-  span.badge-danger::before, span.badge-witnessed-dirty::before { content: '✕'; }
+  span.badge-danger::before, span.badge-status-error-after-submit::before, span.badge-witnessed-dirty::before { content: '✕'; }
   span.badge-status-navigated::before { content: '→'; }
+  span.badge-status-abandoned-mid-flow::before { content: '↳'; }
   span.badge-status-abandoned::before, span.badge-witnessed-inferred::before { content: '•'; }
   /* The connection chip carries a status tint AND its own three-way state, and
      these have to win over the tint's glyph — "Not configured" is a warning
@@ -747,6 +751,7 @@
   .dash-page .btn-secondary:hover:not(:disabled):not([aria-disabled="true"]), .dash-drawer .btn-secondary:hover:not(:disabled):not([aria-disabled="true"]) { background: color-mix(in srgb, var(--text) 4%, var(--surface)); }
   .dash-popover { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; width: min(480px, calc(100vw - 16px)); max-height: min(260px, calc(100vh - 16px)); overflow: auto; padding: 12px; border: 1px solid var(--control-border); border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: none; font-size: 12px; font-weight: 400; letter-spacing: normal; line-height: 1.45; text-align: left; text-transform: none; white-space: normal; }
   .dash-popover[data-testid="dash-popover-toolbar"] { max-height: min(300px, calc(100vh - 16px)); }
+  .dash-popover[data-testid="dash-popover-status-summary"] { max-height: calc(100vh - 16px); }
   .dash-header-popover { width: min(40ch, calc(100vw - 16px)); max-width: 40ch; }
   .dash-popover[hidden] { display: none; }
   .dash-popover-right { right: 0; left: auto; }
@@ -777,7 +782,8 @@
   .dash-col-rank { width: 46px; }
   .dash-col-journey { width: 38%; }
   .dash-col-sessions { width: 78px; }
-  .dash-col-status { width: 118px; }
+  /* Wide enough for the longest status words ("Completed · finish not checked", "Stopped mid-flow (at step N)") on one line: the chip clips its text with an ellipsis rather than wrapping. */
+  .dash-col-status { width: 224px; }
   .dash-col-coverage { width: 170px; }
   .dash-col-needs { width: 145px; }
   .dash-col-actions { width: 96px; }
@@ -804,8 +810,10 @@
   .dash-path-count { margin-left: 7px; color: var(--text-muted); font: 12px var(--font-sans); }
   .dash-chip { display: inline-flex; max-width: 100%; height: 24px; align-items: center; overflow: hidden; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-secondary); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
   .dash-chip-status-completed { border-color: var(--success-border); background: var(--success-bg); color: var(--success-text); }
+  .dash-chip-status-abandoned-mid-flow { border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
   .dash-chip-status-navigated { border-color: var(--neutral-border); background: var(--neutral-bg); color: var(--neutral-text); }
   .dash-chip-status-submitted { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-text); }
+  .dash-chip-status-error-after-submit { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-text); }
   .dash-chip-status-abandoned { border-color: var(--neutral-border); background: var(--neutral-bg); color: var(--neutral-text); }
   .dash-needs-state { display: inline-flex; max-width: 100%; min-width: 0; flex-direction: column; align-items: flex-start; gap: 1px; }
   .dash-needs-suffix { max-width: 100%; overflow: hidden; color: var(--text-muted); font-size: 12px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
@@ -825,6 +833,7 @@
   .dash-drawer-close { width: 34px; height: 34px; padding: 0; border-color: transparent; background: transparent; color: var(--text-muted); font-size: 25px; line-height: 1; }
   .dash-drawer-summary { display: flex; flex-wrap: wrap; gap: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
   .dash-drawer-summary-sep { margin: 0 6px; }
+  .dash-drawer-summary-status { padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); white-space: nowrap; }
   .dash-drawer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
   .dash-drawer-actions .btn-primary { min-width: 112px; }
   .dash-drawer-disabled-reason { flex: 1 0 100%; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
@@ -860,7 +869,7 @@
   .dash-drawer-path-row, .dash-evidence { padding: 12px 0; border-top: 1px solid var(--border); }
   .dash-drawer-path-row:first-child, .dash-evidence:first-child { padding-top: 0; border-top: 0; }
   .dash-evidence-sentence { margin-bottom: 8px; color: var(--text-secondary); }
-  .dash-evidence-session { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 4px 0; }
+  .dash-evidence-session { display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-flow: column; grid-auto-columns: auto; align-items: center; gap: 8px; padding: 4px 0; }
   .dash-drawer-absence { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
   .dash-drawer-path-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: start; }
   .dash-drawer-path-route { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
@@ -1173,7 +1182,7 @@
         <div data-testid="dash-view" class="dash-control" role="group" aria-label="View"><span class="dash-control-label">View</span><span class="dash-view-track"><button type="button" class="view-toggle-btn active" id="view-grouped" data-sessions-view="grouped" aria-pressed="true">Journey families</button><button type="button" class="view-toggle-btn" id="view-flat" data-sessions-view="flat" aria-pressed="false">Flat</button></span></div>
         <div data-testid="dash-range" class="dash-control" role="group" aria-label="Range"><span class="dash-control-label">Range</span><button type="button" class="preset-btn" data-hours="720">Last 30 days</button><button type="button" class="preset-btn" id="dash-range-60" data-hours="1440"></button><button type="button" class="preset-btn" id="dash-range-90" data-hours="2160"></button><label class="dash-hours" data-testid="dash-hours"><span id="dash-custom-hours-label"></span><input type="number" id="filter-since-hours" min="0" placeholder="all" class="num-input"></label></div>
         <div class="dash-toolbar-secondary">
-          <fieldset data-testid="dash-status" class="dash-control dash-status"><legend>Status</legend><label><input type="checkbox" id="filter-completed"> Completed</label><label><input type="checkbox" id="filter-navigated"> Navigated</label><label><input type="checkbox" id="filter-submitted"> Submitted</label></fieldset>
+          <fieldset data-testid="dash-status" class="dash-control dash-status"><legend>Status</legend><label title="Show only Completed rows; Stopped mid-flow rows appear only when no status filter is set."><input type="checkbox" id="filter-completed"> Completed</label><label title="Show only Navigated rows."><input type="checkbox" id="filter-navigated"> Navigated</label><label title="Show only Submitted rows."><input type="checkbox" id="filter-submitted"> Submitted</label></fieldset>
           <label data-testid="dash-focus-gaps" class="dash-control"><input type="checkbox" id="filter-gaps-only"> Focus on gaps</label>
           <label data-testid="dash-signals" class="dash-control"><input type="checkbox" id="filter-signals-only"> <span id="dash-signals-label"></span></label>
           <label data-testid="dash-signal-review" id="signals-reviewed-filter-wrap" class="dash-control" hidden>Signal review <select id="filter-signals-reviewed" class="page-size-select"><option value="unreviewed">Unreviewed</option><option value="reviewed">Reviewed</option><option value="all">All</option></select></label>
@@ -1398,7 +1407,7 @@ const TOOLTIPS = {
   // second hand-authored copy that nothing stopped from drifting.
   status:
     "How far the USER'S JOURNEY got — what the user did, NOT whether you've built a test for it (that's the lifecycle). " +
-    "Completed: a submit then a distinct landing · Navigated: typed input then a new landing, with no witnessed submit · Submitted: a form was submitted but the outcome wasn't captured · Abandoned: no rule above matched.",
+    "Completed: a submit then a distinct landing, with no unfinished step or refused submit seen · Stopped mid-flow: reached the next step of a flow, then stopped there · Error after submit: an error appeared after submit and its form stayed or reappeared · Navigated: typed input then a new landing, with no submit seen · Submitted: a submit with no new page and no error seen · Abandoned: no rule above matched. Unchecked: we saw the user reach a new page, but did not see whether it was the last step. The Sessions scan reads events only, so its Completed rows are unchecked and it cannot show Error after submit.",
   signature: 'The ordered list of pages (routes) this journey visited.',
   planned: 'Whether a reviewable test plan has been generated for this journey yet. Click the ✓ to open it in Plans.',
   tested:
@@ -1406,7 +1415,7 @@ const TOOLTIPS = {
   lifecycle: "Planned: a plan exists. Scaffolded: the test file exists. Executed: we saw it run. Passing: its last run passed and still matches the file.",
   suiteMatch:
     "Best-effort match against your existing test suite — heuristic: a spec that visits this journey's entry (first page) and asserts its final URL (last page). NOT a guarantee — a miss can just mean the heuristic couldn't confirm it, not that no test exists. Only shown when replaytest itself hasn't Planned/Tested this journey yet (that exact match always wins).",
-  actions: 'Generate plan contacts PostHog to fetch this completed session\'s full recording, then writes a local reviewable plan.',
+  actions: 'Generate plan contacts PostHog to fetch this session\'s full recording, then writes a local reviewable plan.',
   generatePlan: "Fetches this session's full recording from PostHog to generate a reviewable plan. This action contacts PostHog.",
   scaffold: 'Writes a test scaffold file on your machine from this locally stored plan. This action does not contact PostHog.',
   replay: 'Opens the representative session: one real example of this journey, not all of them. The recording may have expired in PostHog, so its replay player may be empty or missing.',
@@ -1693,7 +1702,7 @@ const GAP_MAP_COPY = Object.freeze({
   countDefinition: '"No test yet" counts every row that matches your filters — not just this page, and not the whole unfiltered list.',
   filterDefinition: "Filters use each row's overall coverage and confidence. The breakdown by traffic kind is in Details.",
   confidenceInfo: "Confidence says how sure the evidence is. Seen directly means exact evidence. Strong hint means the quick summary scan found a signal but could not tie it to this exact page. Couldn't check means this kind of scan cannot judge it at all.",
-  coverageInfo: "Coverage is one route-level check. ✓ Has a test · ▲ Needs review · ✕ Out of date · ~ Maybe covered · ? Couldn't check · ○ No test yet.",
+  coverageInfo: "Coverage is one route-level check. ✓ Has a test · ▲ Plan needs review · ✕ Out of date · ~ Maybe covered · ? Couldn't check · ○ No test yet.",
   nextStepInfo: "Next step shows the main action for the row; for a \"No test yet\" row that comes first. Details lists every command and warning that applies.",
   spotCheckInfo: "A small sample of your newest sessions, separate from the traffic table; it never refreshes from this page.",
   // Popover paragraph labels. A column name is not a paragraph name: these three say what their
@@ -1723,7 +1732,7 @@ let openSampledObservationsModal = () => {};
 const GAP_MAP_COVERAGE = [
   { key: 'noKnownLink', badge: 'No test yet', label: 'No test yet', glyph: '○', className: 'gap-map-coverage-no-link' },
   { key: 'knownLinks', badge: 'Has a test', label: 'Has a test', glyph: '✓', className: 'gap-map-coverage-known' },
-  { key: 'needsReview', badge: 'Needs review', label: 'Needs review', glyph: '▲', className: 'gap-map-coverage-needs-review' },
+  { key: 'needsReview', badge: 'Plan needs review', label: 'Plan needs review', glyph: '▲', className: 'gap-map-coverage-needs-review' },
   { key: 'superseded', badge: 'Out of date', label: 'Out of date', glyph: '✕', className: 'gap-map-coverage-superseded' },
   { key: 'possibleSuiteMatches', badge: 'Maybe covered', label: 'Maybe covered', glyph: '~', className: 'gap-map-coverage-possible' },
   { key: 'notAssessed', badge: "Couldn't check", label: "Couldn't check", glyph: '?', className: 'gap-map-coverage-not-assessed' },
@@ -1737,6 +1746,30 @@ const GAP_MAP_COVERAGE_BY_LINK_STATE = Object.freeze({
   'possible-suite-match': 'possibleSuiteMatches',
   'not-assessed': 'notAssessed',
 });
+
+// Plans needing review: the full clearing steps are written once here and
+// shown only behind an ⓘ; every visible surface uses the short action line.
+const PLAN_REVIEW_COPY = Object.freeze({
+  shortAction: "Re-run plan for each listed session.",
+  rowAction: "Re-run plan for this session: [command].",
+  testsUnchanged: (count) => count === 1
+    ? "Tests still run unchanged. Some journeys this plan covered may say “No test yet” until the plan is re-run."
+    : "Tests still run unchanged. Some journeys these plans covered may say “No test yet” until the plans are re-run.",
+  clearingSteps: "Re-running plan rewrites the plan, so edits made to it are replaced. The dashboard guide lists what to do if plan refuses or the session can no longer be fetched.",
+});
+
+/** CLI review notes open with an ⓘ; inside the dashboard they already sit behind one. */
+function planReviewNoteText(note) {
+  return typeof note === 'string' ? note.replace(/^ⓘ\s*/, '') : '';
+}
+
+/** Every distinct reason note across the listed plans, glyph-free, in first-seen order. */
+function planReviewReasonNotes(plans) {
+  const notes = (Array.isArray(plans) ? plans : []).flatMap((plan) => (
+    Array.isArray(plan.reasons) ? plan.reasons.map((reason) => reason.note) : (plan.note ? [plan.note] : [])
+  ));
+  return [...new Set(notes.map(planReviewNoteText).filter(Boolean))];
+}
 
 const TABLE_PAGE_SIZES = [10, 25, 50];
 const PAGINATION_EDGE_WINDOW = 8;
@@ -4235,7 +4268,7 @@ function coverageBadgeCell(active, trueLabel, falseLabel, onActivate, approximat
         { class: 'needs-review-marker' },
         h('span', { class: 'badge badge-warning' }, '⚠ needs review'),
         infoIcon(
-          `This plan was built under older signature rules, so its coverage may read wrong. ${needsReview.note} Re-run it with: ${needsReview.replanCommand}`,
+          [planReviewNoteText(needsReview.note), PLAN_REVIEW_COPY.rowAction.replace('[command]', () => needsReview.replanCommand), PLAN_REVIEW_COPY.clearingSteps].filter(Boolean).join(' '),
           true,
           'About this plan needing review',
         ),
@@ -4356,13 +4389,21 @@ function signalTooltipText(signals, row, assessability, signature) {
   );
   signalLines.push(signalAssessabilityText(row, assessability));
   if (isSignalReviewed(signature)) {
-    signalLines.push("Marked reviewed on this machine. The mark clears if the way we recognise this journey changes.");
+    signalLines.push("Marked reviewed on this machine. The mark clears if the way we recognize this journey changes.");
   }
   return signalLines.join('\n');
 }
 
-function signalMemberActions(member) {
+function signalMemberActions(member, paths) {
   const replay = replayLink({ representativeSessionId: member.sessionId });
+  // "Plan this session" follows the drawer's plan-command rule (dashPlanCommandAllowed) for the
+  // path(s) this session was flagged on: offered when any of them lets `plan` run, and coarse
+  // (quick-scan) rows keep it. A session tied to no path keeps it too; `plan` explains a refusal.
+  const ownPaths = (paths || []).filter((path) => path && path.bugSignals && Array.isArray(path.bugSignals.members)
+    && path.bugSignals.members.some((signal) => signal.sessionId === member.sessionId));
+  if (ownPaths.length > 0 && !ownPaths.some((path) => dashPlanCommandAllowed({ isFamily: false, row: path, members: [path] }))) {
+    return h('span', { class: 'journey-actions' }, replay);
+  }
   const plan = h(
     'button',
     {
@@ -4407,7 +4448,8 @@ function signalMemberSummary(member) {
   return parts.join(' · ');
 }
 
-function signalMembersDetailRow(signals) {
+function signalMembersDetailRow(signals, paths) {
+  // `paths` are the journey rows the signals were drawn from: the row itself, or a family's members.
   if (!signals) return undefined;
   return h(
     'tr',
@@ -4425,7 +4467,7 @@ function signalMembersDetailRow(signals) {
             { class: 'signal-member' },
             h('code', {}, member.sessionId),
             h('span', { class: 'signal-member-summary' }, signalMemberSummary(member)),
-            signalMemberActions(member),
+            signalMemberActions(member, paths),
           ),
         ),
       ),
@@ -4803,10 +4845,21 @@ function renderCompletionEvidenceLadder() {
         h('thead', {}, h('tr', {}, h('th', {}, 'What we call it'), h('th', {}, 'What we saw'), h('th', {}, 'Deterministic conditions'), h('th', {}, 'Known false-positive shapes'))),
         body,
       ),
-      h('p', {}, COMPLETION_EVIDENCE_LADDER_FOOTNOTE),
+      h('p', {}, dashPlainCopy(COMPLETION_EVIDENCE_LADDER_FOOTNOTE)),
+      h('p', {}, COMPLETION_FINALITY_DEFINITION),
+      h('p', {}, QUICK_SCAN_COMPLETION_FOOTNOTE),
       h('p', {}, NAVIGATED_PREVALENCE_FLOOR_NOTE),
     ),
   );
+}
+
+/**
+ * The ladder copy is written once for the terminal and Markdown, where back-ticks mark command
+ * names. The page shows the same words without the back-tick characters; the text is otherwise
+ * unchanged.
+ */
+function dashPlainCopy(text) {
+  return text.replace(/`([^`]+)`/g, '$1');
 }
 
 /**
@@ -4821,7 +4874,7 @@ function renderCompletionPrevalence(counts, coverage, appScope) {
     chip.hidden = true;
     return;
   }
-  chip.textContent = `${counts.completed} completed · ${counts.navigated} navigated`;
+  chip.textContent = dashCompletionCountText(counts);
   const coverageNote = coverage && coverage.capped
     ? 'Counted from ' + coverage.sessionsScanned + ' of ' + coverage.totalSessionsAtScanStart +
       ' sessions in this window — a sample, not the whole window. '
@@ -4835,6 +4888,29 @@ function renderCompletionPrevalence(counts, coverage, appScope) {
     'About these completion counts',
   ));
   chip.hidden = false;
+}
+
+/**
+ * The count line reads an events-only scan, so it never prints a count it could not measure. The
+ * finish-checked and error-after-submit figures need the recording; a counts object says the
+ * recording was read only by carrying `completedWitnessed`. An events-only scan leaves
+ * `errorAfterSubmit` out; without `completedWitnessed`, any `errorAfterSubmit` (an older saved scan
+ * wrote 0) means "not measured", and 0 never stands in for that. Stopped mid-flow is half measured
+ * without the recording (typing on the next step is an event; an empty next form is not), so an
+ * events-only count reads "at least N" and is left out at 0; a recording-backed count prints plainly.
+ */
+function dashCompletionCountText(counts) {
+  const recordingMeasured = Number.isInteger(counts.completedWitnessed);
+  const parts = [String(counts.completed) + ' completed'];
+  if (recordingMeasured) parts.push(String(counts.completedWitnessed) + ' finish checked');
+  if (Number.isInteger(counts.abandonedMidFlow)) {
+    if (recordingMeasured) parts.push(String(counts.abandonedMidFlow) + ' stopped mid-flow');
+    else if (counts.abandonedMidFlow > 0) parts.push('at least ' + String(counts.abandonedMidFlow) + ' stopped mid-flow');
+  }
+  parts.push('at least ' + String(counts.navigated) + ' navigated', String(counts.submitted) + ' submitted');
+  if (recordingMeasured && Number.isInteger(counts.errorAfterSubmit)) parts.push(String(counts.errorAfterSubmit) + ' error after submit');
+  parts.push(String(counts.abandoned) + ' abandoned');
+  return parts.join(' · ');
 }
 
 /** The Signals cut is client-side over the loaded scan, just like Focus on gaps. */
@@ -5065,13 +5141,17 @@ function renderSessionsDegradedBanner(banner, degraded) {
 }
 
 const STATUS_DISPLAY_LABELS = {
-  completed: 'Completed',
+  completed: 'Completed · finish not checked',
+  'abandoned-mid-flow': 'Stopped mid-flow',
   navigated: 'Navigated',
   submitted: 'Submitted',
+  'error-after-submit': 'Error after submit',
   abandoned: 'Abandoned',
 };
 
-function displayStatus(status) {
+function displayStatus(status, row) {
+  if (status === 'completed' && row && row.finality === 'witnessed') return 'Completed · finish checked';
+  if (status === 'abandoned-mid-flow' && row && Number.isInteger(row.stoppedAtStep)) return 'Stopped mid-flow (at step ' + row.stoppedAtStep + ')';
   return STATUS_DISPLAY_LABELS[status] ?? status;
 }
 
@@ -5080,21 +5160,41 @@ function displayStatus(status) {
  * place the dashboard decides it, so a row's button state and its
  * disabled-reason tooltip can never disagree.
  *
- * `completed` is plannable by status alone. `navigated` is plannable only when
- * the scan payload SAYS so: `row.plannable` is computed server-side by the
+ * `completed` is plannable by status alone. Navigated and Stopped mid-flow
+ * statuses need the scan payload to say so: `row.plannable` is computed server-side by the
  * real shared predicate (`isPlannableJourney`, journeys.ts) at ranking time,
  * where the journey's steps are still in hand. The dashboard deliberately does
  * not try to re-derive it — it has no steps, so it could not tell a
  * single-create journey from several creates merged into one, and the merged
- * shape is exactly what `plan` refuses.
+ * shape is exactly what `plan` refuses. Live Stopped mid-flow journeys are
+ * plannable; Error after submit stays off.
  *
- * A saved scan from before this field existed simply omits it, so an old
- * snapshot keeps the previous completed-only behavior rather than offering a
- * button the CLI would then refuse.
+ * Stored scans from before this field existed are rejected by the payload
+ * schema check before their rows reach this predicate.
  */
 function rowIsPlannable(row) {
   if (row.provenance !== 'exact') return false;
-  return row.status === 'completed' || row.plannable === true;
+  return statusPlanBlockReason(row) === undefined;
+}
+
+/**
+ * The status half of the plannability decision, shared by the row buttons (`rowIsPlannable`) and
+ * the drawer (`dashPlanReason`): `undefined` when the status lets the row be planned, otherwise
+ * the reason shown on the disabled control. Provenance (coarse vs exact) is decided by each caller.
+ */
+function statusPlanBlockReason(row) {
+  switch (row.status) {
+    case 'completed':
+      return undefined;
+    case 'navigated':
+      return row.plannable === true ? undefined : NAVIGATED_UNPLANNABLE_TITLE;
+    case 'abandoned-mid-flow':
+      return undefined;
+    case 'error-after-submit':
+      return ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE;
+    default:
+      return OTHER_UNPLANNABLE_TITLE;
+  }
 }
 
 /**
@@ -5108,28 +5208,38 @@ function rowIsPlannable(row) {
  * constant exists to prevent.
  */
 const NAVIGATED_UNPLANNABLE_TITLE =
-  "This journey creates several records in a row. We can't plan it yet — the test would be named after the wrong one.";
+  "This journey creates several records in a row, so it cannot be planned: the test would be named after the wrong one.";
+const ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE = 'The recording showed an error after this submit, so this journey cannot be planned.';
+const OTHER_UNPLANNABLE_TITLE = 'Submitted and Abandoned journeys cannot be planned.';
 
 function displayCoarseStatus(guess) {
   return guess === undefined ? '≈ unknown' : '≈ ' + guess.replace(/^likely-/, 'likely ');
 }
 
-/** `3 navigated · 1 submitted`, strongest witness first — the wording the CLI mix note also uses. */
+/** `3 completed · 1 stopped mid-flow`, testable statuses first in statusRank order. */
 function formatStatusMix(mix) {
-  return ['completed', 'submitted', 'navigated', 'abandoned']
+  const labels = {
+    completed: 'completed',
+    'abandoned-mid-flow': 'stopped mid-flow',
+    navigated: 'navigated',
+    submitted: 'submitted',
+    'error-after-submit': 'error after submit',
+    abandoned: 'abandoned',
+  };
+  return ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned']
     .filter((status) => (mix?.[status] ?? 0) > 0)
-    .map((status) => mix[status] + ' ' + status)
+    .map((status) => mix[status] + ' ' + labels[status])
     .join(' · ');
 }
 
 /**
- * A row's status is its STRONGEST single instance, so a row whose sessions
+ * A row's status is its highest-ranked single instance, with testable statuses first, so a row whose sessions
  * disagree must say so — otherwise one submitted outlier silently speaks for
- * nine navigated siblings. Uniform rows are unchanged.
+ * nine abandoned siblings. Uniform rows are unchanged.
  */
 function mixedStatusBadgeTitle(entity) {
   return 'The sessions grouped here did not all end the same way: ' + formatStatusMix(entity.statusMix) +
-    '. The badge shows the strongest single session, which is also the one "Watch replay" opens.';
+    '. The badge shows the session ranked most testable (completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned). That is also the one "Watch replay" opens.';
 }
 
 function statusBadgeFor(row) {
@@ -5141,10 +5251,10 @@ function statusBadgeFor(row) {
     return h(
       'span',
       { class: 'badge badge-status-' + row.status, title: mixedStatusBadgeTitle(row) },
-      displayStatus(row.status) + ' (mixed)',
+      displayStatus(row.status, row) + ' (mixed)',
     );
   }
-  return h('span', { class: 'badge badge-status-' + row.status }, displayStatus(row.status));
+  return h('span', { class: 'badge badge-status-' + row.status }, displayStatus(row.status, row));
 }
 
 let sessionsInFlight = false;
@@ -5161,7 +5271,7 @@ const sessionsGroupedSort = { key: 'rank', direction: 'asc' };
 const SESSIONS_FLAT_SORT_COLUMNS = Object.freeze({
   rank: { kind: 'number', value: (row) => row.rank, defaultDirection: 'asc' },
   sessions: { kind: 'number', value: (row) => row.sessionCount, defaultDirection: 'desc' },
-  status: { kind: 'categorical', value: (row) => row.status, order: ['completed', 'submitted', 'navigated', 'abandoned'], defaultDirection: 'asc' },
+  status: { kind: 'categorical', value: (row) => row.status, order: ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'], defaultDirection: 'asc' },
   signature: { kind: 'alpha', value: (row) => row.signature, defaultDirection: 'asc' },
 });
 const SESSIONS_GROUPED_SORT_COLUMNS = Object.freeze({
@@ -5178,7 +5288,7 @@ const SESSIONS_GROUPED_SORT_COLUMNS = Object.freeze({
   status: {
     kind: 'categorical',
     value: (entry) => entry.kind === 'single' ? entry.journey.status : entry.family.status,
-    order: ['completed', 'submitted', 'navigated', 'abandoned'],
+    order: ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'],
     defaultDirection: 'asc',
   },
   signature: {
@@ -5373,13 +5483,12 @@ function acknowledgeNotice(noticeKey, fingerprint) {
 const NEEDS_REVIEW_NOTICE_KEY = 'plans-needing-review';
 
 /**
- * The nudge for plans whose recorded URL-signature rules no longer match this
- * project's current rules. The summary arrives from the server alongside
+ * The nudge for plans whose URL or visit-grouping rules need review. The summary arrives from the server alongside
  * coverage, so this never tries to infer it from whichever rows happen to be
  * visible in the current Sessions view.
  *
  * Dismissal is keyed on the plans it names, so re-running one of them — or a
- * new one going stale — brings the nudge back rather than leaving the reader
+ * new one needing review — brings the nudge back rather than leaving the reader
  * with a fact that was hidden months ago.
  */
 function renderNeedsReviewNudge(summary) {
@@ -5397,7 +5506,7 @@ function renderNeedsReviewNudge(summary) {
     return;
   }
 
-  const countText = count === 1 ? '1 plan was' : `${count} plans were`;
+  const countText = count === 1 ? '1 plan needs review' : `${count} plans need review`;
   const dismiss = h('button', { type: 'button', class: 'btn btn-secondary btn-sm needs-review-dismiss' }, 'Dismiss');
   dismiss.addEventListener('click', () => {
     acknowledgeNotice(NEEDS_REVIEW_NOTICE_KEY, fingerprint);
@@ -5419,15 +5528,15 @@ function renderNeedsReviewNudge(summary) {
           'li',
           {},
           h('code', {}, plan.replanCommand),
-          plan.note ? ` — ${plan.note}` : '',
+          ...planReviewReasonNotes([plan]).map((note) => h('p', {}, note)),
         ),
       ),
     ),
   );
   banner.append(
-    document.createTextNode(`${countText} built under older signature rules — re-run plan for them. `),
+    document.createTextNode(`${countText}. ${PLAN_REVIEW_COPY.shortAction} `),
     infoIcon(
-      'The plan still exists, but its URL-signature coverage may read wrong after the project’s recognized wizard-step parameters changed. Re-running plan records the current rules.',
+      PLAN_REVIEW_COPY.clearingSteps,
       false,
       'About plans needing review',
     ),
@@ -5776,7 +5885,7 @@ function renderSessionsLegacy(result) {
   page.rows.forEach((row) => {
     const approximate = row.provenance === 'coarse';
     const statusBadge = statusBadgeFor(row);
-    const signalDetail = signalMembersDetailRow(row.bugSignals);
+    const signalDetail = signalMembersDetailRow(row.bugSignals, [row]);
     const signalCell = signalBadgeCell(row, row.bugSignals, result.signalAssessability, row.signature, signalDetail);
     const plannedBadge = coverageBadgeCell(row.planned, 'Planned ✓', 'Not planned', () => goToPlan(row.planSlug), approximate, row.needsReview, row.supersededPlan);
     const testedBadge = coverageBadgeCell(row.tested, 'Tested ✓', 'Not tested', () => goToTest(row.planSlug + '.spec.ts'), approximate, undefined, undefined, row.readError, row.disclosure);
@@ -5792,9 +5901,7 @@ function renderSessionsLegacy(result) {
           ? undefined
           : approximate
             ? 'Coarse rows are approximate; run exact per-journey analysis before generating a plan.'
-            : row.status === 'navigated'
-              ? NAVIGATED_UNPLANNABLE_TITLE
-              : 'Only completed journeys can be planned yet; submitted and abandoned journeys are not completable.',
+            : statusPlanBlockReason(row),
       },
       'Generate plan',
     );
@@ -5888,10 +5995,10 @@ function familyStatusBadgeFor(family, provenance) {
     return h(
       'span',
       { class: 'badge badge-status-' + family.status, title: mixedStatusBadgeTitle(family) },
-      displayStatus(family.status) + ' (mixed)',
+      displayStatus(family.status, family) + ' (mixed)',
     );
   }
-  return h('span', { class: 'badge badge-status-' + family.status }, displayStatus(family.status));
+  return h('span', { class: 'badge badge-status-' + family.status }, displayStatus(family.status, family));
 }
 
 /**
@@ -5946,9 +6053,7 @@ function memberPlanButton(row) {
         ? undefined
         : approximate
           ? 'Coarse rows are approximate; run exact per-journey analysis before generating a plan.'
-          : row.status === 'navigated'
-            ? NAVIGATED_UNPLANNABLE_TITLE
-            : 'Only completed journeys can be planned yet; submitted and abandoned journeys are not completable.',
+          : statusPlanBlockReason(row),
     },
     'Generate plan',
   );
@@ -5960,7 +6065,7 @@ function memberPlanButton(row) {
 
 function groupedMemberRows(row, assessability) {
   const approximate = row.provenance === 'coarse';
-  const signalDetail = signalMembersDetailRow(row.bugSignals);
+  const signalDetail = signalMembersDetailRow(row.bugSignals, [row]);
   const signalCell = signalBadgeCell(row, row.bugSignals, assessability, row.signature, signalDetail);
   const main = h(
     'tr',
@@ -5998,7 +6103,7 @@ function groupedSingleRows(entry, position, assessability) {
           ),
         ),
   );
-  const signalDetail = signalMembersDetailRow(row.bugSignals);
+  const signalDetail = signalMembersDetailRow(row.bugSignals, [row]);
   const signalCell = signalBadgeCell(row, row.bugSignals, assessability, row.signature, signalDetail);
   const main = h(
     'tr',
@@ -6027,15 +6132,9 @@ function familyPlanButton(family) {
       title:
         target === undefined
           ? family.navigatedTarget === undefined
-            ? 'No completed walk of this flow has been recorded yet.'
-            // The family-level target stays completed-only on purpose: a
-            // completed walk replays a WITNESSED submit, a navigated one
-            // replays a synthesized keystroke, and "the family's best plan
-            // target" must not silently hand over the weaker evidence. The
-            // navigated walk is still plannable — just row by row, where the
-            // customer can see which kind of plan they are generating.
-            : 'A navigated walk was recorded: typed input then landing witnessed, but no completed walk yet. This family-level button plans the strongest COMPLETED path, so it stays off. Plan the navigated walk from its own row below — its spec presses the committing keystroke as a marked synthesis, because no recording captures it.'
-          : 'Plans the most-frequent completed path in this journey family.',
+            ? 'No Completed or Stopped mid-flow path in this flow is ready to plan.'
+            : 'A Navigated path was recorded, but this button needs a Completed or Stopped mid-flow path. Plan the Navigated path from its own row below.'
+          : 'Plans the most-frequent recorded path in this journey family that can be planned.',
     },
     'Plan this journey',
   );
@@ -6051,7 +6150,13 @@ function familyPlanButton(family) {
     'span',
     { class: 'journey-actions' },
     actionBtn,
-    infoIcon(TOOLTIPS.generatePlan, true, 'About Plan this journey'),
+    infoIcon(
+      target === undefined && family.navigatedTarget !== undefined
+        ? 'The spec for a navigated path presses the committing keystroke as a marked synthesis, because no recording captures it.'
+        : TOOLTIPS.generatePlan,
+      true,
+      'About Plan this journey',
+    ),
     h('span', { class: 'slow-operation-status transient-status-chip', hidden: true }),
   );
 }
@@ -6103,7 +6208,7 @@ function renderGroupedSessions(result, wrap, banner) {
       return rows;
     });
     const familyKey = family.headSignature;
-    const signalDetail = signalMembersDetailRow(family.bugSignals);
+    const signalDetail = signalMembersDetailRow(family.bugSignals, family.members);
     const signalCell = signalBadgeCell(
       {
         provenance: grouped.provenance,
@@ -6687,9 +6792,10 @@ function initializeDemoMode() {
 }
 
 function dashCountWindowText(completed, navigated) {
-  return "[completed] completed · at least [navigated] navigated"
-    .replace('[completed]', String(completed))
-    .replace('[navigated]', String(navigated));
+  const counts = typeof completed === 'object'
+    ? completed
+    : { completed, navigated, submitted: 0, abandoned: 0 };
+  return dashCompletionCountText(counts);
 }
 
 function dashRenderStaticGovernedCopy() {
@@ -6710,7 +6816,10 @@ function dashRenderStaticGovernedCopy() {
   qs('dash-signals-label').textContent = "Needs you";
   qs('sessions-more-page-size-label').textContent = "Rows per page";
   qs('sessions-more-page-size').setAttribute('aria-label', "Rows per page");
-  qs('sessions-count-line').querySelector('[data-testid="dash-count-window"]').textContent = dashCountWindowText(0, 0);
+  // The Status filter's disclosure (each box selects only its own status; Stopped mid-flow rows
+  // appear only with no status filter) lives in the toolbar ⓘ's Completed / Submitted / Navigated
+  // entries and the boxes' own titles — one section-level ⓘ for the toolbar, never a second one.
+  qs('sessions-count-line').querySelector('[data-testid="dash-count-window"]').textContent = dashCountWindowText({ completed: 0, navigated: 0, submitted: 0, abandoned: 0 });
   // The standing sentence gets a node of its own. The footer element is also the page's
   // chrome slot — the sample-data entry is appended to it on a populated workspace — so a
   // gate reading the whole footer element would read that chrome as a change to the
@@ -6732,12 +6841,12 @@ function dashProjectPresence(projectId) {
 }
 
 const DASH_TOOLBAR_EXPLANATIONS = [
-  { id: 'dash-toolbar-copy-completed', label: 'Completed', copy: "Show only journeys that reached a known end." },
-  { id: 'dash-toolbar-copy-submitted', label: 'Submitted', copy: "Show only journeys where a form was submitted but the outcome wasn't confirmed." },
-  { id: 'dash-toolbar-copy-navigated', label: 'Navigated', copy: "Show only journeys where someone typed something and then landed on a new page, with no form submit seen. A journey that creates one record can be planned; one that creates several in a row cannot yet." },
+  { id: 'dash-toolbar-copy-completed', label: 'Completed', copy: "Show only journeys whose last submit reached a new page. Stopped mid-flow rows appear only when no status filter is set." },
+  { id: 'dash-toolbar-copy-submitted', label: 'Submitted', copy: "Show only journeys where a form was submitted but the outcome wasn't confirmed. No new page or error was seen after the submit." },
+  { id: 'dash-toolbar-copy-navigated', label: 'Navigated', copy: "Show only journeys where someone typed something and then landed on a new page, with no form submit seen. A journey that creates one record can be planned; a journey that creates several in a row is skipped." },
   { id: 'dash-toolbar-copy-range', label: 'How far back', copy: "How far back to scan for sessions. Pick a preset, or type a custom number of hours." },
   { id: 'dash-toolbar-copy-focus', label: 'Focus on gaps', copy: "Hides single journeys whose test is already passing. Journey families and estimated journeys always stay visible." },
-  { id: 'dash-toolbar-copy-reviewed', label: 'Reviewed', copy: "Marking a journey reviewed is remembered on this machine. If the way we recognise this journey changes, the mark clears." },
+  { id: 'dash-toolbar-copy-reviewed', label: 'Reviewed', copy: "Marking a journey reviewed is remembered on this machine. If the way we recognize this journey changes, the mark clears." },
 ];
 
 function dashToolbarInfoControl() {
@@ -6810,14 +6919,22 @@ function dashCompletionLadder() {
         )),
       ),
     ),
-    h('p', {}, COMPLETION_EVIDENCE_LADDER_FOOTNOTE),
+    h('p', {}, dashPlainCopy(COMPLETION_EVIDENCE_LADDER_FOOTNOTE)),
+    h('p', {}, COMPLETION_FINALITY_DEFINITION),
+    h('p', {}, QUICK_SCAN_COMPLETION_FOOTNOTE),
     h('p', {}, NAVIGATED_PREVALENCE_FLOOR_NOTE),
   );
 }
 
+/**
+ * The Status header summary: header-level text only — the six short definitions, the Unchecked
+ * sentence and the footnote's one events-only sentence. The finish-checked definition and the full
+ * footnote live in the ladder one press away ("See how we decide").
+ */
 function dashCompletionSummary() {
   const summary = h('div', { class: 'dash-popover-summary' });
-  summary.appendChild(h('p', {}, "How far the user's journey got — not whether you have a test for it. Completed: a submit, then a different page. Navigated: typing, then a different page, with no submit seen."));
+  const definitions = COMPLETION_EVIDENCE_LADDER.map((entry) => `${entry.whatWeCallIt}: ${entry.shortDefinition}`).join(' · ');
+  summary.appendChild(h('p', {}, `How far the user's journey got — not whether you have a test for it. ${definitions}. ${UNCHECKED_FINALITY_TOOLTIP} ${EVENTS_ONLY_LIST_SENTENCE}`));
   const full = h('button', { type: 'button', class: 'btn btn-secondary btn-sm' }, "See how we decide");
   full.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -6950,7 +7067,7 @@ function dashStatusText(entry) {
   const row = entry.row;
   if (row.provenance === 'coarse' || (!row.status && !entry.family?.status)) return "Unknown";
   if (row.statusMix || entry.family?.statusMix) return "Mixed";
-  return displayStatus(row.status || entry.family?.status || 'abandoned');
+  return displayStatus(row.status || entry.family?.status || 'abandoned', row);
 }
 
 function dashCoverageText(entry) {
@@ -7117,9 +7234,7 @@ function dashRenderCards(result, entries) {
   const reviewCount = result && result.needsReview && Number.isInteger(result.needsReview.count) ? result.needsReview.count : 0;
   if (reviewCount > 0) {
     const show = dashReviewCommandsControl(result, { testId: 'dash-card-plans-review-action', buttonClass: 'btn btn-secondary btn-sm dash-card-action', alignRight: true });
-    const reviewSentence = reviewCount === 1
-      ? "1 plan was built before your journey-matching rules changed. Re-run it."
-      : "[N] plans were built before your journey-matching rules changed. Re-run them.".replace('[N]', String(reviewCount));
+    const reasonNotes = planReviewReasonNotes(result.needsReview.plans);
     dashSetCard('plans-review', {
       state: 'data',
       body: [h('strong', { class: 'dash-card-value' }, reviewCount === 1 ? "1 plan needs review" : "[N] plans need review".replace('[N]', String(reviewCount))), show],
@@ -7127,12 +7242,13 @@ function dashRenderCards(result, entries) {
         'div',
         {},
         h('p', {}, "Counts every plan in this project, even when a scan finds no sessions."),
-        h('p', {}, reviewSentence),
-        h('p', {}, "The plan is still there, but its coverage may now read wrong. Re-run it to record the current journey-matching rules."),
+        ...reasonNotes.map((note) => h('p', {}, note)),
+        h('p', {}, PLAN_REVIEW_COPY.testsUnchanged(reviewCount)),
+        h('p', {}, `${PLAN_REVIEW_COPY.shortAction} ${PLAN_REVIEW_COPY.clearingSteps}`),
       ),
     });
   } else {
-    dashSetCard('plans-review', { state: 'placeholder', tip: 'No plans need review', info: "When your journey-matching rules change, older plans may need re-running. This counts the whole project." });
+    dashSetCard('plans-review', { state: 'placeholder', tip: 'No plans need review', info: "Counts plans built by an earlier version of replaytest or under different URL rules, across the whole project." });
   }
 }
 
@@ -7294,6 +7410,12 @@ function dashPlanTarget(entry) {
   return entry.members.find((member) => member.signature === targetSignature) || entry.members[0] || entry.row;
 }
 
+function dashPlanCommandAllowed(entry) {
+  // Families use the same representative row as the copied command from dashPlanCommand.
+  const target = dashPlanTarget(entry);
+  return target.provenance === 'coarse' || statusPlanBlockReason(target) === undefined;
+}
+
 function dashPlanCommand(entry) {
   const target = dashPlanTarget(entry);
   return `replaytest plan ${target.representativeDistinctId || '<distinctId>'} --session ${target.representativeSessionId || '<sessionId>'}`;
@@ -7302,9 +7424,7 @@ function dashPlanCommand(entry) {
 function dashPlanReason(entry) {
   const target = dashPlanTarget(entry);
   if (target.provenance === 'coarse') return "Run an exact scan for this journey first (replaytest sessions --exact).";
-  if (target.status === 'navigated' && target.plannable !== true) return NAVIGATED_UNPLANNABLE_TITLE;
-  if (target.status !== 'completed' && target.plannable !== true) return "This journey can't be planned yet — only completed journeys, and navigated ones that create a single record, can be.";
-  return undefined;
+  return statusPlanBlockReason(target);
 }
 
 const DASH_DRAWER_COPY = {
@@ -7334,12 +7454,17 @@ function dashDrawerCopy(key) {
   return DASH_DRAWER_COPY[key];
 }
 
+/**
+ * The drawer meta line: one span per fact, joined by separator spans. The status words can carry
+ * their own " · " ("Completed · finish not checked"), so the status renders as its own outlined
+ * unit and only the separator spans divide facts.
+ */
 function dashDrawerMeta(entry) {
   const items = [
-    h('span', {}, `Rank ${entry.rank}`),
-    h('span', {}, dashCountNoun(entry.row.sessionCount, 'session', 'sessions')),
-    h('span', {}, dashStatusText(entry)),
-    h('span', {}, dashCoverageText(entry)),
+    h('span', { class: 'dash-drawer-summary-fact' }, `Rank ${entry.rank}`),
+    h('span', { class: 'dash-drawer-summary-fact' }, dashCountNoun(entry.row.sessionCount, 'session', 'sessions')),
+    h('span', { class: 'dash-drawer-summary-fact dash-drawer-summary-status' }, dashStatusText(entry)),
+    h('span', { class: 'dash-drawer-summary-fact' }, dashCoverageText(entry)),
   ];
   return items.flatMap((item, index) => index === 0
     ? [item]
@@ -7360,9 +7485,15 @@ function dashStatusExplanation(entry) {
   const target = dashPlanTarget(entry);
   if (entry.isFamily && (target.statusMix || entry.row.statusMix || entry.family?.statusMix)) return dashDrawerCopy('familyMixedStatus');
   if (target.provenance === 'coarse' || !target.status) return dashDrawerCopy('coarseStatus');
-  if (target.status === 'completed') return "A form submit, then the user landed on a different page.";
+  // Completed keeps its plain drawer sentence (the ladder's own "What we saw" wording is the
+  // technical one), followed by what the finish check found.
+  if (target.status === 'completed') {
+    const completedSentence = "A form submit, then the user landed on a different page.";
+    return `${completedSentence} ${target.finality === 'witnessed' ? COMPLETION_FINALITY_DEFINITION : UNCHECKED_FINALITY_TOOLTIP}`;
+  }
   const definition = COMPLETION_EVIDENCE_LADDER.find((item) => item.status === target.status);
-  return definition ? definition.whatWeSaw : dashDrawerCopy('coarseStatus');
+  if (definition === undefined) return dashDrawerCopy('coarseStatus');
+  return definition.whatWeSaw;
 }
 
 function dashCoverageExplanation(entry) {
@@ -7444,7 +7575,15 @@ function dashGroupEvidence(evidence) {
 }
 
 function dashEvidenceSection(entry, result) {
-  const evidence = entry.members.flatMap((member) => member.bugSignals && Array.isArray(member.bugSignals.members) ? member.bugSignals.members : []);
+  // Each flagged session remembers the path it was seen on, so its "Plan this session" button
+  // follows that path's status under the same rule as the drawer's plan command
+  // (dashPlanCommandAllowed): offered only where `plan` would run, kept for coarse rows.
+  const evidencePath = new Map();
+  const evidence = entry.members.flatMap((member) => {
+    const signals = member.bugSignals && Array.isArray(member.bugSignals.members) ? member.bugSignals.members : [];
+    signals.forEach((signal) => evidencePath.set(signal, member));
+    return signals;
+  });
   if (evidence.length === 0) return h('p', { class: 'dash-drawer-meta' }, dashDrawerCopy('nothingFlagged'));
   const content = h('div', {});
   dashGroupEvidence(evidence).forEach((group) => {
@@ -7453,9 +7592,12 @@ function dashEvidenceSection(entry, result) {
       const session = h('div', { class: 'dash-evidence-session', 'data-testid': `dash-evidence-${member.sessionId}` }, h('code', {}, member.sessionId));
       const replayUrl = buildReplayUrl(providerConfig && providerConfig.host, providerConfig && providerConfig.projectId, member.sessionId);
       if (replayUrl) session.appendChild(h('a', { 'data-testid': `dash-evidence-${member.sessionId}-replay`, href: replayUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Watch replay'));
-      const plan = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-testid': `dash-evidence-${member.sessionId}-plan` }, 'Plan this session');
-      plan.addEventListener('click', () => generatePlan(member.distinctId, member.sessionId, plan));
-      session.appendChild(plan);
+      const path = evidencePath.get(member);
+      if (dashPlanCommandAllowed({ isFamily: false, row: path, members: [path] })) {
+        const plan = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-testid': `dash-evidence-${member.sessionId}-plan` }, 'Plan this session');
+        plan.addEventListener('click', () => generatePlan(member.distinctId, member.sessionId, plan));
+        session.appendChild(plan);
+      }
       evidenceGroup.appendChild(session);
     });
     content.appendChild(evidenceGroup);
@@ -7469,11 +7611,8 @@ function dashCoverageDetail(entry, { includeAbsence = true } = {}) {
   const content = h('div', {});
   if (entry.isFamily) {
     const coverage = entry.row.coverage || {};
-    content.append(
-      ...dashFamilyLifecycleLines(entry),
-      h('p', {}, familySessionCoverageLine(coverage, entry.row.sessionCount)),
-      dashInlineCommand("Plan this journey from the CLI:", dashPlanCommand(entry), 'dash-drawer-copy-plan-cli'),
-    );
+    content.append(...dashFamilyLifecycleLines(entry), h('p', {}, familySessionCoverageLine(coverage, entry.row.sessionCount)));
+    if (dashPlanCommandAllowed(entry)) content.appendChild(dashInlineCommand("Plan this journey from the CLI:", dashPlanCommand(entry), 'dash-drawer-copy-plan-cli'));
     return content;
   }
   const row = entry.row;
@@ -7494,8 +7633,13 @@ function dashCoverageDetail(entry, { includeAbsence = true } = {}) {
     content.append(planLine, testLine);
   }
   if (row.needsReview) {
-    content.appendChild(h('p', {}, "This plan was built before your journey-matching rules changed, so its coverage may read wrong."));
-    content.appendChild(dashInlineCommand("Re-run plan:", row.needsReview.replanCommand, 'dash-drawer-copy-rerun-plan'));
+    content.appendChild(h('p', {}, "This plan was built under different URL rules."));
+    // The action bar's rule (dashPlanCommandAllowed): the re-run command is offered only when the
+    // status lets `plan` run on this journey; a coarse (quick-scan) row carries no status and keeps it.
+    // Families returned above, so the predicate's target here is this row itself.
+    if (dashPlanCommandAllowed(entry)) {
+      content.appendChild(dashInlineCommand("Re-run plan:", row.needsReview.replanCommand, 'dash-drawer-copy-rerun-plan'));
+    }
   }
   if (row.supersededPlan) {
     content.appendChild(h('p', {}, formatSupersededPlanNote(row.supersededPlan.note)));
@@ -7509,7 +7653,7 @@ function dashCoverageDetail(entry, { includeAbsence = true } = {}) {
   else if (includeAbsence) content.appendChild(h('p', {}, "No test run recorded for this path yet."));
   if (row.suiteMatch) content.appendChild(h('p', {}, "One of your own tests may already cover this. It is a guess, not a guarantee."));
   else if (includeAbsence) content.appendChild(h('p', {}, "We found no match in your own tests."));
-  if (includeAbsence) content.appendChild(dashInlineCommand("Plan this journey from the CLI:", dashPlanCommand(entry), 'dash-drawer-copy-plan-cli'));
+  if (includeAbsence && dashPlanCommandAllowed(entry)) content.appendChild(dashInlineCommand("Plan this journey from the CLI:", dashPlanCommand(entry), 'dash-drawer-copy-plan-cli'));
   return content;
 }
 
@@ -7616,6 +7760,8 @@ function dashDrawerActionBar(entry, result, activateTab) {
   } else if (kind === 'rerun-plan') {
     label = dashDrawerCopy('rerunPlan');
     testId = 'dash-drawer-rerun-plan';
+    // Same rule as Generate plan: a journey whose status `plan` refuses shows the button disabled with its reason.
+    disabled = Boolean(reason);
   } else if (kind === 'generate-plan') {
     label = 'Generate plan';
     testId = 'dash-drawer-generate-plan';
@@ -7639,7 +7785,7 @@ function dashDrawerActionBar(entry, result, activateTab) {
     title: disabled ? reason : undefined,
   }, label);
   if (kind === 'review') primary.addEventListener('click', () => activateTab('evidence', true));
-  else if (kind === 'rerun-plan' || (kind === 'generate-plan' && !reason)) primary.addEventListener('click', () => generatePlan(target.representativeDistinctId, target.representativeSessionId, primary));
+  else if ((kind === 'rerun-plan' || kind === 'generate-plan') && !reason) primary.addEventListener('click', () => generatePlan(target.representativeDistinctId, target.representativeSessionId, primary));
   else if (kind === 'scaffold-test') primary.addEventListener('click', async () => {
     await scaffoldPlan(target.planSlug, primary, qs('sessions-banner'));
     await loadSessions();
@@ -7648,7 +7794,12 @@ function dashDrawerActionBar(entry, result, activateTab) {
 
   const actions = h('div', { class: 'dash-drawer-actions', 'aria-label': 'Journey actions' }, primary);
   if (disabled) actions.appendChild(h('p', { id: disabledReasonId, class: 'dash-drawer-disabled-reason', 'data-testid': 'dash-plan-disabled-reason' }, reason));
-  if (kind === 'generate-plan' || kind === 'rerun-plan') {
+  // A plan command is offered only when the shared status predicate lets this journey be planned:
+  // "Copy plan command" beside "cannot be planned" would hand over a command `plan` refuses. That
+  // holds for a plan that needs review too: its journey may since read as a status `plan` refuses.
+  // A coarse (quick-scan) row carries no status and always keeps it; its reason is the scan.
+  const statusAllowsPlan = dashPlanCommandAllowed(entry);
+  if ((kind === 'rerun-plan' || kind === 'generate-plan') && statusAllowsPlan) {
     const command = dashPlanCommand(entry);
     const copy = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-testid': 'dash-drawer-copy-command', title: command, 'aria-description': command }, 'Copy plan command');
     copy.addEventListener('click', () => dashCopyText(dashPlanCommand(entry)));
@@ -7954,9 +8105,8 @@ function dashRenderCountLine(result, entries) {
   const shown = qs('sessions-count-line').querySelector('[data-testid="dash-count-shown"]');
   const windowCount = qs('sessions-count-line').querySelector('[data-testid="dash-count-window"]');
   shown.textContent = `${entries.length} ${sessionsView === 'grouped' ? 'journey families' : 'paths'} shown`;
-  const completed = result && result.completionCounts ? result.completionCounts.completed : 0;
-  const navigated = result && result.completionCounts ? result.completionCounts.navigated : 0;
-  windowCount.textContent = dashCountWindowText(completed, navigated);
+  const counts = result && result.completionCounts ? result.completionCounts : { completed: 0, navigated: 0, submitted: 0, abandoned: 0 };
+  windowCount.textContent = dashCountWindowText(counts);
   if (result && result.provenance === 'coarse') {
     windowCount.appendChild(h('span', { class: 'dash-approx', 'data-testid': 'dash-approx-caveat' }, " · estimated"));
   }
@@ -8113,7 +8263,7 @@ const ARTIFACT_TAB_COPY = Object.freeze({
   recordUnavailable: "Record unavailable",
   retirementInProgress: "Retirement in progress",
   journalUnreadable: "Journal unreadable",
-  retirementDisclosure: "Folder not recognised",
+  retirementDisclosure: "Folder not recognized",
   artifactsUnknown: "Moved files unknown",
   movedArtifacts: "[count] moved [noun]",
   noMovedArtifacts: "No moved files",

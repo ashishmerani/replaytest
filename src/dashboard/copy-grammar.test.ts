@@ -12,6 +12,16 @@ function productionFunction(name: string): string {
   return match[0];
 }
 
+function evaluateProduction<T>(source: string): T {
+  const evaluate = new Function(source) as () => T;
+  return evaluate();
+}
+
+function evaluateProductionWithArgs<T>(parameters: readonly string[], source: string, args: readonly unknown[]): T {
+  const evaluate = new Function(...parameters, source) as (...values: unknown[]) => T;
+  return evaluate(...args);
+}
+
 const grammarFunctions = [
   'formatSessionCount',
   'dashCountNoun',
@@ -119,6 +129,179 @@ test('family drawer pluralizes path count', () => {
   assert.equal(api.familyCountLine(template, { total: 1, planned: 1, tested: 1, passing: 1 }), '1 path: 1 planned, 1 tested, 1 passing.');
   assert.equal(api.familyCountLine(template, { total: 2, planned: 2, tested: 2, passing: 2 }), '2 paths: 2 planned, 2 tested, 2 passing.');
   assert.ok(dashboard.includes(`familyCounts: "${template}"`));
+});
+
+test('dashboard status map, badges, sort orders, and mix cover all six statuses', () => {
+  const statuses = ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'];
+  const mapSource = dashboard.match(/const STATUS_DISPLAY_LABELS = \{[\s\S]*?\n\};/)?.[0];
+  const displaySource = productionFunction('displayStatus');
+  const badgeSource = productionFunction('statusBadgeFor');
+  const mixSource = productionFunction('formatStatusMix');
+  assert.ok(mapSource, 'the dashboard has one status label map');
+  assert.match(mapSource, /completed: 'Completed · finish not checked'/);
+  assert.match(mapSource, /'abandoned-mid-flow': 'Stopped mid-flow'/);
+  assert.match(mapSource, /'error-after-submit': 'Error after submit'/);
+  const evaluated = evaluateProduction<{ STATUS_DISPLAY_LABELS: Record<string, string>; displayStatus: (status: string, row?: Record<string, unknown>) => string }>(`${mapSource}\n${displaySource}\nreturn { STATUS_DISPLAY_LABELS, displayStatus };`);
+  assert.deepEqual(Object.keys(evaluated.STATUS_DISPLAY_LABELS), statuses, 'all six keys are pinned in the displayed status order');
+  assert.deepEqual(statuses.map((status) => evaluated.displayStatus(status)), [
+    'Completed · finish not checked', 'Stopped mid-flow', 'Navigated', 'Submitted', 'Error after submit', 'Abandoned',
+  ]);
+  assert.equal(evaluated.displayStatus('completed', { finality: 'witnessed' }), 'Completed · finish checked');
+  assert.equal(evaluated.displayStatus('completed', {}), 'Completed · finish not checked');
+  // A truthy-finality implementation would call an unchecked row "finish checked"; pin the value itself.
+  assert.equal(evaluated.displayStatus('completed', { finality: 'unchecked' }), 'Completed · finish not checked');
+  assert.equal(evaluated.displayStatus('abandoned-mid-flow', { stoppedAtStep: 3 }), 'Stopped mid-flow (at step 3)');
+  assert.doesNotMatch(statuses.map((status) => evaluated.displayStatus(status)).join(' '), /(?:completed|abandoned-mid-flow|error-after-submit)/);
+  assert.doesNotMatch(badgeSource, /infoIcon|dashInfoControl/);
+  assert.match(badgeSource, /displayStatus\(row\.status, row\)/, 'row badges pass finality and step data into the label renderer');
+  assert.match(productionFunction('familyStatusBadgeFor'), /displayStatus\(family\.status, family\)/);
+  assert.match(productionFunction('dashStatusText'), /displayStatus\([^\n]+, row\)/);
+
+  const mix = evaluateProduction<(input: Record<string, number>) => string>(`${mixSource}\nreturn formatStatusMix;`);
+  assert.equal(mix(Object.fromEntries(statuses.map((status) => [status, 1]))), '1 completed · 1 stopped mid-flow · 1 navigated · 1 submitted · 1 error after submit · 1 abandoned');
+  const sortArrays = [...dashboard.matchAll(/status: \{[\s\S]*?order: (\[[^\]]+\])/g)].map((match) =>
+    [...(match[1] ?? '').matchAll(/'([^']+)'/g)].map((item) => item[1] ?? ''),
+  );
+  assert.equal(sortArrays.length, 2, 'flat and grouped tables each have one status sort array');
+  assert.deepEqual(sortArrays, [
+    ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'],
+    ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned'],
+  ]);
+});
+
+test('dashboard status planning, count fallback, and literal filters stay explicit', () => {
+  const titleConstants = ['NAVIGATED_UNPLANNABLE_TITLE', 'ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE', 'OTHER_UNPLANNABLE_TITLE']
+    .map((name) => dashboard.match(new RegExp(`const ${name} =[\\s\\S]*?;\\n`))?.[0] ?? '')
+    .join('\n');
+  const planning = evaluateProduction<{
+    rowIsPlannable: (row: Record<string, unknown>) => boolean;
+    dashPlanReason: (entry: { row: Record<string, unknown> }) => string | undefined;
+    OTHER_UNPLANNABLE_TITLE: string;
+  }>(`${titleConstants}\nconst dashPlanTarget = (entry) => entry.row;\n${productionFunction('rowIsPlannable')}\n${productionFunction('statusPlanBlockReason')}\n${productionFunction('dashPlanReason')}\nreturn { rowIsPlannable, dashPlanReason, OTHER_UNPLANNABLE_TITLE };`);
+  const { rowIsPlannable, dashPlanReason } = planning;
+  assert.equal(rowIsPlannable({ provenance: 'exact', status: 'abandoned-mid-flow', plannable: true }), true);
+  assert.equal(rowIsPlannable({ provenance: 'exact', status: 'error-after-submit', plannable: true }), false);
+  assert.equal(rowIsPlannable({ provenance: 'exact', status: 'submitted', plannable: true }), false);
+  assert.equal(rowIsPlannable({ provenance: 'coarse', status: 'abandoned-mid-flow', plannable: true }), false);
+  // One predicate: for every status and flag, the row button and the drawer agree. A stopped-mid-flow
+  // row without the flag is the case where the two used to disagree.
+  for (const status of ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'error-after-submit', 'abandoned']) {
+    for (const plannable of [true, false, undefined]) {
+      const row = { provenance: 'exact', status, ...(plannable === undefined ? {} : { plannable }) };
+      assert.equal(rowIsPlannable(row), dashPlanReason({ row }) === undefined, `${status} with plannable=${String(plannable)}: row and drawer agree`);
+    }
+  }
+  assert.equal(dashPlanReason({ row: { provenance: 'exact', status: 'abandoned-mid-flow' } }), undefined);
+  for (const status of ['submitted', 'abandoned']) {
+    assert.equal(dashPlanReason({ row: { provenance: 'exact', status } }), 'Submitted and Abandoned journeys cannot be planned.');
+  }
+  assert.equal(planning.OTHER_UNPLANNABLE_TITLE.includes('Stopped mid-flow'), false, 'the Submitted/Abandoned title does not talk about another status');
+  const countText = evaluateProduction<(counts: Record<string, number | undefined>) => string>(`${productionFunction('dashCompletionCountText')}\nreturn dashCompletionCountText;`);
+  const allCounts = { completed: 120, completedWitnessed: 8, abandonedMidFlow: 2, navigated: 9, submitted: 4, errorAfterSubmit: 1, abandoned: 3 };
+  assert.equal(countText(allCounts), '120 completed · 8 finish checked · 2 stopped mid-flow · at least 9 navigated · 4 submitted · 1 error after submit · 3 abandoned');
+  // Events-only counts (no `completedWitnessed`) never print a figure they could not measure: an
+  // `errorAfterSubmit` of 0 there means "not measured", and a nonzero one is not trusted either.
+  for (const errorAfterSubmit of [0, 1]) {
+    const eventsOnly = countText({ ...allCounts, completedWitnessed: undefined, errorAfterSubmit });
+    assert.equal(eventsOnly, '120 completed · at least 2 stopped mid-flow · at least 9 navigated · 4 submitted · 3 abandoned');
+    assert.doesNotMatch(eventsOnly, /error after submit|checked/i);
+  }
+  // Events see only the typing half of Stopped mid-flow: events-only reads "at least N" and drops
+  // a 0; a recording-backed count is measured and prints plainly, 0 included (same rule as the CLI).
+  assert.equal(countText({ ...allCounts, completedWitnessed: undefined, abandonedMidFlow: 0 }), '120 completed · at least 9 navigated · 4 submitted · 3 abandoned');
+  assert.equal(countText({ ...allCounts, abandonedMidFlow: 0 }), '120 completed · 8 finish checked · 0 stopped mid-flow · at least 9 navigated · 4 submitted · 1 error after submit · 3 abandoned');
+
+  assert.equal(dashboard.includes('dash-status-filter-info'), false, 'the Status filter has no ⓘ of its own: the toolbar ⓘ carries its disclosure');
+  assert.match(dashboard, /Show only Completed rows; Stopped mid-flow rows appear only when no status filter is set\./);
+  assert.match(dashboard, /Show only Navigated rows\./);
+  assert.match(dashboard, /Show only Submitted rows\./);
+  assert.match(dashboard, /function dashCompletionCountText\(counts\)[\s\S]*completedWitnessed[\s\S]*abandonedMidFlow[\s\S]*errorAfterSubmit/);
+  assert.match(productionFunction('dashPlanReason'), /return statusPlanBlockReason\(target\);/);
+  assert.match(productionFunction('statusPlanBlockReason'), /case 'error-after-submit':\s*return ERROR_AFTER_SUBMIT_UNPLANNABLE_TITLE;/);
+  assert.match(dashboard, /Plans the most-frequent recorded path in this journey family that can be planned\./);
+  assert.ok(dashboard.includes("actions: 'Generate plan contacts PostHog to fetch this session\\'s full recording"));
+  assert.match(dashboard, /dash-toolbar-copy-completed', label: 'Completed', copy: "Show only journeys whose last submit reached a new page\. Stopped mid-flow rows appear only when no status filter is set\."/);
+  assert.match(dashboard, /dash-toolbar-copy-submitted', label: 'Submitted', copy: "Show only journeys where a form was submitted but the outcome wasn't confirmed\. No new page or error was seen after the submit\."/);
+  assert.match(dashboard, /const definitions = COMPLETION_EVIDENCE_LADDER\.map\(\(entry\) =>/);
+  assert.match(dashboard, /The badge shows the session ranked most testable \(completed first, then stopped mid-flow, navigated, submitted, error after submit, abandoned\)\./);
+});
+
+test('a family with only a stopped-mid-flow target exposes its plan action and the status summary names all six', () => {
+  type Node = { tag: string; attrs: Record<string, unknown>; children: Array<Node | string>; addEventListener: () => void };
+  const h = (tag: string, attrs: Record<string, unknown>, ...children: Array<Node | string>): Node => ({ tag, attrs, children, addEventListener() {} });
+  const button = evaluateProductionWithArgs<(family: Record<string, unknown>) => Node>(
+    ['h', 'infoIcon', 'TOOLTIPS'],
+    `${productionFunction('familyPlanButton')}\nreturn familyPlanButton;`,
+    [h, () => h('span', {}, 'info'), { generatePlan: 'Plan details' }],
+  );
+  const onlyStoppedFamily = {
+    planTarget: { signature: '/wizard/step/3', sessionId: 'session-3' },
+    navigatedTarget: undefined,
+    members: [{ signature: '/wizard/step/3', representativeDistinctId: 'user-3', representativeSessionId: 'session-3', status: 'abandoned-mid-flow' }],
+  };
+  const rendered = button(onlyStoppedFamily);
+  const planButton = rendered.children[0] as Node;
+  assert.equal(planButton.attrs.disabled, false);
+  assert.equal(planButton.attrs.title, 'Plans the most-frequent recorded path in this journey family that can be planned.');
+  assert.match(dashboard, /const definitions = COMPLETION_EVIDENCE_LADDER\.map\(\(entry\) => `\$\{entry\.whatWeCallIt\}: \$\{entry\.shortDefinition\}`\)\.join\(' · '\)/);
+  for (const label of ['Completed · finish checked', 'Completed · finish not checked', 'Stopped mid-flow', 'Error after submit', 'Navigated', 'Submitted', 'Abandoned']) {
+    assert.ok(dashboard.includes(label), `dashboard status copy includes ${label}`);
+  }
+});
+
+test('dashboard styles give every status badge a color and a glyph', () => {
+  const glyphs: Record<string, string> = {
+    completed: '✓',
+    'abandoned-mid-flow': '↳',
+    navigated: '→',
+    submitted: '▲',
+    'error-after-submit': '✕',
+    abandoned: '•',
+  };
+  for (const [status, glyph] of Object.entries(glyphs)) {
+    assert.match(dashboard, new RegExp(`\\.badge-status-${status} \\{`));
+    assert.match(dashboard, new RegExp(`\\.dash-chip-status-${status} \\{`));
+    const rule = [...dashboard.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find((match) =>
+      match[1].split(',').some((selector) => selector.trim() === `span.badge-status-${status}::before`) && match[2].includes('content:'),
+    );
+    assert.ok(rule, `${status} has a badge glyph rule`);
+    assert.ok(rule[2].includes(`content: '${glyph}'`), `${status} uses the expected ${glyph} glyph`);
+  }
+  assert.ok(dashboard.includes('.badge-status-abandoned-mid-flow { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }'));
+  assert.ok(dashboard.includes('.dash-chip-status-abandoned-mid-flow { border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }'));
+  assert.ok(dashboard.includes('.badge-status-error-after-submit { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-border); }'));
+  assert.ok(dashboard.includes('.dash-chip-status-error-after-submit { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-text); }'));
+});
+
+test('drawer status explanations use the ladder for both new statuses', () => {
+  const functionSource = productionFunction('dashStatusExplanation');
+  const explanation = evaluateProductionWithArgs<(entry: { row: Record<string, unknown> }) => string>(
+    ['COMPLETION_EVIDENCE_LADDER', 'dashPlanTarget', 'dashDrawerCopy', 'COMPLETION_FINALITY_DEFINITION', 'UNCHECKED_FINALITY_TOOLTIP'],
+    `${functionSource}\nreturn dashStatusExplanation;`,
+    [
+      [
+        { status: 'completed', whatWeSaw: 'The ladder completed explanation.' },
+        { status: 'abandoned-mid-flow', whatWeSaw: 'The ladder stopped-mid-flow explanation.' },
+        { status: 'error-after-submit', whatWeSaw: 'The ladder error-after-submit explanation.' },
+      ],
+      (entry: { row: unknown }) => entry.row,
+      () => 'coarse fallback',
+      'finish checked',
+      'finish not checked',
+    ],
+  );
+  // Completed keeps the plain drawer sentence, never the ladder's technical "witnessed URL" wording.
+  assert.equal(
+    explanation({ row: { provenance: 'exact', status: 'completed', finality: 'witnessed' } }),
+    'A form submit, then the user landed on a different page. finish checked',
+  );
+  assert.equal(
+    explanation({ row: { provenance: 'exact', status: 'completed' } }),
+    'A form submit, then the user landed on a different page. finish not checked',
+  );
+  assert.doesNotMatch(explanation({ row: { provenance: 'exact', status: 'completed' } }), /witnessed|ladder completed/i);
+  assert.equal(explanation({ row: { provenance: 'exact', status: 'abandoned-mid-flow' } }), 'The ladder stopped-mid-flow explanation.');
+  assert.equal(explanation({ row: { provenance: 'exact', status: 'error-after-submit' } }), 'The ladder error-after-submit explanation.');
 });
 
 test('measurement basis pluralizes session count', () => {
@@ -256,5 +439,17 @@ test('Sessions empty-state range pluralizes custom hours through the shared coun
       emptyState.render({ sessions: [], cache: { scannedAt: 'scan-time-placeholder' } }).text,
       `Your last scan (noon, last ${count} ${noun}) found no sessions. Widen the range, or check the project in PostHog.`,
     );
+  }
+});
+
+test('every element the static governed-copy pass looks up by id exists in the page markup', () => {
+  // A lookup by id that matches nothing returns null, and the next property read throws while the page
+  // is still starting: the config strip stays on "Loading config…" and no tab ever draws. Only a browser
+  // shows it, so the lookups are read out of the production function and checked against the markup.
+  const body = productionFunction('dashRenderStaticGovernedCopy');
+  const ids = [...body.matchAll(/\bqs\('([^']+)'\)/gu)].map((match) => match[1]);
+  assert.equal(new Set(ids).size, 11, 'the static pass looks up exactly these eleven ids');
+  for (const id of new Set(ids)) {
+    assert.ok(dashboard.includes(` id="${id}"`), `the page markup carries an element with id "${id}"`);
   }
 });

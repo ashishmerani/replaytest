@@ -137,8 +137,8 @@ export const DASH_ON_SCREEN_ROUTES: Readonly<Record<string, string>> = {
   'I-E2': 'dash-data-line',
   'I-E3': 'dash-notice-line',
   'I-E4': 'dash-notice-line',
-  // I-E5 uses the card ⓘ because the notice line keeps the SHORT
-  // wording, and the long "older signature rules" sentence lives behind the notice's ⓘ.
+  // I-E5 uses the card ⓘ because the notice line gives the count; review reasons and
+  // the complete next steps live in that popover.
   'I-E6': 'dash-count-line',
   'I-E7': 'dash-count-line',
   'I-E8': 'dash-notice-line',

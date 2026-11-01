@@ -50,6 +50,6 @@ test('Gap map label table preserves the derivation-to-label mapping', () => {
   expect(GAP_MAP_CONFIDENCE_LABELS).toEqual({ exact: 'Seen directly', 'coarse-likely': 'Strong hint', 'not-assessed': "Couldn't check" });
   expect(GAP_MAP_CONFIDENCE_GLYPHS).toEqual({ exact: '👁', 'coarse-likely': '◐', 'not-assessed': '?' });
   expect(GAP_MAP_CONFIDENCE_CLASSES).toEqual({ exact: 'gap-map-confidence-exact', 'coarse-likely': 'gap-map-confidence-coarse', 'not-assessed': 'gap-map-confidence-not-assessed' });
-  expect(GAP_MAP_COVERAGE_LABELS).toEqual({ noKnownLink: 'No test yet', knownLinks: 'Has a test', needsReview: 'Needs review', superseded: 'Out of date', possibleSuiteMatches: 'Maybe covered', notAssessed: "Couldn't check" });
+  expect(GAP_MAP_COVERAGE_LABELS).toEqual({ noKnownLink: 'No test yet', knownLinks: 'Has a test', needsReview: 'Plan needs review', superseded: 'Out of date', possibleSuiteMatches: 'Maybe covered', notAssessed: "Couldn't check" });
   expect(GAP_MAP_TRAFFIC_KIND_LABELS).toEqual({ 'form-submit-signal': 'Form submissions', 'deep-wizard': 'Long multi-step flows', 'rage-clicks': 'Rage clicks' });
 });

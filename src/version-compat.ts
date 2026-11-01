@@ -20,10 +20,10 @@
 export const PLAYWRIGHT_FLOOR = '1.30.0';
 
 /** Every version actually run green — not a continuous range claim. */
-export const PLAYWRIGHT_VERIFIED_AT: readonly string[] = ['1.30.0', '1.61.0', '1.62.1', '1.63.0'];
+export const PLAYWRIGHT_VERIFIED_AT: readonly string[] = ['1.30.0', '1.61.0', '1.62.1', '1.63.0', '1.64.1'];
 
 /** Fixed customer-facing claim wording — every compatibility-matrix surface uses this exact phrasing, never a per-surface rephrase. */
-export const PLAYWRIGHT_COMPAT_CLAIM = 'verified at 1.30.0, 1.61.0, 1.62.1, and 1.63.0; between = expected but untested.';
+export const PLAYWRIGHT_COMPAT_CLAIM = 'verified at 1.30.0, 1.61.0, 1.62.1, 1.63.0, and 1.64.1; between = expected but untested.';
 
 // ---------------------------------------------------------------------------
 // Node — customer-facing engines floor

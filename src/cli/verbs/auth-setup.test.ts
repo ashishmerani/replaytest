@@ -1,3 +1,4 @@
+import { toolIdentifier } from '../../tool-identifier.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -33,7 +34,7 @@ function sidecarJson(options: { loginPath?: string; shape?: 'contains-login' | '
       sessionId: `${slug}-session`,
       journeyIndex: 0,
       generatedAt: '2026-08-22T00:00:00.000Z',
-      tool: 'replaytest@0.1.0',
+      tool: toolIdentifier(),
     },
     start: shape === 'contains-login' ? loginPath : '/account',
     ...(includeAuth ? { auth: { witnessed: true, loginPath, shape } } : {}),

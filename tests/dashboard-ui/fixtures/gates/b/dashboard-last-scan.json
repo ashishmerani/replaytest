@@ -5,7 +5,7 @@
     "projectId": "orchard-lab"
   },
   "filterKey": "sessions --json|limit=all",
-  "payloadSchemaVersion": 6,
+  "payloadSchemaVersion": 8,
   "payload": {
     "exitCode": 0,
     "stdout": "",
@@ -20,7 +20,33 @@
       "approximatePathCount": 2
     },
     "needsReview": {
-      "count": 2
+      "count": 2,
+      "plans": [
+        {
+          "slug": "legacy-basket",
+          "kind": "older-journey-boundaries",
+          "note": "ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently.",
+          "reasons": [
+            {
+              "kind": "older-journey-boundaries",
+              "note": "ⓘ This plan was built by an earlier version of replaytest, which grouped visits differently."
+            }
+          ],
+          "replanCommand": "replaytest plan invented-grower-twelve --session invented-session-twelve"
+        },
+        {
+          "slug": "legacy-market",
+          "kind": "older-url-semantics",
+          "note": "ⓘ This plan was built under different URL rules.",
+          "reasons": [
+            {
+              "kind": "older-url-semantics",
+              "note": "ⓘ This plan was built under different URL rules."
+            }
+          ],
+          "replanCommand": "replaytest plan invented-grower-thirteen --session invented-session-thirteen"
+        }
+      ]
     },
     "completionCounts": {
       "completed": 12,

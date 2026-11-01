@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildNoJourneysFoundMessage, buildReproExceptionHeader, buildReproMultiJourneyOutError, buildUnconfiguredHint, buildVerbHelpText, injectReproHeader, runRepro } from '../../cli.js';
+import { formatReproStatusOutput } from './repro.js';
 import { neutralSession, orderConfirmationSteps, neutralSessionFromSteps, twoJourneySession } from './test-support.js';
 
 test('runRepro: --help returns before provider config is read (previously the FIRST thing repro did, even before the required <distinctId> check)', async () => {
@@ -40,6 +41,22 @@ test('buildReproExceptionHeader: singular "exception" for count 1, names the typ
 test('buildReproExceptionHeader: plural "exceptions" for count > 1, joins distinct types', () => {
   const header = buildReproExceptionHeader({ count: 3, types: ['TypeError', 'ReferenceError'] });
   assert.ok(header?.some((line) => line.includes('witnessed 3 exceptions (TypeError, ReferenceError)')));
+});
+
+test('repro output adds the recording outcome only when one was captured', () => {
+  assert.deepEqual(formatReproStatusOutput({ status: 'submitted', outcomeCoverage: 'not-captured' }), [
+    'Submitted',
+    'Outcome not captured: We could not see what happened after the submit because there was no recording, it ended early, could not be read, did not line up one-to-one with the events, we could not tell which click sent the form, or what followed was unclear: an error appeared after the form was gone, or a page change within 10 seconds could not be fully read.',
+  ]);
+  assert.deepEqual(formatReproStatusOutput({ status: 'submitted', outcomeCoverage: 'not-recognised' }), [
+    'Submitted',
+    'Outcome not recognized: We saw the whole moment after the submit, and nothing we read as an error or a new page appeared; it may still have succeeded in place.',
+  ]);
+  assert.deepEqual(formatReproStatusOutput({ status: 'submitted' }), ['Submitted']);
+});
+
+test('buildNoJourneysFoundMessage: the "look for" hint names Stopped mid-flow activity too', () => {
+  assert.match(buildNoJourneysFoundMessage(), /\(look for completed, stopped mid-flow, navigated, or submitted activity\)/);
 });
 
 test('injectReproHeader: undefined header -> spec returned byte-identical', () => {
@@ -83,7 +100,7 @@ test('runRepro: emits one .repro.spec.ts per journey of any status, with the exc
     },
   });
 
-  assert.ok(logs.some((line) => line.includes('orders-confirmation.repro.spec.ts') && line.includes('(Completed)')));
+  assert.ok(logs.some((line) => line.includes('orders-confirmation.repro.spec.ts') && line.includes('(Completed · finish not checked)')));
   assert.ok(logs.some((line) => line.includes('dashboard.repro.spec.ts') && line.includes('(Abandoned)')));
 
   const completedSpec = fs.readFileSync(path.join(reproductionsDir, 'orders-confirmation.repro.spec.ts'), 'utf8');

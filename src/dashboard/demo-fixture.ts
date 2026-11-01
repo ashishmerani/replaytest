@@ -23,18 +23,43 @@ const routeNames = [
 ];
 
 /** Synthetic-only journey inputs used to teach each dashboard tab. */
-export const demoJourneys: RankedJourney[] = routeNames.map((name, index) => ({
-  rank: index + 1,
-  signature: `/workspace/${name} > /workspace/${name}/complete`,
-  sessionCount: routeNames.length - index,
-  provenance: 'exact',
-  status: index % 3 === 0 ? 'submitted' : 'completed',
-  representativeDistinctId: `demo-user-${String(index + 1).padStart(2, '0')}`,
-  representativeSessionId: `demo-session-${String(index + 1).padStart(2, '0')}`,
-  representativeStartedAt: DEMO_CLOCK,
-  representativeEndedAt: DEMO_CLOCK,
-  examplePaths: [`/workspace/${name}`, `/workspace/${name}/complete`],
-}));
+/**
+ * The Sessions list reads events only, so the demo shows only what an events-only scan can
+ * produce, matching the list's own ⓘ: every Completed row is unchecked (no "finish checked"), no
+ * Error after submit. A Stopped mid-flow row needs a step number on its pages (the step it reached
+ * is a later step of the same flow), so those rows walk `/step/1` to `/step/2` and show
+ * "(at step 2)", as a real one does; the other rows' URLs carry no step number. The five
+ * suite-covered ranks (they have a plan and a test) all hold plannable statuses.
+ */
+const SUITE_RANK_STATUSES = ['completed', 'abandoned-mid-flow', 'completed', 'navigated', 'completed'] as const;
+const EVENTS_ONLY_STATUSES = ['completed', 'abandoned-mid-flow', 'navigated', 'submitted', 'abandoned'] as const;
+
+export const demoJourneys: RankedJourney[] = routeNames.map((name, index) => {
+  const status = index < SUITE_RANK_STATUSES.length
+    ? SUITE_RANK_STATUSES[index]
+    : EVENTS_ONLY_STATUSES[index % EVENTS_ONLY_STATUSES.length];
+  // A planned navigated rank creates one record, so it is plannable like the stopped-mid-flow rows.
+  const plannable = status === 'abandoned-mid-flow' || (status === 'navigated' && index < SUITE_RANK_STATUSES.length);
+  const stoppedMidFlow = status === 'abandoned-mid-flow';
+  const paths = stoppedMidFlow
+    ? [`/workspace/${name}/step/1`, `/workspace/${name}/step/2`]
+    : [`/workspace/${name}`, `/workspace/${name}/complete`];
+  return {
+    rank: index + 1,
+    signature: paths.join(' > '),
+    sessionCount: routeNames.length - index,
+    provenance: 'exact',
+    status,
+    ...(status === 'completed' ? { finality: 'unchecked' as const } : {}),
+    ...(stoppedMidFlow ? { stoppedAtStep: 2 } : {}),
+    ...(plannable ? { plannable: true as const } : {}),
+    representativeDistinctId: `demo-user-${String(index + 1).padStart(2, '0')}`,
+    representativeSessionId: `demo-session-${String(index + 1).padStart(2, '0')}`,
+    representativeStartedAt: DEMO_CLOCK,
+    representativeEndedAt: DEMO_CLOCK,
+    examplePaths: paths,
+  };
+});
 
 /**
  * The five journeys the sample suite covers, in rank order. Each has a plan and a generated test, so

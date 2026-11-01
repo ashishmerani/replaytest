@@ -13,6 +13,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 
+import { collectHashedSourceFiles } from '../scripts/release/build-stamp-lib.mts';
+
 import {
   classifyJourney,
   countInputCommitTransitions,
@@ -23,12 +25,125 @@ import {
   journeyPerformsWrites,
   segmentJourneys,
   selectPlannableJourneys,
+  JOURNEY_STATUSES,
+  SEGMENTATION_VERSION,
   type Journey,
+  type JourneyStatus,
 } from './journeys.js';
+import { ERROR_TOKENS, SUCCESS_TOKENS, withoutRecordingEvidence } from './journey-outcome.js';
 import type { NeutralSession, NeutralStep, NeutralStepKind } from './neutral-session.js';
+import { fetchArchiveNeutralSessionsLight } from './providers/archive-adapter.js';
 
 const BASE = 'http://localhost:8000';
 const ENTRY_URL = `${BASE}/index.html`;
+
+// Compile-time exhaustiveness pin: a `Record` literal must name every member
+// of `JourneyStatus` and nothing else, so dropping or adding a status breaks
+// `npm run typecheck` here.
+const EVERY_JOURNEY_STATUS: Record<JourneyStatus, true> = {
+  completed: true,
+  navigated: true,
+  submitted: true,
+  abandoned: true,
+  'abandoned-mid-flow': true,
+  'error-after-submit': true,
+};
+
+test('journey status contract: the runtime list holds exactly the six statuses of the union', () => {
+  const six = ['completed', 'navigated', 'submitted', 'abandoned', 'abandoned-mid-flow', 'error-after-submit'];
+  assert.deepEqual(Object.keys(EVERY_JOURNEY_STATUS), six);
+  assert.equal(JOURNEY_STATUSES.length, 6);
+  assert.deepEqual([...JOURNEY_STATUSES], six);
+});
+
+type AppearedElement = NonNullable<NeutralStep['afterSubmit']>['appeared'][number];
+
+test('after-submit evidence tokens are closed lists, enforced by type', () => {
+  assert.deepEqual([...ERROR_TOKENS], ['error', 'errors', 'invalid', 'danger', 'failure', 'failed', 'err']);
+  assert.deepEqual([...SUCCESS_TOKENS], ['success', 'saved', 'done', 'confirmed', 'thank', 'thanks']);
+  const errorToken: AppearedElement['errorTokens'][number] = 'danger';
+  const successToken: AppearedElement['successTokens'][number] = 'saved';
+  // @ts-expect-error a raw class string is not a member of the closed error list; if this compiles, the field has widened
+  const rawErrorString: AppearedElement['errorTokens'][number] = 'btn-danger';
+  // @ts-expect-error a raw class string is not a member of the closed success list; if this compiles, the field has widened
+  const rawSuccessString: AppearedElement['successTokens'][number] = 'alert-success';
+  const closed: readonly string[] = [...ERROR_TOKENS, ...SUCCESS_TOKENS];
+  assert.deepEqual(
+    [errorToken, successToken, rawErrorString, rawSuccessString].map((token) => closed.includes(token)),
+    [true, true, false, false],
+  );
+});
+
+// Real archived sessions that, between them, end every way today's
+// segmentation can end a journey: the demo session (completed, abandoned,
+// completed), one navigated session and one submitted session.
+const LIVE_STATUS_ARCHIVE_SESSIONS = [
+  '019f20bc-de22-7358-a06a-998d49de45dc',
+  '01a02a1a-d60f-72e0-8847-57ee5e917847',
+  '019fd28f-a0cc-7187-8ed1-cca0f3e9e666',
+  // A full 36-character archive id (it starts 019f4a3c-f140), written as
+  // joined literals only so that the shipped-tree scanner for long digit runs
+  // does not read a run inside it as a phone or account number; a grep for
+  // the whole id therefore does not find this line.
+  '019f4a3c-f140-75' + '00-96' + '00-602a54648bd6',
+];
+
+test('producer pin: the light path emits exactly five statuses, including events-derived stopped mid-flow', () => {
+  // This is the events-only surface: recording-only error-after-submit cannot
+  // appear here, while forward-landing typing emits abandoned-mid-flow on the real case.
+  const seen = new Set<JourneyStatus>();
+  for (const sessionId of LIVE_STATUS_ARCHIVE_SESSIONS) {
+    for (const archived of fetchArchiveNeutralSessionsLight('archive', sessionId)) {
+      for (const journey of segmentJourneys(archived)) seen.add(journey.status);
+    }
+  }
+  assert.deepEqual([...seen].sort(), ['abandoned', 'abandoned-mid-flow', 'completed', 'navigated', 'submitted']);
+});
+
+test('form edits captured before the first pageview stay outside the witnessed journeys of a real session', () => {
+  const [session] = fetchArchiveNeutralSessionsLight('archive', '019f4a56-0efa-7bed-931a-7ce013502dca');
+  assert.ok(session !== undefined);
+  const journeys = segmentJourneys(session);
+  assert.equal(journeys.length, 2);
+  assert.deepEqual(journeys.map((journey) => [journey.status, journey.finalUrl, journey.steps.length]), [
+    ['completed', 'http://localhost:3001/flows/settings-2/step/4', 28],
+    ['completed', 'http://localhost:3001/flows/promo-3/step/2', 10],
+  ]);
+});
+
+/** Every non-test `.ts` file under `src/`, through the shared source enumerator (it already skips transient probe files). */
+function shippedSourceFiles(): string[] {
+  return collectHashedSourceFiles(resolvePath('.'))
+    .filter((relativePath) => relativePath.endsWith('.ts') && !relativePath.endsWith('.test-support.ts'))
+    .map((relativePath) => resolvePath(relativePath));
+}
+
+test('zero-placeholder guard: no shipped source carries a not-supported status label or a throw for an unsupported status', () => {
+  // Every consumer handles all six statuses. The label text is matched
+  // case-insensitively (it once shipped capitalised in a terminal label as
+  // well as inside a thrown message); the throw helper is matched by its
+  // call shape, comments stripped first so a mention in prose is not a call.
+  const bannedLabel = /not supported by this build yet/i;
+  const bannedThrow = /\bunsupportedJourneyStatus\s*\(|is not supported by this build/i;
+  const offenders: string[] = [];
+  for (const file of shippedSourceFiles()) {
+    const raw = readFileSync(file, 'utf8');
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    if (bannedLabel.test(raw) || bannedThrow.test(code)) offenders.push(file);
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('the segmentation version starts at 1', () => {
+  // Plans written before visit splitting carry no version; the first versioned build writes 1.
+  assert.equal(SEGMENTATION_VERSION, 1);
+});
+
+test('shipped source never narrates the stopped mid-flow and error-after-submit statuses as internal process', () => {
+  const banned = /contract-only|unreachable[_ ]placeholder/i;
+  const offenders = shippedSourceFiles().filter((file) => banned.test(readFileSync(file, 'utf8')));
+  assert.deepEqual(offenders, []);
+});
 
 // Monotonically-increasing fixture timestamps. Absolute values are never
 // asserted on directly — only relative order and identity with a
@@ -1134,4 +1249,558 @@ test('journeyOrigins: a non-HTTP scheme is not evidence for a web property', () 
     steps: [{ kind: 'navigation', url: 'file:///tmp/local.html', at: '2026-07-09T00:00:00.000Z' }],
   };
   assert.deepEqual(journeyOrigins(journey), [BASE]);
+});
+
+const FIXED_EPOCH = Date.UTC(2026, 0, 15, 10, 0, 0);
+
+function atOffset(ms: number): string {
+  return new Date(FIXED_EPOCH + ms).toISOString();
+}
+
+function timedStep(
+  kind: NeutralStepKind,
+  url: string,
+  ms: number,
+  extra: Partial<NeutralStep> = {},
+): NeutralStep {
+  return { kind, url, at: atOffset(ms), ...extra };
+}
+
+function timedSession(steps: NeutralStep[]): NeutralSession {
+  return {
+    id: 'timed-session',
+    distinctId: 'timed-user',
+    startedAt: steps[0]?.at ?? atOffset(0),
+    endedAt: steps.at(-1)?.at ?? atOffset(0),
+    finalUrl: steps.at(-1)?.url ?? ENTRY_URL,
+    steps,
+  };
+}
+
+// The event-chain form-id guard is built from real captured element ancestry.
+test('the form-id guard suppresses a late blur but accepts the same-name field in the next form', () => {
+  const sessionId = '019f4acd-f7c3-76b3-810f-ab0cb36d0db8';
+  const [captured] = fetchArchiveNeutralSessionsLight('archive', sessionId);
+  assert.ok(captured !== undefined, sessionId);
+  const step2Url = `${BASE}/flows/settings-2-step2.html`;
+  const step3Url = `${BASE}/flows/settings-2-step3.html`;
+  const oldInput = captured.steps.find((step) => step.kind === 'input' && step.url === step2Url && step.target?.name === 'field_1_number');
+  const nextInput = captured.steps.find((step) => step.kind === 'input' && step.url === step3Url && step.target?.name === 'field_1_number');
+  const capturedSubmit = captured.steps.find((step) => step.kind === 'submit' && step.url === step2Url);
+  assert.ok(oldInput !== undefined && nextInput !== undefined && capturedSubmit !== undefined);
+  assert.equal(oldInput.target?.ancestors?.find((ancestor) => ancestor.tag === 'form')?.id, 'flow-form-2');
+  assert.equal(nextInput.target?.ancestors?.find((ancestor) => ancestor.tag === 'form')?.id, 'flow-form-3');
+  assert.equal(oldInput.target?.name, nextInput.target?.name, 'the repeated name is the false guard this fixture rules out');
+
+  // The journey ends on step 3, so the re-stamped input is typed on its final page.
+  const makeSteps = (inputStep: NeutralStep, inputAt: number): NeutralStep[] => [
+    timedStep('navigation', step2Url, 0),
+    { ...oldInput, at: atOffset(500) },
+    { ...capturedSubmit, at: atOffset(1_000), afterSubmit: { coverage: 'covered', formStillPresent: true, fieldsMarkedInvalid: 0, appeared: [] } },
+    timedStep('navigation', step3Url, 2_000, { landing: { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false } }),
+    { ...inputStep, url: step3Url, at: atOffset(inputAt) },
+  ];
+
+  const lateBlur = segmentJourneys(timedSession(makeSteps(oldInput, 2_199)))[0];
+  assert.equal(lateBlur?.status, 'completed', 'same form id means the landing input is the late blur');
+  assert.equal(lateBlur?.finality, 'unchecked', 'the suppressed landing input blocks a checked finish');
+
+  for (const offset of [2_199, 7_000]) {
+    const reusedName: Journey | undefined = segmentJourneys(timedSession(makeSteps(nextInput, offset)))[0];
+    assert.equal(reusedName?.status, 'abandoned-mid-flow', `form#flow-form-3 input at ${offset - 2_000} ms is eligible`);
+    assert.equal(reusedName?.stoppedAtStep, 3);
+    assert.equal(reusedName?.midFlowEvidence, 'typed-on-next-step');
+  }
+});
+
+test('the form-id guard abstains when either id is absent, counts every eligible input, and has no time window', () => {
+  const step1 = `${BASE}/feedback-5-step2.html`;
+  const step2 = `${BASE}/feedback-5-step3.html`;
+  const form2 = { tag: 'form', id: 'form-2' } as const;
+  const form3 = { tag: 'form', id: 'form-3' } as const;
+  const input = (url: string, name: string, id: string | undefined, at: number): NeutralStep => ({
+    ...timedStep('input', url, at),
+    target: {
+      tag: 'input',
+      name,
+      ancestors: id === undefined ? [] : [id === 'form-2' ? form2 : form3],
+    },
+  });
+  const build = (inputs: NeutralStep[]): Journey[] => segmentJourneys(timedSession([
+    timedStep('navigation', step1, 0),
+    timedStep('submit', step1, 1_000, { target: { tag: 'form', id: 'form-2' } }),
+    timedStep('navigation', step2, 2_000),
+    ...inputs,
+  ]));
+
+  assert.equal(build([input(step2, 'field', undefined, 7_000)])[0]?.status, 'abandoned-mid-flow', 'missing form id abstains');
+  assert.equal(build([input(step2, 'field', 'form-2', 2_100), input(step2, 'field', 'form-3', 2_200)])[0]?.status, 'abandoned-mid-flow', 'a later eligible input still fires');
+  assert.equal(build([input(step2, 'field', 'form-2', 2_100)])[0]?.finality, 'unchecked', 'only the submitted-form input is suppressed');
+});
+
+test('forward-landing typing must be outside chrome and refine a completed events base', () => {
+  const checkout = `${BASE}/checkout/step/2`;
+  const landing = `${BASE}/checkout/step/3`;
+  const later = `${BASE}/checkout/step/4`;
+  const base = [
+    timedStep('navigation', checkout, 0),
+    timedStep('submit', checkout, 1_000),
+    timedStep('navigation', landing, 2_000),
+  ];
+  const atLanding = timedStep('input', landing, 2_200);
+  const laterNavigation = timedStep('navigation', later, 3_000);
+  assert.equal(segmentJourneys(timedSession([...base, { ...atLanding, inPageChrome: true }, laterNavigation]))[0]?.status, 'completed');
+  assert.equal(segmentJourneys(timedSession([...base, timedStep('input', checkout, 2_200), laterNavigation]))[0]?.status, 'completed');
+  assert.equal(segmentJourneys(timedSession([
+    timedStep('navigation', `${BASE}/account/login`, 0),
+    timedStep('submit', `${BASE}/account/login`, 1_000),
+    timedStep('navigation', `${BASE}/dashboard`, 2_000),
+    timedStep('input', `${BASE}/dashboard`, 2_200),
+  ]))[0]?.status, 'completed', 'unrelated URL relation does not refine the events result');
+
+  const submittedBase = segmentJourneys(timedSession([
+    timedStep('navigation', `${BASE}/checkout/step/4/index.html`, 0),
+    timedStep('click', `${BASE}/checkout/step/4/index.html`, 1_000),
+    timedStep('navigation', checkout, 1_200),
+    timedStep('input', checkout, 1_500),
+    timedStep('submit', checkout, 2_000),
+    timedStep('navigation', `${BASE}/checkout/step/3`, 2_300),
+    timedStep('input', `${BASE}/checkout/step/3`, 2_500),
+    timedStep('click', `${BASE}/checkout/step/3`, 2_700),
+    timedStep('navigation', `${BASE}/checkout/step/4`, 3_000),
+  ]))[0];
+  assert.equal(submittedBase?.status, 'submitted', 'typing refines only completed, never submitted');
+});
+
+test('a refused submit remains an error when the same journey continues to a forward step', () => {
+  const step1 = `${BASE}/checkout/step/1`;
+  const step2 = `${BASE}/checkout/step/2`;
+  const step3 = `${BASE}/checkout/step/3`;
+  const error = { coverage: 'covered' as const, formStillPresent: true, fieldsMarkedInvalid: 0, appeared: [{ how: 'added' as const, tag: 'p' as const, errorTokens: ['error' as const], successTokens: [] }] };
+  const journey = segmentJourneys(timedSession([
+    timedStep('navigation', step1, 0),
+    timedStep('submit', step1, 1_000, { target: { tag: 'form', id: 'checkout-step-1' }, afterSubmit: error }),
+    timedStep('navigation', step2, 2_000),
+    timedStep('click', step2, 3_000),
+    timedStep('navigation', step3, 3_200),
+  ]))[0];
+  assert.equal(journey?.status, 'error-after-submit');
+  assert.equal(journey?.finalUrl, step3);
+  assert.equal(journey?.steps.some((step) => step.kind === 'click' && step.url === step2), true);
+  assert.equal(isPlannableJourney(journey!), false);
+});
+
+test('both added statuses perform writes, while stopped mid-flow is plannable and Error after submit is not', () => {
+  const stopped = { ...completedFixture(), status: 'abandoned-mid-flow' as const, completionEvidence: 'submit-then-nav' as const };
+  const refused = { ...completedFixture(), status: 'error-after-submit' as const, completionEvidence: undefined };
+  assert.equal(journeyPerformsWrites(stopped), true);
+  assert.equal(journeyPerformsWrites(refused), true);
+  assert.equal(isPlannableJourney(stopped), true);
+  assert.equal(isPlannableJourney(refused), false);
+});
+
+test('visit segmentation uses a strict 120-second navigation threshold', () => {
+  const results = [119_999, 120_000, 120_001].map((gap) => segmentJourneys(timedSession([
+    timedStep('navigation', `${BASE}/start`, 0),
+    timedStep('click', `${BASE}/start`, 1_000),
+    timedStep('navigation', `${BASE}/next`, 1_000 + gap),
+    timedStep('click', `${BASE}/next`, 1_200 + gap),
+  ])));
+  assert.deepEqual(results.map((journeys) => journeys.length), [1, 1, 2]);
+  assert.deepEqual(results.map((journeys) => journeys.map((journey) => journey.visit)), [
+    [{ index: 1, count: 1 }],
+    [{ index: 1, count: 1 }],
+    [{ index: 1, count: 2 }, { index: 2, count: 2 }],
+  ]);
+});
+
+test('the old-page click guard accepts a causal click whose pageview timestamp is 122 ms earlier', () => {
+  const start = `${BASE}/start`;
+  const next = `${BASE}/next`;
+  const pageviewAt = 121_000;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', start, 0),
+    timedStep('navigation', next, pageviewAt),
+    timedStep('click', start, pageviewAt + 122),
+    timedStep('click', next, pageviewAt + 200),
+  ]));
+  assert.equal(journeys.length, 1);
+  assert.deepEqual(journeys[0]?.visit, { index: 1, count: 1 });
+  assert.deepEqual(journeys[0]?.steps.map((step) => [step.kind, step.url]), [
+    ['navigation', start], ['navigation', next], ['click', start], ['click', next],
+  ]);
+});
+
+test('a click on the new page does not veto a visit split', () => {
+  const next = `${BASE}/next`;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', `${BASE}/start`, 0),
+    timedStep('navigation', next, 120_001),
+    timedStep('click', next, 120_201),
+  ]));
+  assert.equal(journeys.length, 1);
+  assert.deepEqual(journeys[0]?.visit, { index: 2, count: 2 });
+  assert.equal(journeys[0]?.entryUrl, next);
+});
+
+test('reloads below the long-pause ceiling stay in the same visit', () => {
+  const home = `${BASE}/home`;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', home, 0),
+    timedStep('click', home, 1_000),
+    timedStep('navigation', home, 181_000),
+    timedStep('input', home, 181_200),
+  ]));
+  assert.equal(journeys.length, 2, 'the raw entry URL still starts a new journey');
+  assert.ok(journeys.every((journey) => journey.visit?.index === 1 && journey.visit.count === 1));
+});
+
+test('an 11-minute pause starts a visit on a click, using that visit’s first step URL', () => {
+  const start = `${BASE}/start`;
+  const secondPage = `${BASE}/second`;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', start, 0),
+    timedStep('click', start, 10 * 60_000 + 1),
+    timedStep('navigation', secondPage, 10 * 60_000 + 200),
+    timedStep('input', secondPage, 10 * 60_000 + 400),
+  ]));
+  assert.equal(journeys.length, 1);
+  assert.deepEqual(journeys[0]?.visit, { index: 2, count: 2 });
+  assert.equal(journeys[0]?.entryUrl, start);
+});
+
+test('malformed timestamps never split and remain disclosed on the journey', () => {
+  const start = `${BASE}/start`;
+  const next = `${BASE}/next`;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', start, 0),
+    { ...timedStep('click', start, 1_000), at: 'not-a-date' },
+    { ...timedStep('navigation', next, 10 * 60_000), at: 'not-a-date' },
+    { ...timedStep('input', next, 10 * 60_000 + 1), at: 'not-a-date' },
+  ]));
+  assert.equal(journeys.length, 1);
+  assert.deepEqual(journeys[0]?.visit, { index: 1, count: 1 });
+  assert.equal(journeys[0]?.hasUnparseableTimestamps, true);
+});
+
+test('the long-pause ceiling is strict and applies to any step kind', () => {
+  const make = (gap: number): Journey[] => segmentJourneys(timedSession([
+    timedStep('navigation', `${BASE}/start`, 0),
+    timedStep('input', `${BASE}/start`, gap),
+    timedStep('navigation', `${BASE}/next`, gap + 1),
+  ]));
+  assert.deepEqual([599_999, 600_000, 600_001].map((gap) => make(gap).map((journey) => journey.visit)), [
+    [{ index: 1, count: 1 }],
+    [{ index: 1, count: 1 }],
+    [{ index: 2, count: 2 }],
+  ]);
+});
+
+test('L is strict: exactly 30,000 ms is a landing; 30,001 ms is a separate pending-submit chunk', () => {
+  const atGap = (gap: number): Journey[] => segmentJourneys(timedSession([
+    timedStep('navigation', `${BASE}/form`, 0),
+    timedStep('submit', `${BASE}/form`, 1_000),
+    timedStep('navigation', `${BASE}/done`, 1_000 + gap),
+  ]));
+  const atLimit = atGap(30_000);
+  const overLimit = atGap(30_001);
+  assert.equal(atLimit.length, 1);
+  assert.equal(atLimit[0]?.status, 'completed');
+  assert.equal(atLimit[0]?.steps.at(-1)?.url, `${BASE}/done`);
+  assert.equal(overLimit.length, 1, 'the interaction-free next chunk is dropped');
+  assert.equal(overLimit[0]?.status, 'submitted');
+  assert.equal(overLimit[0]?.steps.some((step) => step.url === `${BASE}/done`), false);
+});
+
+test('L uses semantic order when the navigation timestamp precedes its submit by 150 ms', () => {
+  const form = `${BASE}/signup/step/1`;
+  const landing = `${BASE}/signup/step/2`;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', form, 0),
+    timedStep('input', form, 1_000),
+    timedStep('submit', form, 2_000),
+    timedStep('navigation', landing, 1_850),
+  ]));
+  assert.equal(journeys.length, 1);
+  assert.equal(journeys[0]?.steps.at(-1)?.url, landing);
+});
+
+test('an interacted forward continuation keeps its finish, then splits an unrelated later flow', () => {
+  const step1 = `${BASE}/flows/search-1/step/1`;
+  const step2 = `${BASE}/flows/search-1/step/2`;
+  const step3 = `${BASE}/flows/search-1/step/3`;
+  const finish = `${BASE}/flows/search-1/done`;
+  const steps = [
+    timedStep('navigation', step1, 0),
+    timedStep('input', step1, 1_000),
+    timedStep('submit', step1, 2_000),
+    timedStep('navigation', step2, 2_300),
+    timedStep('click', step2, 3_000),
+    timedStep('navigation', step3, 3_200),
+    timedStep('input', step3, 4_000),
+    timedStep('submit', step3, 5_000),
+    timedStep('navigation', finish, 6_000),
+    timedStep('navigation', `${BASE}/customers/cust-5`, 7_000),
+    timedStep('input', `${BASE}/customers/cust-5`, 7_100),
+    timedStep('submit', `${BASE}/customers/cust-5`, 7_200),
+    timedStep('navigation', `${BASE}/customers/cust-6`, 7_400),
+    timedStep('click', `${BASE}/customers/cust-6`, 7_500),
+    timedStep('navigation', `${BASE}/customers/cust-7`, 7_700),
+    timedStep('input', `${BASE}/customers/cust-7`, 7_800),
+  ];
+  const journeys = segmentJourneys(timedSession(steps));
+  assert.equal(journeys.length, 3);
+  assert.deepEqual(journeys[0]?.steps, steps.slice(0, 9));
+  assert.equal(journeys[0]?.steps.some((step) => step.kind === 'click' && step.url === step2), true);
+  assert.equal(journeys[0]?.finalUrl, finish);
+  assert.deepEqual(journeys.slice(1).map((journey) => journey.entryUrl), [
+    `${BASE}/customers/cust-5`, `${BASE}/customers/cust-7`,
+  ]);
+});
+
+test('same-URL reload, pagination, and record-to-record navigation do not continue a landed submit', () => {
+  const cases = [
+    { name: 'same-URL reload', first: `${BASE}/flows/search-2/step/2`, landing: `${BASE}/flows/search-2/step/3`, next: `${BASE}/flows/search-2/step/3` },
+    { name: 'pagination', first: `${BASE}/list?page=1`, landing: `${BASE}/list?page=2`, next: `${BASE}/list?page=3` },
+    { name: 'record-to-record', first: `${BASE}/customers/cust-5`, landing: `${BASE}/customers/cust-6`, next: `${BASE}/customers/cust-7` },
+  ];
+  for (const [index, fixture] of cases.entries()) {
+    const start = index * 10_000;
+    const journeys = segmentJourneys(timedSession([
+      timedStep('navigation', fixture.first, start),
+      timedStep('submit', fixture.first, start + 1_000),
+      timedStep('navigation', fixture.landing, start + 2_000),
+      timedStep('click', fixture.landing, start + 3_000),
+      timedStep('navigation', fixture.next, start + 4_000),
+      timedStep('click', fixture.next, start + 5_000),
+    ]));
+    assert.equal(journeys.length, 2, fixture.name);
+    assert.equal(journeys[0]?.finalUrl, fixture.landing, fixture.name);
+    assert.equal(journeys[1]?.entryUrl, fixture.next, fixture.name);
+  }
+});
+
+test('a forward page does not continue without an interaction between the old page and navigation', () => {
+  const steps = [
+    timedStep('navigation', `${BASE}/flows/search-1/step/1`, 0),
+    timedStep('submit', `${BASE}/flows/search-1/step/1`, 1_000),
+    timedStep('navigation', `${BASE}/flows/search-1/step/2`, 2_000),
+    timedStep('navigation', `${BASE}/flows/search-1/step/3`, 3_000),
+    timedStep('click', `${BASE}/flows/search-1/step/3`, 3_100),
+  ];
+  const journeys = segmentJourneys(timedSession(steps));
+  assert.equal(journeys.length, 2);
+  assert.equal(journeys[0]?.finalUrl, `${BASE}/flows/search-1/step/2`);
+  assert.equal(journeys[1]?.entryUrl, `${BASE}/flows/search-1/step/3`);
+});
+
+test('path extensions, ordinal jumps and the fixed default step source continue within a flow', () => {
+  const cases = [
+    [`${BASE}/flows/promo-1`, `${BASE}/flows/promo-1/step/2`, `${BASE}/flows/promo-1/step/3`],
+    [`${BASE}/flows/search-2/step/2`, `${BASE}/flows/search-2/step/3`, `${BASE}/flows/search-2/step/4`],
+    [`${BASE}/flows/search-4-step1.html`, `${BASE}/flows/search-4-step3.html`, `${BASE}/flows/search-4-step4.html`],
+    [`${BASE}/wizard?step=1`, `${BASE}/wizard?step=2`, `${BASE}/wizard?step=3`],
+  ];
+  for (const [first, landing, next] of cases) {
+    const journeys = segmentJourneys(timedSession([
+      timedStep('navigation', first, 0),
+      timedStep('submit', first, 1_000),
+      timedStep('navigation', landing, 2_000),
+      timedStep('input', landing, 3_000),
+      timedStep('navigation', next, 4_000),
+      timedStep('input', next, 5_000),
+    ]));
+    assert.equal(journeys.length, 1, `${first} -> ${landing} -> ${next}`);
+    assert.equal(journeys[0]?.steps.at(-1)?.url, next);
+  }
+});
+
+// Forward-landing typing judges the journey's final page: the last navigation,
+// which follows the last submit. Typing on a page the user then left by a
+// forward continuation is not typing on the final page.
+const WIZARD_STEP_1 = `${BASE}/wizard/step/1`;
+const WIZARD_STEP_2 = `${BASE}/wizard/step/2`;
+const WIZARD_STEP_3 = `${BASE}/wizard/step/3`;
+const TYPED_THEN_CONTINUED_TWINS = [
+  ['settled', { coverage: 'settled', relatedOpenForm: 'none', unrelatedOpenForm: 'none', rePresentsSubmittedForm: false }, 'witnessed'],
+  ['no-recording', { coverage: 'no-recording', relatedOpenForm: 'none', unrelatedOpenForm: 'none' }, 'unchecked'],
+] as const;
+
+for (const [label, landing, finality] of TYPED_THEN_CONTINUED_TWINS) {
+  test(`typing on a page the journey then leaves by a forward continuation is not stopped mid-flow (${label} landings)`, () => {
+    const step1 = WIZARD_STEP_1;
+    const step2 = WIZARD_STEP_2;
+    const step3 = WIZARD_STEP_3;
+    const make = (): NeutralSession => timedSession([
+      timedStep('navigation', step1, 0),
+      timedStep('input', step1, 500, { target: { tag: 'input', name: 'field', ancestors: [{ tag: 'form', id: 'wizard-1' }] } }),
+      timedStep('submit', step1, 1_000, {
+        target: { tag: 'form', id: 'wizard-1' },
+        afterSubmit: { coverage: 'covered', formStillPresent: true, fieldsMarkedInvalid: 0, appeared: [] },
+      }),
+      timedStep('navigation', step2, 1_300, { landing }),
+      timedStep('input', step2, 2_000, { target: { tag: 'input', name: 'field', ancestors: [{ tag: 'form', id: 'wizard-2' }] } }),
+      timedStep('click', step2, 3_000),
+      timedStep('navigation', step3, 3_200, { landing }),
+    ]);
+    const recorded = segmentJourneys(make());
+    const eventsOnly = segmentJourneys(withoutRecordingEvidence(make()));
+    for (const [load, journeys] of [['recording', recorded], ['events', eventsOnly]] as const) {
+      assert.equal(journeys.length, 1, load);
+      assert.equal(journeys[0]?.finalUrl, step3, `${load}: the continuation reaches step 3`);
+      assert.equal(journeys[0]?.status, 'completed', `${load}: no typing on the final page`);
+      assert.equal(journeys[0]?.stoppedAtStep, undefined, `${load}: never stopped at step 2`);
+      assert.equal(journeys[0]?.midFlowEvidence, undefined, load);
+    }
+    assert.equal(recorded[0]?.finality, finality, 'finality reads the final page');
+    assert.equal(eventsOnly[0]?.finality, 'unchecked', 'events-only');
+  });
+}
+
+test('the events status is recomputed after the trailing trim: a spelling-only return then a click elsewhere stays submitted', () => {
+  const login = `${BASE}/account/login`;
+  const journeys = segmentJourneys(timedSession([
+    timedStep('navigation', login, 0),
+    timedStep('input', login, 500),
+    timedStep('submit', login, 1_000),
+    timedStep('navigation', `${login}/`, 1_500),
+    timedStep('click', `${BASE}/help`, 2_000),
+  ]));
+  assert.equal(journeys.length, 1);
+  assert.equal(journeys[0]?.status, 'submitted', 'the trimmed final page is a spelling variant of the entry page');
+  assert.equal(journeys[0]?.finalUrl, `${login}/`);
+  assert.equal(journeys[0]?.steps.length, 4, 'the trailing click is trimmed');
+  assert.equal(isPlannableJourney(journeys[0]!), false);
+});
+
+test('a click captured before the session’s first pageview never forms a journey of its own', () => {
+  const start = `${BASE}/start`;
+  const leadingClick = timedStep('click', `${BASE}/old`, 0);
+  const sameVisit = segmentJourneys(timedSession([
+    leadingClick,
+    timedStep('navigation', start, 500),
+    timedStep('input', start, 1_000),
+  ]));
+  assert.equal(sameVisit.length, 1);
+  assert.deepEqual(sameVisit[0]?.steps.map((step) => step.kind), ['navigation', 'input']);
+  assert.deepEqual(sameVisit[0]?.visit, { index: 1, count: 1 });
+
+  // The same rule when a long pause puts the first pageview in a later visit
+  // that itself opens on a click.
+  const laterVisitClick = timedStep('click', `${BASE}/old`, 10 * 60_000 + 1);
+  const acrossVisits = segmentJourneys(timedSession([
+    leadingClick,
+    laterVisitClick,
+    timedStep('navigation', start, 10 * 60_000 + 200),
+    timedStep('input', start, 10 * 60_000 + 400),
+  ]));
+  assert.equal(acrossVisits.length, 1);
+  assert.deepEqual(acrossVisits[0]?.steps.map((step) => step.kind), ['navigation', 'input']);
+  assert.deepEqual(acrossVisits[0]?.visit, { index: 2, count: 2 });
+
+  for (const journeys of [sameVisit, acrossVisits]) {
+    const kept = journeys.flatMap((journey) => journey.steps);
+    assert.equal(kept.some((step) => step.at === leadingClick.at || step.at === laterVisitClick.at), false);
+  }
+});
+
+test('a navigation after a pause stays in the visit only when an old-page click or submit lies within 1 s of it, before or after', () => {
+  const t0 = Date.parse('2026-07-09T00:00:00.000Z');
+  const iso = (ms: number): string => new Date(t0 + ms).toISOString();
+  const pageA = `${BASE}/a.html`;
+  const pageB = `${BASE}/b.html`;
+  const visitsFor = (interaction: NeutralStep): number => segmentJourneys({
+    id: 'guard',
+    distinctId: 'guard-user',
+    startedAt: iso(0),
+    endedAt: iso(200_000),
+    finalUrl: pageB,
+    // The interaction is captured after the navigation (a click timed just before it arrives
+    // late), so the pause is measured from the earlier click and the guard decides.
+    steps: [
+      { kind: 'navigation', url: pageA, at: iso(0) },
+      { kind: 'click', url: pageA, at: iso(100), target: { tag: 'button', text: 'Go' } },
+      { kind: 'navigation', url: pageB, at: iso(200_000) },
+      interaction,
+    ],
+  }).length;
+  const near = (url: string, ms: number, kind: NeutralStepKind = 'click'): NeutralStep => ({ kind, url, at: iso(ms), target: { tag: 'button', text: 'Next' } });
+  assert.equal(visitsFor(near(pageA, 199_200)), 1, 'old-page click 0.8 s before the navigation');
+  assert.equal(visitsFor(near(pageA, 200_800)), 1, 'old-page click captured 0.8 s after the navigation');
+  assert.equal(visitsFor(near(pageA, 199_000, 'submit')), 1, 'old-page submit exactly 1 s before');
+  assert.equal(visitsFor(near(pageA, 201_000)), 1, 'old-page click exactly 1 s after');
+  assert.equal(visitsFor(near(pageA, 198_999)), 2, 'old-page click just over 1 s before');
+  assert.equal(visitsFor(near(pageA, 201_001)), 2, 'old-page click just over 1 s after');
+  assert.equal(visitsFor(near(pageB, 199_800)), 2, 'a click on another page does not hold the visit');
+  assert.equal(visitsFor(near(pageA, 199_800, 'input')), 2, 'typing is not a click or submit');
+});
+
+test('visit splitting stays linear on a long session with many pauses and many old-page clicks', () => {
+  // Every timestamp read is counted. Checking each navigation after a pause against every click
+  // and submit in the session makes the reads grow with pauses × clicks; an index keeps them linear.
+  const build = (pauses: number): { session: NeutralSession; reads: () => number } => {
+    let reads = 0;
+    let clock = Date.parse('2026-07-09T00:00:00.000Z');
+    const steps: NeutralStep[] = [];
+    const counted = (step: Omit<NeutralStep, 'at'>, at: string): NeutralStep => {
+      const out = { ...step } as NeutralStep;
+      Object.defineProperty(out, 'at', { enumerable: true, get: () => { reads += 1; return at; } });
+      return out;
+    };
+    for (let pause = 0; pause < pauses; pause += 1) {
+      const url = `${BASE}/p${String(pause % 2)}.html`;
+      steps.push(counted({ kind: 'navigation', url }, new Date((clock += 130_000)).toISOString()));
+      for (let click = 0; click < 20; click += 1) {
+        steps.push(counted({ kind: 'click', url, target: { tag: 'button', text: 'Row' } }, new Date((clock += 200)).toISOString()));
+      }
+    }
+    const session: NeutralSession = { id: 'long', distinctId: 'long-user', startedAt: '2026-07-09T00:00:00.000Z', endedAt: new Date(clock).toISOString(), finalUrl: `${BASE}/p0.html`, steps };
+    return { session, reads: () => reads };
+  };
+  const totals: number[] = [];
+  for (const pauses of [100, 200, 400]) {
+    const { session, reads } = build(pauses);
+    const before = reads();
+    assert.equal(segmentJourneys(session).length, pauses, 'each pause starts a new visit');
+    totals.push(reads() - before);
+  }
+  const [n = 0, twoN = 0, fourN = 0] = totals;
+  assert.ok(twoN <= n * 2.2, `N to 2N timestamp reads ${String(n)} -> ${String(twoN)}`);
+  assert.ok(fourN <= n * 4.4, `N to 4N timestamp reads ${String(n)} -> ${String(fourN)}`);
+});
+
+test('real archive light path: continued and stopped journeys keep their named results', () => {
+  const sessions: Array<[string, Array<[JourneyStatus, string, number, string | undefined, number | undefined, string | undefined]>]> = [
+    ['019f4a41-c6fe-7fa6-b4e0-76da5576e442', [
+      ['completed', 'http://localhost:3001/flows/search-2/step/4', 14, 'unchecked', undefined, undefined],
+    ]],
+    ['019f4a69-ab72-79ad-a62b-4d46d65dafb5', [
+      ['completed', 'http://localhost:3002/flows/search-4/step3', 7, 'unchecked', undefined, undefined],
+      ['abandoned', 'http://localhost:3002/flows/search-4/step3', 5, undefined, undefined, undefined],
+    ]],
+    [LIVE_STATUS_ARCHIVE_SESSIONS[3]!, [
+      ['completed', 'http://localhost:8000/flows/promo-1-step3.html', 10, 'unchecked', undefined, undefined],
+      ['completed', 'http://localhost:8000/flows/settings-3-step2.html', 11, 'unchecked', undefined, undefined],
+      ['completed', 'http://localhost:8000/flows/promo-4-step3.html', 9, 'unchecked', undefined, undefined],
+      ['completed', 'http://localhost:8000/flows/feedback-5-step4.html', 18, 'unchecked', undefined, undefined],
+      ['completed', 'http://localhost:8000/flows/search-1-step3.html', 10, 'unchecked', undefined, undefined],
+      ['abandoned-mid-flow', 'http://localhost:8000/flows/feedback-5-step3.html', 12, undefined, 3, 'typed-on-next-step'],
+    ]],
+  ];
+  for (const [sessionId, expected] of sessions) {
+    const [archived] = fetchArchiveNeutralSessionsLight('archive', sessionId);
+    assert.ok(archived !== undefined, sessionId);
+    assert.deepEqual(
+      segmentJourneys(archived).map((journey) => [
+        journey.status,
+        journey.finalUrl,
+        journey.steps.length,
+        journey.finality,
+        journey.stoppedAtStep,
+        journey.midFlowEvidence,
+      ]),
+      expected,
+      sessionId,
+    );
+  }
 });

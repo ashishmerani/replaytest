@@ -168,7 +168,14 @@ function classifyFormSubmitSignal(row: RankedJourney): ShapeClassification {
   }
 
   if (row.status === undefined) return notAssessed('form-submit-signal', 'The exact journey status is unavailable.');
-  return assessed('form-submit-signal', 'exact', row.status === 'completed' || row.status === 'submitted');
+  // All four statuses on this side of the ladder witnessed a form submit;
+  // inline-commit `navigated` did not, and remains outside this shape.
+  return assessed(
+    'form-submit-signal',
+    'exact',
+    row.status === 'completed' || row.status === 'submitted' ||
+      row.status === 'abandoned-mid-flow' || row.status === 'error-after-submit',
+  );
 }
 
 function classifyDeepWizard(row: RankedJourney): ShapeClassification {

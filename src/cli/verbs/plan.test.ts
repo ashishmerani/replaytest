@@ -12,7 +12,8 @@ import { NAVIGATED_MULTI_CREATE_REFUSAL, NAVIGATED_PLAN_SYNTHESIS_NOTE } from '.
 import { formatLocalTime } from '../../local-time.js';
 import type { NeutralSession } from '../../neutral-session.js';
 import { BATCH_TOLERANCE_MS } from '../../orphan-plans.js';
-import { buildPlanCrossOriginRefusal, formatPlansDirDisplay } from './plan.js';
+import { buildPlanCrossOriginRefusal, formatPlansDirDisplay, JOURNEY_INDEX_REFUSAL } from './plan.js';
+import { eventsPlannableIndex, JourneyIndexError } from '../../journey-index.js';
 import { slugSurvivingRouteSegments } from '../../cli/slug.js';
 import { coarseMeta, orderConfirmationSteps, neutralSessionFromSteps, writeSupersessionPlan, journeyWithStatus, mergedMultiCreateJourney, twoCompletedJourneysSession, targetSource } from './test-support.js';
 
@@ -165,6 +166,90 @@ test('runPlan: --sample 0 disables coarse discovery and still writes the Layer-A
   assert.equal(sidecar.caveats.some((caveat: string) => caveat.includes('Aggregated across')), false);
   assert.equal(sidecar.source.signatureSemanticsVersion, 1);
   assert.deepEqual(sidecar.source.wizardStepParamNames, ['step']);
+  assert.equal(sidecar.source.journeyIndex, 0, 'the production write path persists the events-only plannable index');
+  const source = fs.readFileSync(new URL('./plan.ts', import.meta.url), 'utf8');
+  assert.match(source, /eventsPlannableIndex\(fetched\.session, allJourneys, journey, eventsOnly\)/, 'the index call receives the unfiltered segmented list and the once-per-run events-only segmentation');
+  assert.match(source, /catch \(error\)[\s\S]*error instanceof JourneyIndexError[\s\S]*JOURNEY_INDEX_REFUSAL/);
+});
+
+test('runPlan: indexing every journey of a long session segments it once, so the index work grows linearly with the journeys', async (t: TestContext) => {
+  // Each index call that is not handed the run's events-only segmentation re-segments the whole
+  // session; counting those steps makes a per-journey re-segmentation show up as quadratic growth.
+  const longSession = (journeys: number): NeutralSession => {
+    let clock = Date.parse('2026-07-09T00:00:00.000Z');
+    const steps = Array.from({ length: journeys }, (_, index) => orderConfirmationSteps(`o${String(index)}`))
+      .flat()
+      .map((step) => ({ ...step, at: new Date((clock += 1_000)).toISOString() }));
+    return neutralSessionFromSteps('long-session', 'long-user', steps);
+  };
+  const previousExitCode = process.exitCode;
+  t.after(() => {
+    process.exitCode = previousExitCode;
+  });
+  const totals: number[] = [];
+  for (const journeys of [20, 40, 80]) {
+    const plansDir = makeTempDir(t, path.join(os.tmpdir(), 'replaytest-plan-index-scale-'));
+    const session = longSession(journeys);
+    let work = 0;
+    const indexes: number[] = [];
+    await runPlan(['long-user', '--session', 'long-session', '--sample', '0', '--force'], {
+      plansDir,
+      log: () => {},
+      progress: () => {},
+      getProviderConfigStatus: () => ({ projectId: 'project-1', hasApiKey: true }),
+      fetchNeutralSessionsWithDomEnrichment: async () => [session],
+      fetchCoarseSessions: () => {
+        throw new Error('coarse scan should be disabled');
+      },
+      fetchNeutralSessionsLight: () => {
+        throw new Error('member fetch should be disabled');
+      },
+      eventsPlannableIndex: (indexedSession, allJourneys, journey, eventsOnly) => {
+        work += 1 + (eventsOnly === undefined ? indexedSession.steps.length : 0);
+        const index = eventsPlannableIndex(indexedSession, allJourneys, journey, eventsOnly);
+        indexes.push(index);
+        return index;
+      },
+    });
+    assert.deepEqual(indexes, Array.from({ length: journeys }, (_, index) => index), `${String(journeys)} journeys: every journey indexed once, in order`);
+    t.diagnostic(`journeys=${String(journeys)} work=${String(work)}`);
+    totals.push(work);
+  }
+  const [n = 0, twoN = 0, fourN = 0] = totals;
+  assert.ok(twoN <= n * 2.2, `N to 2N index work ratio ${(twoN / n).toFixed(2)}`);
+  assert.ok(fourN <= n * 4.4, `N to 4N index work ratio ${(fourN / n).toFixed(2)}`);
+});
+
+test('runPlan: an events-only index that cannot be established refuses with a plain line and writes nothing', async (t: TestContext) => {
+  const plansDir = makeTempDir(t, path.join(os.tmpdir(), 'replaytest-plan-index-refusal-'));
+  const primary = neutralSessionFromSteps('primary-session', 'primary-user', orderConfirmationSteps('8f31c2'));
+  const logs: string[] = [];
+  const previousExitCode = process.exitCode;
+  t.after(() => {
+    process.exitCode = previousExitCode;
+  });
+
+  await runPlan(['primary-user', '--session', 'primary-session', '--sample', '0', '--force'], {
+    plansDir,
+    log: (line) => logs.push(line),
+    getProviderConfigStatus: () => ({ projectId: 'project-1', hasApiKey: true }),
+    fetchNeutralSessionsWithDomEnrichment: async () => [primary],
+    fetchCoarseSessions: () => {
+      throw new Error('coarse scan should be disabled');
+    },
+    fetchNeutralSessionsLight: () => {
+      throw new Error('member fetch should be disabled');
+    },
+    eventsPlannableIndex: () => {
+      throw new JourneyIndexError('Cannot index this journey: journey boundaries differ between the events-only and recording-read loads; pass the unfiltered journey list.');
+    },
+  });
+
+  assert.equal(process.exitCode, 1);
+  assert.deepEqual(logs.filter((line) => line.startsWith('Cannot write a plan')), [JOURNEY_INDEX_REFUSAL]);
+  assert.match(JOURNEY_INDEX_REFUSAL, /Try another recorded session of this journey\./, 'the refusal names the next option');
+  assert.equal(logs.some((line) => /unfiltered journey list|journey boundaries differ/i.test(line)), false, 'no developer wording reaches the customer');
+  assert.deepEqual(fs.readdirSync(plansDir), [], 'nothing is written for the session');
 });
 
 test('runPlan: re-planning a retired slug discloses the prior retirement record (retiredDir seam)', async (t: TestContext) => {
@@ -671,6 +756,32 @@ test('classifyExistingSidecar: same journey -> overwrite OK, even for an older s
   );
 });
 
+test('classifyExistingSidecar: a changed non-empty signature collides at the same session and index', () => {
+  const target = { sessionId: 'session-1', journeyIndex: 0, signature: '/checkout > /done' };
+  assert.equal(
+    classifyExistingSidecar({ kind: 'source', source: { sessionId: 'session-1', journeyIndex: 0, signature: '/checkout > /error' } }, target),
+    'collision',
+  );
+  assert.equal(
+    classifyExistingSidecar({ kind: 'source', source: { sessionId: 'session-1', journeyIndex: 0, signature: '/checkout > /done' } }, target),
+    'same',
+  );
+  assert.equal(
+    classifyExistingSidecar({ kind: 'source', source: { sessionId: 'session-1', journeyIndex: 0 } }, target),
+    'same',
+    'legacy plans without a signature retain the prior identity comparison',
+  );
+  const refusal = preflightPlanWrites([{
+    slug: 'invoice-confirmation',
+    source: target,
+    existing: { kind: 'source', source: { sessionId: 'session-1', journeyIndex: 0, signature: '/checkout > /error' } },
+  }], { force: false });
+  const line = formatPlanWriteRefusal(refusal.refusals[0]);
+  assert.match(line, /different flow shape.*journey signature differs/i);
+  assert.doesNotMatch(line, /belongs to a different journey/i);
+  assert.match(line, /Pass --force to overwrite\./);
+});
+
 test('classifyExistingSidecar: different sessionId or journeyIndex -> collision', () => {
   assert.equal(
     classifyExistingSidecar({ kind: 'source', source: { sessionId: 'session-2', journeyIndex: 0 } }, targetSource),
@@ -799,7 +910,7 @@ test('buildSkippedJourneysNote: undefined when every journey is completed', () =
 test('buildSkippedJourneysNote: singular "journey" for exactly one skipped', () => {
   assert.equal(
     buildSkippedJourneysNote([journeyWithStatus('completed'), journeyWithStatus('submitted')]),
-    'Skipped 1 journey because it did not reach a final destination (submitted/abandoned). Choose a completed journey to create a plan.',
+    'Skipped 1 Submitted or Abandoned journey because the last submit did not reach a new page or no submit was seen. Stopped mid-flow journeys can also be planned, as a check of the step change that was seen. Choose a Completed or Stopped mid-flow journey to create a plan.',
   );
 });
 
@@ -812,46 +923,156 @@ test('buildSkippedJourneysNote: a MERGED multi-create navigated journey is skipp
   const merged = mergedMultiCreateJourney();
   assert.equal(
     buildSkippedJourneysNote([merged]),
-    `Skipped 1 navigated journey: ${NAVIGATED_MULTI_CREATE_REFUSAL}`,
+    `Skipped 1 Navigated journey: ${NAVIGATED_MULTI_CREATE_REFUSAL}`,
   );
   assert.match(buildSkippedJourneysNote([merged]) ?? '', /more than one input-then-new-route commit/);
 });
 
 test('buildSynthesizedCommitNote: a planned navigated journey announces the synthesized keystroke on the command line', () => {
   const note = buildSynthesizedCommitNote([journeyWithStatus('completed'), journeyWithStatus('navigated')]);
-  assert.equal(note, `Planned 1 navigated journey: ${NAVIGATED_PLAN_SYNTHESIS_NOTE}`);
+  assert.equal(note, `Planned 1 Navigated journey: ${NAVIGATED_PLAN_SYNTHESIS_NOTE}`);
   assert.equal(buildSynthesizedCommitNote([journeyWithStatus('completed')]), undefined);
 });
 
 test('buildSkippedJourneysNote: plural "journeys" and counts BOTH submitted and abandoned', () => {
   assert.equal(
     buildSkippedJourneysNote([journeyWithStatus('submitted'), journeyWithStatus('abandoned')]),
-    'Skipped 2 journeys because they did not reach a final destination (submitted/abandoned). Choose a completed journey to create a plan.',
+    'Skipped 2 Submitted or Abandoned journeys because their last submit did not reach a new page or no submit was seen. Stopped mid-flow journeys can also be planned, as a check of the step change that was seen. Choose a Completed or Stopped mid-flow journey to create a plan.',
   );
+});
+
+test('buildSkippedJourneysNote: names errors, recording outcomes, moved-on shape, and the next option', () => {
+  const submitted = { ...journeyWithStatus('submitted'), outcomeCoverage: 'not-captured' as const };
+  const recordedAtSecond = (second: number): string => new Date(Date.UTC(2026, 6, 9, 0, 0, second)).toISOString();
+  const error = {
+    ...journeyWithStatus('error-after-submit'),
+    steps: [
+      { kind: 'submit' as const, url: 'http://localhost:8000/pay', at: recordedAtSecond(0) },
+      { kind: 'navigation' as const, url: 'http://localhost:8000/done', at: recordedAtSecond(1) },
+    ],
+  };
+  const note = buildSkippedJourneysNote([
+    submitted,
+    journeyWithStatus('abandoned-mid-flow'),
+    error,
+  ]) ?? '';
+  assert.match(note, /Outcome not captured:/);
+  assert.match(note, /recording showed an error after its submit, and the user then moved on to another page/);
+  assert.match(note, /try another recorded session of this journey/);
+  assert.doesNotMatch(note, /Skipped \d+ Stopped mid-flow/);
+  assert.doesNotMatch(note, /journey cannot be planned because an error appeared/);
+});
+
+test('buildSkippedJourneysNote: a re-presented form is not "moved on"; a real page change still is', () => {
+  const recordedAtSecond = (second: number): string => new Date(Date.UTC(2026, 6, 9, 0, 0, second)).toISOString();
+  const landing = (rePresentsSubmittedForm: boolean) => ({
+    coverage: 'settled' as const,
+    relatedOpenForm: 'none' as const,
+    unrelatedOpenForm: 'none' as const,
+    rePresentsSubmittedForm,
+    ...(rePresentsSubmittedForm ? { errorShown: true } : {}),
+  });
+  const errorJourney = (rePresents: boolean) => ({
+    ...journeyWithStatus('error-after-submit'),
+    steps: [
+      { kind: 'navigation' as const, url: 'http://localhost:8000/login', at: recordedAtSecond(0) },
+      { kind: 'submit' as const, url: 'http://localhost:8000/login', at: recordedAtSecond(1) },
+      { kind: 'navigation' as const, url: 'http://localhost:8000/session', at: recordedAtSecond(2), landing: landing(rePresents) },
+    ],
+  });
+  const reShown = buildSkippedJourneysNote([errorJourney(true)]) ?? '';
+  assert.equal(
+    reShown,
+    'Skipped 1 journey because, after its submit, the page showed the same form again with an error. This path cannot be planned; try another recorded session of this journey.',
+  );
+  assert.doesNotMatch(reShown, /moved on/i);
+  const movedOn = buildSkippedJourneysNote([errorJourney(false)]) ?? '';
+  assert.equal(
+    movedOn,
+    'Skipped 1 journey because the recording showed an error after its submit, and the user then moved on to another page. This path cannot be planned; try another recorded session of this journey.',
+  );
+  // Both shapes in one session are told apart, not merged into one sentence.
+  const both = buildSkippedJourneysNote([errorJourney(true), errorJourney(false)]) ?? '';
+  assert.equal(both.split('\n').length, 2);
+});
+
+test('buildSkippedJourneysNote: "with an error" on a re-shown form only when the recording saw the error on it', () => {
+  const recordedAtSecond = (second: number): string => new Date(Date.UTC(2026, 6, 9, 0, 0, second)).toISOString();
+  // An in-window error while the form stayed, then a reload that re-presents the form: `errorShown`
+  // is true, false (settled, no error on the re-shown form) or absent (the user acted first).
+  const reShownJourney = (errorShown: boolean | undefined) => ({
+    ...journeyWithStatus('error-after-submit'),
+    steps: [
+      { kind: 'navigation' as const, url: 'http://localhost:8000/login', at: recordedAtSecond(0) },
+      { kind: 'submit' as const, url: 'http://localhost:8000/login', at: recordedAtSecond(1) },
+      {
+        kind: 'navigation' as const,
+        url: 'http://localhost:8000/login',
+        at: recordedAtSecond(2),
+        landing: {
+          coverage: 'settled' as const,
+          relatedOpenForm: 'none' as const,
+          unrelatedOpenForm: 'none' as const,
+          rePresentsSubmittedForm: true,
+          ...(errorShown === undefined ? {} : { errorShown }),
+        },
+      },
+    ],
+  });
+  assert.equal(
+    buildSkippedJourneysNote([reShownJourney(true)]),
+    'Skipped 1 journey because, after its submit, the page showed the same form again with an error. This path cannot be planned; try another recorded session of this journey.',
+  );
+  for (const errorShown of [false, undefined]) {
+    const note = buildSkippedJourneysNote([reShownJourney(errorShown)]) ?? '';
+    assert.equal(
+      note,
+      'Skipped 1 journey because, after its submit, the page showed the same form again. This path cannot be planned; try another recorded session of this journey.',
+      `errorShown ${String(errorShown)}`,
+    );
+    assert.doesNotMatch(note, /error/i, `errorShown ${String(errorShown)}: no error claim about the re-shown form`);
+    assert.doesNotMatch(note, /moved on/i);
+  }
+  // One of each is told apart, never merged into the "with an error" sentence.
+  const both = buildSkippedJourneysNote([reShownJourney(true), reShownJourney(false)]) ?? '';
+  assert.deepEqual(both.split('\n').map((line) => line.startsWith('Skipped 1 journey because, after its submit, the page showed the same form again')), [true, true]);
+  assert.equal((both.match(/with an error/g) ?? []).length, 1);
+});
+
+test('buildSkippedJourneysNote: outcome lines are present for either kind and absent without coverage', () => {
+  const base = journeyWithStatus('submitted');
+  for (const [coverage, expected] of [
+    ['not-captured', 'Outcome not captured: We could not see what happened after the submit'],
+    ['not-recognised', 'Outcome not recognized: We saw the whole moment after the submit'],
+  ] as const) {
+    const note = buildSkippedJourneysNote([{ ...base, outcomeCoverage: coverage }]) ?? '';
+    assert.ok(note.includes(expected), `${coverage} appears in the plan note`);
+  }
+  const withoutCoverage = buildSkippedJourneysNote([base]) ?? '';
+  assert.doesNotMatch(withoutCoverage, /Outcome not (?:captured|recognized):/);
 });
 
 test('buildNoCompletedJourneysMessage: matches the standalone scripts\' existing wording', () => {
   // Frozen on purpose: 17 eval goldens carry this exact string, the eval
-  // runner and archive validator match on it, and it stays true — the line is
-  // only reached when nothing was plannable. What WAS skipped is named
+  // runner and archive validator recognize it as an honest empty result. What WAS skipped is named
   // separately by buildSkippedJourneysNote.
-  assert.equal(buildNoCompletedJourneysMessage(), 'No completed journeys found in the session.');
+  assert.equal(buildNoCompletedJourneysMessage(), 'No journey in this session can be planned.');
 });
 
-test('buildNoCompletedJourneysResult: appends the next step AFTER the frozen sentence, leaving it byte-identical, and returns non-zero exit code for automation', () => {
-  const nextStep = 'No automated next step from this session alone — try a different session with `replaytest sessions` (look for completed/navigated activity), or if this journey\'s traffic has moved elsewhere, `replaytest regenerate <slug>` from its existing plan searches fresh candidates.';
+test('buildNoCompletedJourneysResult: appends the next step AFTER the opener, and returns non-zero exit code for automation', () => {
+  const nextStep = 'No automated next step from this session alone — try a different session with `replaytest sessions` (look for completed, stopped mid-flow, or navigated activity), or if this journey\'s traffic has moved elsewhere, `replaytest regenerate <slug>` from its existing plan searches fresh candidates.';
   assert.deepEqual(buildNoCompletedJourneysResult([journeyWithStatus('submitted')]), {
     lines: [
-      'No completed journeys found in the session.',
-      'Skipped 1 journey because it did not reach a final destination (submitted/abandoned). Choose a completed journey to create a plan.',
+      'No journey in this session can be planned.',
+      'Skipped 1 Submitted or Abandoned journey because the last submit did not reach a new page or no submit was seen. Stopped mid-flow journeys can also be planned, as a check of the step change that was seen. Choose a Completed or Stopped mid-flow journey to create a plan.',
       nextStep,
     ],
     exitCode: 1,
   });
   // The no-skipped-journeys shape carries the same appended line, and the
-  // frozen sentence is still line 0 in both.
+  // opener is still line 0 in both.
   assert.deepEqual(buildNoCompletedJourneysResult([]), {
-    lines: ['No completed journeys found in the session.', nextStep],
+    lines: ['No journey in this session can be planned.', nextStep],
     exitCode: 1,
   });
   assert.equal(buildNoCompletedJourneysResult([]).lines[0], buildNoCompletedJourneysMessage());
@@ -1134,6 +1355,6 @@ test('runPlan: a session with nothing plannable reports THAT, never a property-b
   );
 
   assert.equal(exitCode, 1);
-  assert.equal(logs[0], 'No completed journeys found in the session.');
+  assert.equal(logs[0], 'No journey in this session can be planned.');
   assert.ok(!logs.some((line) => line.startsWith('Cannot plan:')));
 });

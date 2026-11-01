@@ -1,6 +1,6 @@
-# Test: Search 1 step2
+# Test: Search 1 step3
 
-**Provenance:** source: file archive (archive), archived 2026-07-11T19:17:41.484Z; single-session -- aggregation requires the live corpus
+**Provenance:** source: file archive (archive), archived 2026-07-11T19:37:33.702Z; single-session -- aggregation requires the live corpus
 
 **Starting point:** /flows/search-1-step1.html
 **Viewport:** 1280×720
@@ -12,10 +12,11 @@
 4. Fill in the "Quantity" field (placeholder value) `getByRole('textbox', { name: 'Quantity' })`
 5. Fill in the "Search query" field (placeholder value) `getByRole('textbox', { name: 'Search query' })`
 6. Click "Search" (submits the form) `getByRole('button', { name: 'Search' })`
+7. Click "Result A" `getByRole('link', { name: 'Result A' })`
 
 ## Expected outcome
-- The final URL is /flows/search-1-step2.html
-- The page's title is "Search 1 — Results"
+- The final URL is /flows/search-1-step3.html
+- The page's title is "Search 1 — Complete"
 - No console errors occur (witnessed-clean — the session recording confirms 0 console errors)
 
 ## Notes

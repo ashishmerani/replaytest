@@ -23,6 +23,7 @@ import {
 } from './sampled-register.js';
 import type { SampledTrafficObservations } from './sampled-register.js';
 import type { NeutralSession, NeutralStep } from './neutral-session.js';
+import { fetchArchiveNeutralSessionsLight } from './providers/archive-adapter.js';
 
 const at = '2026-07-19T12:00:00.000Z';
 
@@ -147,6 +148,12 @@ test('sampled classifiers preserve present, absent, and not-assessable exact evi
   assert.equal(classifySampledExceptions(presentSession).kind, 'present');
   assert.equal(classifySampledExceptions(absentSession).kind, 'absent');
   assert.equal(classifySampledExceptions(unfetchedSession).kind, 'not-assessable');
+});
+
+test('sampled-login stays absent on a real session split by visits and forward continuation', () => {
+  const [session] = fetchArchiveNeutralSessionsLight('archive', '019f4a5a-48a6-79aa-80d5-280b15dee17a');
+  assert.ok(session !== undefined);
+  assert.equal(classifySampledLogin(session).kind, 'absent');
 });
 
 test('sampled derivation declares requested-vs-returned, actual interval, and a partial sample without a fabricated shape count', () => {
